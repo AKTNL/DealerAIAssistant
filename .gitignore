@@ -1,0 +1,21 @@
+# OS and editors
+.DS_Store
+Thumbs.db
+.idea/
+*.iml
+
+# Frontend
+frontend/node_modules/
+frontend/dist/
+frontend/.npm-cache/
+frontend/.tmp/
+
+# Backend
+backend/target/
+backend/.m2/
+
+# Logs and temp files
+*.log
+*.tmp
+*.temp
+*.pid

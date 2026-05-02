@@ -1,0 +1,50 @@
+server:
+  port: 8081
+
+spring:
+  application:
+    name: agent-poc-backend
+  datasource:
+    url: jdbc:h2:mem:agentpoc;MODE=MySQL;DB_CLOSE_DELAY=-1;DB_CLOSE_ON_EXIT=FALSE
+    driver-class-name: org.h2.Driver
+    username: sa
+    password:
+  h2:
+    console:
+      enabled: true
+      path: /h2-console
+  jpa:
+    open-in-view: false
+    hibernate:
+      ddl-auto: none
+  ai:
+    openai:
+      api-key: ${ai.openai.api-key}
+      base-url: ${ai.openai.base-url}
+      chat:
+        options:
+          model: ${ai.openai.model}
+
+app:
+  auth:
+    access-key: ${APP_ACCESS_KEY:demo123}
+  security:
+    api-key: ${APP_API_KEY:poc-api-key}
+  excel:
+    path: ${APP_EXCEL_PATH:classpath:Sample Data.xlsx}
+
+ai:
+  openai:
+    api-key: ${OPENAI_API_KEY:changeme}
+    base-url: ${OPENAI_BASE_URL:https://api.openai.com}
+    model: ${OPENAI_MODEL:gpt-4o-mini}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+
+logging:
+  level:
+    com.brand.agentpoc: INFO
