@@ -2,7 +2,7 @@ export const messages = {
   zh: {
     appName: "经销商 AI 分析助手",
     appTagline: "把销售线索、经营表现和下一步动作放进同一个对话工作区",
-    workspaceTitle: "Dealer Intelligence Workspace",
+    workspaceTitle: "经销商智能工作区",
     workspaceSubtitle: "流式问答、业务提示词和会话清理都先搭好，后续直接接模型与数据。",
     statusReady: "后端已连接，等待新问题",
     statusThinking: "助手正在整理回复",

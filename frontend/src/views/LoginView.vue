@@ -1,7 +1,8 @@
 <script setup>
+import { nextTick, ref, watch } from "vue";
 import LanguageSwitcher from "../components/common/LanguageSwitcher.vue";
 
-defineProps({
+const props = defineProps({
   accessKey: {
     type: String,
     default: ""
@@ -25,6 +26,34 @@ defineProps({
 });
 
 defineEmits(["submit", "toggle-locale", "update:access-key"]);
+
+const accessKeyInput = ref(null);
+const isInputShaking = ref(false);
+
+watch(
+  () => props.loginError,
+  async (value) => {
+    if (!value) {
+      isInputShaking.value = false;
+      return;
+    }
+
+    isInputShaking.value = false;
+    await nextTick();
+
+    if (accessKeyInput.value) {
+      // Force a reflow so the same animation can replay on repeated failures.
+      void accessKeyInput.value.offsetWidth;
+      accessKeyInput.value.focus();
+    }
+
+    isInputShaking.value = true;
+  }
+);
+
+function handleShakeEnd() {
+  isInputShaking.value = false;
+}
 </script>
 
 <template>
@@ -55,11 +84,17 @@ defineEmits(["submit", "toggle-locale", "update:access-key"]);
 
         <form class="login-form" @submit.prevent="$emit('submit')">
           <input
-            class="text-input"
+            ref="accessKeyInput"
+            :class="[
+              'text-input',
+              { 'text-input-error': loginError, 'text-input-shake': isInputShaking }
+            ]"
             :placeholder="dictionary.loginPlaceholder"
             :value="accessKey"
             type="password"
             autocomplete="off"
+            :aria-invalid="loginError ? 'true' : 'false'"
+            @animationend="handleShakeEnd"
             @input="$emit('update:access-key', $event.target.value)"
           />
 
