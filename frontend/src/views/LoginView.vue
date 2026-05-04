@@ -40,9 +40,18 @@ defineEmits(["submit", "toggle-locale", "update:access-key"]);
 
     <section class="login-screen">
       <div class="login-panel">
-        <p class="eyebrow">{{ dictionary.loginEyebrow }}</p>
-        <h2>{{ dictionary.loginTitle }}</h2>
-        <p class="login-copy">{{ dictionary.loginBody }}</p>
+        <div class="login-panel-top">
+          <div>
+            <p class="eyebrow">{{ dictionary.loginEyebrow }}</p>
+            <h2>{{ dictionary.loginTitle }}</h2>
+            <p class="login-copy">{{ dictionary.loginBody }}</p>
+          </div>
+
+          <div class="login-panel-note">
+            <span class="login-note-label">{{ dictionary.appName }}</span>
+            <p>{{ dictionary.appTagline }}</p>
+          </div>
+        </div>
 
         <form class="login-form" @submit.prevent="$emit('submit')">
           <input

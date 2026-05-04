@@ -81,7 +81,10 @@ async function handlePromptFill(prompt) {
 
       <section class="chat-screen">
         <div class="chat-copy">
-          <p class="eyebrow">{{ dictionary.workspaceTitle }}</p>
+          <div class="chat-copy-top">
+            <p class="eyebrow">{{ dictionary.workspaceTitle }}</p>
+            <span class="workspace-badge">{{ activeSessionLabel }}</span>
+          </div>
           <h2>{{ dictionary.workspaceSubtitle }}</h2>
         </div>
 

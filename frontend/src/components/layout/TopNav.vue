@@ -41,7 +41,7 @@ defineEmits(["clear-session", "open-sidebar", "sign-out", "toggle-locale"]);
     </div>
 
     <div class="topbar-actions">
-      <span class="status-pill">{{ statusMessage }}</span>
+      <span v-if="statusMessage" class="status-pill">{{ statusMessage }}</span>
 
       <LanguageSwitcher :locale="locale" @toggle="$emit('toggle-locale')" />
 
