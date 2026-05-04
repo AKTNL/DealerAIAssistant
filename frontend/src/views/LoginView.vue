@@ -59,26 +59,23 @@ function handleShakeEnd() {
 <template>
   <div class="login-shell">
     <header class="login-shell-header">
-      <div class="login-brand">
-        <p class="eyebrow">{{ dictionary.appName }}</p>
-        <p class="login-brand-copy">{{ dictionary.appTagline }}</p>
-      </div>
-
       <LanguageSwitcher :locale="locale" @toggle="$emit('toggle-locale')" />
     </header>
 
     <section class="login-screen">
       <div class="login-panel">
         <div class="login-panel-top">
-          <div>
-            <p class="eyebrow">{{ dictionary.loginEyebrow }}</p>
-            <h2>{{ dictionary.loginTitle }}</h2>
-            <p class="login-copy">{{ dictionary.loginBody }}</p>
-          </div>
+          <div class="login-hero-copy">
+            <div class="login-hero-heading">
+              <div class="login-hero-logo-badge">
+                <img src="/logo.png" alt="Brand logo" class="login-hero-logo-image" />
+              </div>
 
-          <div class="login-panel-note">
-            <span class="login-note-label">{{ dictionary.appName }}</span>
-            <p>{{ dictionary.appTagline }}</p>
+              <div class="login-hero-text">
+                <h2>{{ dictionary.loginTitle }}</h2>
+                <p class="login-copy">{{ dictionary.loginBody }}</p>
+              </div>
+            </div>
           </div>
         </div>
 
@@ -104,6 +101,10 @@ function handleShakeEnd() {
         </form>
 
         <p v-if="loginError" class="error-text">{{ loginError }}</p>
+      </div>
+
+      <div class="login-screen-footer">
+        <p>{{ dictionary.loginNoticeBody }}</p>
       </div>
     </section>
   </div>

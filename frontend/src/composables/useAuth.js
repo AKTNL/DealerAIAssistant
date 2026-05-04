@@ -27,8 +27,9 @@ export function useAuth({ dictionary }) {
       authVerified.value = true;
       accessKey.value = "";
       writeStorageValue("session", STORAGE_KEYS.auth, "true");
-    } catch (error) {
-      loginError.value = error.message || dictionary.value.loginError;
+    } catch {
+      accessKey.value = "";
+      loginError.value = dictionary.value.loginError;
     } finally {
       loginLoading.value = false;
     }
