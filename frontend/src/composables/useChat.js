@@ -154,17 +154,13 @@ export function useChat({ authVerified, dictionary, locale }) {
     closeMobileSidebar();
   }
 
-  function fillPrompt(prompt) {
-    promptInput.value = prompt;
-    closeMobileSidebar();
-  }
-
   function toggleThinking(message) {
     message.thinkingExpanded = !message.thinkingExpanded;
   }
 
   async function submitPrompt(promptOverride = "") {
-    const text = (promptOverride || promptInput.value).trim();
+    const overrideText = promptOverride.trim();
+    const text = (overrideText || promptInput.value).trim();
 
     if (!text || isSending.value || !authVerified.value) {
       return;
@@ -177,7 +173,11 @@ export function useChat({ authVerified, dictionary, locale }) {
     const assistantMessage = createAssistantMessage();
 
     messages.value.push(userMessage, assistantMessage);
-    promptInput.value = "";
+
+    if (!overrideText) {
+      promptInput.value = "";
+    }
+
     isSending.value = true;
     syncStatus();
 
@@ -236,7 +236,6 @@ export function useChat({ authVerified, dictionary, locale }) {
   return {
     activeSessionLabel,
     closeMobileSidebar,
-    fillPrompt,
     handleClearSession,
     hasMessages,
     isSending,

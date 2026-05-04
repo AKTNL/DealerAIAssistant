@@ -14,7 +14,7 @@ defineProps({
   }
 });
 
-defineEmits(["close", "fill-prompt", "new-chat"]);
+defineEmits(["close", "new-chat"]);
 </script>
 
 <template>
@@ -33,22 +33,6 @@ defineEmits(["close", "fill-prompt", "new-chat"]);
     <button class="primary-sidebar-button" type="button" @click="$emit('new-chat')">
       {{ dictionary.newChat }}
     </button>
-
-    <section class="sidebar-section">
-      <div class="section-head">
-        <span>{{ dictionary.sidebarSection }}</span>
-      </div>
-
-      <button
-        v-for="prompt in dictionary.prompts"
-        :key="prompt"
-        class="prompt-card"
-        type="button"
-        @click="$emit('fill-prompt', prompt)"
-      >
-        {{ prompt }}
-      </button>
-    </section>
 
     <section class="sidebar-section">
       <div class="section-head">

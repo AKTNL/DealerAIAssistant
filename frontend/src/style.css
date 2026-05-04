@@ -770,11 +770,62 @@ textarea::placeholder {
   gap: 0.65rem;
 }
 
+.example-prompt-group {
+  max-width: 56rem;
+  width: 100%;
+  margin: 0 auto;
+  padding: 0.15rem 0;
+}
+
+.example-prompt-header {
+  margin-bottom: 0.75rem;
+}
+
+.example-prompt-header .eyebrow {
+  margin-bottom: 0;
+}
+
+.example-prompt-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.7rem;
+}
+
+.example-prompt-button,
 .follow-up-button {
   padding: 0.72rem 0.95rem;
   border: 1px solid var(--border-soft);
   background: rgba(255, 255, 255, 0.92);
   color: var(--text-main);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.8);
+}
+
+.example-prompt-button {
+  position: relative;
+  padding: 0.9rem 1rem;
+  border-radius: 18px;
+  text-align: left;
+  transition:
+    transform 180ms ease,
+    background 180ms ease,
+    border-color 180ms ease,
+    box-shadow 180ms ease,
+    opacity 180ms ease;
+}
+
+.example-prompt-button:hover {
+  transform: translateY(-1px);
+  border-color: var(--accent-soft-strong);
+  background: rgba(248, 252, 249, 0.98);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.82),
+    0 14px 28px rgba(88, 120, 103, 0.08);
+}
+
+.example-prompt-button:disabled {
+  opacity: 0.65;
+  cursor: not-allowed;
+  transform: none;
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.8);
 }
 
@@ -957,6 +1008,14 @@ textarea::placeholder {
   .message-card,
   .composer-card {
     border-radius: 22px;
+  }
+
+  .example-prompt-list {
+    gap: 0.55rem;
+  }
+
+  .example-prompt-button {
+    width: 100%;
   }
 
   .chat-copy-top {

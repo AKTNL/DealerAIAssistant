@@ -1,7 +1,8 @@
 <script setup>
-import { computed, nextTick, ref } from "vue";
+import { computed } from "vue";
 import ChatInput from "../components/chat/ChatInput.vue";
 import ChatMessageList from "../components/chat/ChatMessageList.vue";
+import ExamplePrompts from "../components/chat/ExamplePrompts.vue";
 import ExampleSidebar from "../components/layout/ExampleSidebar.vue";
 import TopNav from "../components/layout/TopNav.vue";
 import { useChat } from "../composables/useChat";
@@ -23,7 +24,6 @@ const authVerified = computed(() => true);
 const {
   activeSessionLabel,
   closeMobileSidebar,
-  fillPrompt,
   handleClearSession,
   hasMessages,
   isSending,
@@ -43,14 +43,6 @@ const {
   dictionary: computed(() => props.dictionary),
   locale: computed(() => props.locale)
 });
-
-const composerPanel = ref(null);
-
-async function handlePromptFill(prompt) {
-  fillPrompt(prompt);
-  await nextTick();
-  composerPanel.value?.focusComposer();
-}
 </script>
 
 <template>
@@ -60,7 +52,6 @@ async function handlePromptFill(prompt) {
       :dictionary="dictionary"
       :show-mobile-sidebar="showMobileSidebar"
       @close="closeMobileSidebar"
-      @fill-prompt="handlePromptFill"
       @new-chat="startNewChat"
     />
 
@@ -98,8 +89,13 @@ async function handlePromptFill(prompt) {
           />
         </div>
 
+        <ExamplePrompts
+          :dictionary="dictionary"
+          :is-sending="isSending"
+          @select="submitPrompt"
+        />
+
         <ChatInput
-          ref="composerPanel"
           v-model="promptInput"
           :dictionary="dictionary"
           :is-sending="isSending"
