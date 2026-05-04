@@ -2,7 +2,6 @@
 import { computed } from "vue";
 import ChatInput from "../components/chat/ChatInput.vue";
 import ChatMessageList from "../components/chat/ChatMessageList.vue";
-import ExamplePrompts from "../components/chat/ExamplePrompts.vue";
 import ExampleSidebar from "../components/layout/ExampleSidebar.vue";
 import TopNav from "../components/layout/TopNav.vue";
 import { useChat } from "../composables/useChat";
@@ -50,9 +49,11 @@ const {
     <ExampleSidebar
       :active-session-label="activeSessionLabel"
       :dictionary="dictionary"
+      :is-sending="isSending"
       :show-mobile-sidebar="showMobileSidebar"
       @close="closeMobileSidebar"
       @new-chat="startNewChat"
+      @submit-prompt="submitPrompt"
     />
 
     <div v-if="showMobileSidebar" class="sidebar-backdrop" @click="closeMobileSidebar"></div>
@@ -88,12 +89,6 @@ const {
             @toggle-thinking="toggleThinking"
           />
         </div>
-
-        <ExamplePrompts
-          :dictionary="dictionary"
-          :is-sending="isSending"
-          @select="submitPrompt"
-        />
 
         <ChatInput
           v-model="promptInput"

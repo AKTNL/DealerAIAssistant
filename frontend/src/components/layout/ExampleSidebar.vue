@@ -8,13 +8,17 @@ defineProps({
     type: Object,
     required: true
   },
+  isSending: {
+    type: Boolean,
+    default: false
+  },
   showMobileSidebar: {
     type: Boolean,
     default: false
   }
 });
 
-defineEmits(["close", "new-chat"]);
+defineEmits(["close", "new-chat", "submit-prompt"]);
 </script>
 
 <template>
@@ -33,6 +37,23 @@ defineEmits(["close", "new-chat"]);
     <button class="primary-sidebar-button" type="button" @click="$emit('new-chat')">
       {{ dictionary.newChat }}
     </button>
+
+    <section v-if="dictionary.prompts?.length" class="sidebar-section">
+      <div class="section-head">
+        <span>{{ dictionary.sidebarSection }}</span>
+      </div>
+
+      <button
+        v-for="prompt in dictionary.prompts"
+        :key="prompt"
+        class="prompt-card"
+        type="button"
+        :disabled="isSending"
+        @click="$emit('submit-prompt', prompt)"
+      >
+        {{ prompt }}
+      </button>
+    </section>
 
     <section class="sidebar-section">
       <div class="section-head">
