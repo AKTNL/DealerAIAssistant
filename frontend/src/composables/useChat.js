@@ -14,7 +14,7 @@ export function useChat({ authVerified, dictionary, locale }) {
   const showMobileSidebar = ref(false);
   const scrollContainer = ref(null);
   const currentAbortController = ref(null);
-  const sessionId = ref(readStorageValue("session", STORAGE_KEYS.session, createSessionId()));
+  const sessionId = ref(readStorageValue("local", STORAGE_KEYS.session, createSessionId()));
   const messages = ref([]);
   const hasMessages = computed(() => messages.value.length > 0);
   const activeSessionLabel = computed(() => `${dictionary.value.historyLabel} - ${sessionId.value.slice(0, 8)}`);
@@ -22,7 +22,7 @@ export function useChat({ authVerified, dictionary, locale }) {
   let toastTimerId = 0;
 
   watch(sessionId, (value) => {
-    writeStorageValue("session", STORAGE_KEYS.session, value);
+    writeStorageValue("local", STORAGE_KEYS.session, value);
   });
 
   watch(
@@ -32,12 +32,22 @@ export function useChat({ authVerified, dictionary, locale }) {
     }
   );
 
-  watch([dictionary, authVerified], () => {
+  watch(dictionary, () => {
+    syncStatus();
+    refreshWelcomeMessage();
+  });
+
+  watch(authVerified, () => {
     syncStatus();
   });
 
   onMounted(() => {
-    writeStorageValue("session", STORAGE_KEYS.session, sessionId.value);
+    writeStorageValue("local", STORAGE_KEYS.session, sessionId.value);
+
+    if (!messages.value.length) {
+      messages.value = [createWelcomeMessage()];
+    }
+
     syncStatus();
   });
 
@@ -79,19 +89,23 @@ export function useChat({ authVerified, dictionary, locale }) {
   function createUserMessage(content) {
     return {
       id: `user-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`,
+      kind: "user",
       role: "user",
       content,
       html: renderMarkdownLite(content),
       followUps: [],
       thinking: "",
       thinkingExpanded: false,
-      status: ""
+      status: "",
+      steps: [],
+      streaming: false
     };
   }
 
-  function createAssistantMessage() {
+  function createAssistantMessage(kind = "assistant") {
     return {
       id: `assistant-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`,
+      kind,
       role: "assistant",
       content: "",
       html: "",
@@ -99,8 +113,59 @@ export function useChat({ authVerified, dictionary, locale }) {
       thinking: "",
       thinkingHtml: "",
       thinkingExpanded: false,
-      status: dictionary.value.statusThinking
+      status: kind === "welcome" ? "" : dictionary.value.statusThinking,
+      steps: [],
+      streaming: kind !== "welcome"
     };
+  }
+
+  function createWelcomeMessage() {
+    const welcomeMessage = createAssistantMessage("welcome");
+    applyAssistantPayload(welcomeMessage, buildWelcomeReply());
+    welcomeMessage.streaming = false;
+    return welcomeMessage;
+  }
+
+  function buildWelcomeReply() {
+    const [promptOne = "", promptTwo = ""] = dictionary.value.prompts ?? [];
+
+    if (locale.value === "zh") {
+      return `
+## ${dictionary.value.welcomeTitle}
+
+- ${dictionary.value.welcomeBody}
+- ${dictionary.value.welcomeHint}
+
+FOLLOW_UP_QUESTIONS:
+1. ${promptOne}
+2. ${promptTwo}
+      `.trim();
+    }
+
+    return `
+## ${dictionary.value.welcomeTitle}
+
+- ${dictionary.value.welcomeBody}
+- ${dictionary.value.welcomeHint}
+
+FOLLOW_UP_QUESTIONS:
+1. ${promptOne}
+2. ${promptTwo}
+    `.trim();
+  }
+
+  function refreshWelcomeMessage() {
+    if (messages.value.length === 1 && messages.value[0].kind === "welcome") {
+      messages.value = [createWelcomeMessage()];
+    }
+  }
+
+  function applyAssistantPayload(message, rawText) {
+    const normalized = normalizeAssistantPayload(rawText);
+    message.content = normalized.content;
+    message.followUps = normalized.followUps;
+    message.html = renderMarkdownLite(normalized.content);
+    message.status = message.streaming ? message.status : "";
   }
 
   function pushToast(text) {
@@ -121,7 +186,7 @@ export function useChat({ authVerified, dictionary, locale }) {
     currentAbortController.value = null;
     isSending.value = false;
     requestError.value = "";
-    messages.value = [];
+    messages.value = [createWelcomeMessage()];
 
     if (!keepSessionId) {
       sessionId.value = createSessionId();
@@ -172,6 +237,7 @@ export function useChat({ authVerified, dictionary, locale }) {
     const userMessage = createUserMessage(text);
     const assistantMessage = createAssistantMessage();
 
+    messages.value = messages.value.filter((message) => message.kind !== "welcome");
     messages.value.push(userMessage, assistantMessage);
 
     if (!overrideText) {
@@ -190,32 +256,35 @@ export function useChat({ authVerified, dictionary, locale }) {
         message: text,
         signal: controller.signal,
         onEvent: ({ event, data }) => {
+          const eventText = normalizeEventText(data);
+
           if (event === "progress") {
-            assistantMessage.status = data;
+            if (eventText && assistantMessage.steps.at(-1) !== eventText) {
+              assistantMessage.steps.push(eventText);
+            }
+            assistantMessage.status = eventText || dictionary.value.statusThinking;
             scrollToBottom();
             return;
           }
 
           if (event === "message") {
-            if (data.startsWith("<think>") && data.endsWith("</think>")) {
-              const thinking = data.slice(7, -8).trim();
+            if (eventText.startsWith("<think>") && eventText.endsWith("</think>")) {
+              const thinking = eventText.slice(7, -8).trim();
               assistantMessage.thinking = thinking;
               assistantMessage.thinkingHtml = renderMarkdownLite(thinking);
               scrollToBottom();
               return;
             }
 
-            const normalized = normalizeAssistantPayload(data);
-            assistantMessage.content = normalized.content;
-            assistantMessage.followUps = normalized.followUps;
-            assistantMessage.html = renderMarkdownLite(normalized.content);
+            applyAssistantPayload(assistantMessage, eventText);
             assistantMessage.status = "";
             scrollToBottom();
             return;
           }
 
-          if (event === "done" || data === "[DONE]") {
+          if (event === "done" || eventText === "[DONE]") {
             assistantMessage.status = "";
+            assistantMessage.streaming = false;
             scrollToBottom();
           }
         }
@@ -227,6 +296,7 @@ export function useChat({ authVerified, dictionary, locale }) {
         requestError.value = error.message || "Request failed";
       }
     } finally {
+      assistantMessage.streaming = false;
       currentAbortController.value = null;
       isSending.value = false;
       syncStatus();
@@ -251,4 +321,20 @@ export function useChat({ authVerified, dictionary, locale }) {
     toastMessage,
     toggleThinking
   };
+}
+
+function normalizeEventText(value) {
+  if (typeof value === "string") {
+    return value;
+  }
+
+  if (value == null) {
+    return "";
+  }
+
+  if (typeof value === "object") {
+    return value.data ?? value.content ?? value.message ?? value.text ?? JSON.stringify(value);
+  }
+
+  return String(value);
 }

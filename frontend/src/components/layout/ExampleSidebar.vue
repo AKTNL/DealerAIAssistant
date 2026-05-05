@@ -18,7 +18,7 @@ defineProps({
   }
 });
 
-defineEmits(["close", "new-chat", "submit-prompt"]);
+defineEmits(["close", "fill-prompt", "new-chat"]);
 </script>
 
 <template>
@@ -49,7 +49,7 @@ defineEmits(["close", "new-chat", "submit-prompt"]);
         class="prompt-card"
         type="button"
         :disabled="isSending"
-        @click="$emit('submit-prompt', prompt)"
+        @click="$emit('fill-prompt', prompt)"
       >
         {{ prompt }}
       </button>

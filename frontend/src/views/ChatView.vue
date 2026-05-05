@@ -1,5 +1,5 @@
 <script setup>
-import { computed } from "vue";
+import { computed, nextTick, ref } from "vue";
 import ChatInput from "../components/chat/ChatInput.vue";
 import ChatMessageList from "../components/chat/ChatMessageList.vue";
 import ExampleSidebar from "../components/layout/ExampleSidebar.vue";
@@ -20,6 +20,7 @@ const props = defineProps({
 defineEmits(["sign-out", "toggle-locale"]);
 
 const authVerified = computed(() => true);
+const chatInputRef = ref(null);
 const {
   activeSessionLabel,
   closeMobileSidebar,
@@ -42,6 +43,13 @@ const {
   dictionary: computed(() => props.dictionary),
   locale: computed(() => props.locale)
 });
+
+async function handleFillPrompt(prompt) {
+  promptInput.value = prompt;
+  closeMobileSidebar();
+  await nextTick();
+  chatInputRef.value?.focusComposer();
+}
 </script>
 
 <template>
@@ -52,8 +60,8 @@ const {
       :is-sending="isSending"
       :show-mobile-sidebar="showMobileSidebar"
       @close="closeMobileSidebar"
+      @fill-prompt="handleFillPrompt"
       @new-chat="startNewChat"
-      @submit-prompt="submitPrompt"
     />
 
     <div v-if="showMobileSidebar" class="sidebar-backdrop" @click="closeMobileSidebar"></div>
@@ -91,6 +99,7 @@ const {
         </div>
 
         <ChatInput
+          ref="chatInputRef"
           v-model="promptInput"
           :dictionary="dictionary"
           :is-sending="isSending"

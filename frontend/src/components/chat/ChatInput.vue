@@ -78,6 +78,7 @@ defineExpose({
       <textarea
         ref="composer"
         class="composer-input"
+        :disabled="isSending"
         :placeholder="dictionary.inputPlaceholder"
         :value="modelValue"
         rows="1"

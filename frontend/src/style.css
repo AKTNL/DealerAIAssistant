@@ -368,6 +368,34 @@ textarea::placeholder {
   gap: 0.9rem;
 }
 
+.topbar-brand {
+  display: flex;
+  align-items: center;
+  gap: 0.85rem;
+  min-width: 0;
+}
+
+.topbar-logo-badge {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+}
+
+.topbar-logo-image {
+  width: 52px;
+  height: auto;
+  display: block;
+}
+
+.topbar-title-group {
+  min-width: 0;
+}
+
+.topbar-title-group .eyebrow {
+  margin-bottom: 0.22rem;
+}
+
 .topbar-actions {
   gap: 0.75rem;
   flex-wrap: wrap;
@@ -478,20 +506,15 @@ textarea::placeholder {
 }
 
 .login-hero-logo-badge {
-  width: 108px;
-  height: 108px;
-  display: grid;
-  place-items: center;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   flex: none;
-  padding: 1rem;
-  border-radius: 32px;
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(239, 246, 241, 0.92));
-  border: 1px solid rgba(255, 255, 255, 0.82);
-  box-shadow: 0 12px 28px rgba(88, 120, 103, 0.12);
 }
 
 .login-hero-logo-image {
-  width: 100%;
+  width: 118px;
+  max-width: 100%;
   height: auto;
   display: block;
 }
@@ -733,6 +756,22 @@ textarea::placeholder {
   font-weight: 600;
 }
 
+.message-steps {
+  margin: 0.9rem 0 0;
+  padding: 0.95rem 1rem 0.95rem 2rem;
+  border-radius: 18px;
+  border: 1px solid rgba(110, 167, 129, 0.18);
+  background: rgba(241, 248, 243, 0.9);
+  color: var(--text-muted);
+  display: grid;
+  gap: 0.45rem;
+}
+
+.message-steps li::marker {
+  color: var(--accent-strong);
+  font-weight: 700;
+}
+
 .thinking-toggle {
   margin-top: 0.85rem;
   padding: 0.48rem 0.8rem;
@@ -781,7 +820,8 @@ textarea::placeholder {
 .markdown-body ul,
 .markdown-body ol,
 .markdown-body pre,
-.markdown-body blockquote {
+.markdown-body blockquote,
+.markdown-body table {
   margin: 0 0 0.8rem;
 }
 
@@ -790,10 +830,45 @@ textarea::placeholder {
   padding-left: 1.2rem;
 }
 
+.markdown-body a {
+  color: var(--accent-strong);
+  text-decoration: none;
+}
+
+.markdown-body a:hover {
+  text-decoration: underline;
+}
+
 .markdown-body blockquote {
   padding-left: 1rem;
   border-left: 3px solid rgba(110, 167, 129, 0.24);
   color: var(--text-muted);
+}
+
+.markdown-body table {
+  width: 100%;
+  border-collapse: collapse;
+  overflow: hidden;
+  border-radius: 16px;
+  border: 1px solid rgba(104, 133, 115, 0.16);
+  background: rgba(255, 255, 255, 0.92);
+}
+
+.markdown-body th,
+.markdown-body td {
+  padding: 0.78rem 0.9rem;
+  text-align: left;
+  border-bottom: 1px solid rgba(104, 133, 115, 0.12);
+}
+
+.markdown-body th {
+  background: rgba(235, 246, 238, 0.95);
+  color: var(--text-strong);
+  font-weight: 650;
+}
+
+.markdown-body tr:last-child td {
+  border-bottom: 0;
 }
 
 .markdown-body code {
@@ -809,6 +884,45 @@ textarea::placeholder {
   border-radius: 16px;
   background: rgba(29, 43, 36, 0.92);
   color: #f7fbf8;
+}
+
+.markdown-body pre code {
+  padding: 0;
+  background: transparent;
+  color: inherit;
+}
+
+.token-keyword,
+.token-tag {
+  color: #9ad7a8;
+}
+
+.token-string,
+.token-attr-value {
+  color: #f3d68c;
+}
+
+.token-number {
+  color: #9fd0ff;
+}
+
+.token-comment {
+  color: #86a59a;
+}
+
+.token-variable,
+.token-attr-name {
+  color: #f0a3a3;
+}
+
+.message-cursor {
+  display: inline-block;
+  width: 0.7rem;
+  height: 1.15rem;
+  margin-top: 0.25rem;
+  border-radius: 999px;
+  background: linear-gradient(180deg, #7eb58f, #4b755d);
+  animation: pulse-cursor 1s ease-in-out infinite;
 }
 
 .follow-up-group {
@@ -885,6 +999,11 @@ textarea::placeholder {
   outline: none;
 }
 
+.composer-input:disabled {
+  cursor: not-allowed;
+  opacity: 0.72;
+}
+
 .send-button {
   min-width: 118px;
   white-space: nowrap;
@@ -939,6 +1058,17 @@ textarea::placeholder {
 
   80% {
     transform: translateX(4px);
+  }
+}
+
+@keyframes pulse-cursor {
+  0%,
+  100% {
+    opacity: 0.25;
+  }
+
+  50% {
+    opacity: 1;
   }
 }
 
@@ -1006,11 +1136,8 @@ textarea::placeholder {
     gap: 0.85rem;
   }
 
-  .login-hero-logo-badge {
-    width: 84px;
-    height: 84px;
-    padding: 0.8rem;
-    border-radius: 24px;
+  .login-hero-logo-image {
+    width: 92px;
   }
 
   .login-screen-footer {
@@ -1030,6 +1157,14 @@ textarea::placeholder {
 
   .topbar {
     padding: 0.9rem;
+  }
+
+  .topbar-brand {
+    gap: 0.7rem;
+  }
+
+  .topbar-logo-image {
+    width: 42px;
   }
 
   .topbar-actions {

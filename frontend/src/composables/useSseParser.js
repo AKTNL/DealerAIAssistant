@@ -58,8 +58,29 @@ function parseSseEvent(chunk) {
     }
   }
 
+  const rawData = dataLines.join("\n");
+
   return {
     event,
-    data: dataLines.join("\n")
+    data: coerceData(rawData)
   };
+}
+
+function coerceData(rawData) {
+  if (!rawData) {
+    return "";
+  }
+
+  try {
+    const parsed = JSON.parse(rawData);
+    if (typeof parsed === "string") {
+      return parsed;
+    }
+    if (parsed && typeof parsed === "object") {
+      return parsed.data ?? parsed.content ?? parsed.message ?? parsed.text ?? parsed;
+    }
+    return parsed;
+  } catch {
+    return rawData;
+  }
 }

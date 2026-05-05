@@ -25,6 +25,10 @@ defineEmits(["submit-follow-up", "toggle-thinking"]);
         <span v-if="message.status">{{ message.status }}</span>
       </div>
 
+      <ol v-if="message.steps?.length" class="message-steps">
+        <li v-for="step in message.steps" :key="step">{{ step }}</li>
+      </ol>
+
       <button
         v-if="message.thinking"
         class="thinking-toggle"
@@ -41,6 +45,7 @@ defineEmits(["submit-follow-up", "toggle-thinking"]);
       ></div>
 
       <div v-if="message.html" class="markdown-body" v-html="message.html"></div>
+      <span v-if="message.streaming" class="message-cursor" aria-hidden="true"></span>
 
       <FollowUpButtons
         :dictionary="dictionary"

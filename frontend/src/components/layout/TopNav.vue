@@ -34,9 +34,15 @@ defineEmits(["clear-session", "open-sidebar", "sign-out", "toggle-locale"]);
         {{ dictionary.openMenu }}
       </button>
 
-      <div>
-        <p class="eyebrow">{{ dictionary.appTagline }}</p>
-        <h2>{{ dictionary.appName }}</h2>
+      <div class="topbar-brand">
+        <div class="topbar-logo-badge">
+          <img src="/logo.png" :alt="dictionary.appName" class="topbar-logo-image" />
+        </div>
+
+        <div class="topbar-title-group">
+          <p class="eyebrow">{{ dictionary.appTagline }}</p>
+          <h2>{{ dictionary.appName }}</h2>
+        </div>
       </div>
     </div>
 

@@ -18,7 +18,7 @@ const {
 } = useAuth({ dictionary });
 
 function handleSignOut() {
-  removeStorageValue("session", STORAGE_KEYS.session);
+  removeStorageValue("local", STORAGE_KEYS.session);
   signOut();
 }
 </script>
