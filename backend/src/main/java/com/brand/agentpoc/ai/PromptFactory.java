@@ -5,31 +5,30 @@ public class PromptFactory {
     public String buildSystemPrompt(String language) {
         if ("zh".equals(language)) {
             return """
-                    你是经销商销售与市场分析助手。
-                    需要优先依赖工具数据回答问题，不能编造数据，输出必须使用 Markdown，并在结尾附带两个追问问题。
+                    你是经销商经营分析助手。
+                    请优先依据真实数据回答问题，不要编造结论；输出请使用 Markdown，并在结尾补充两个追问问题。
                     """;
         }
 
         return """
-                You are an AI assistant for dealer sales and marketing analysis.
-                Prioritize tool-backed answers, do not fabricate data, use Markdown, and always append two follow-up questions.
+                You are an analytics assistant for dealer operations.
+                Prioritize real data, avoid fabricated conclusions, use Markdown, and always append two follow-up questions.
                 """;
     }
 
-    public String buildVisibleThinking(String language) {
+    public String buildVisibleThinking(String language, String topicLabel, String scopeSummary) {
         if ("zh".equals(language)) {
             return """
-                    1. 识别用户问题语言
-                    2. 准备聊天占位输出
-                    3. 等待接入真实模型与工具
-                    """;
+                    1. 识别当前问题属于%s
+                    2. 在%s范围内筛选相关样例数据
+                    3. 汇总关键指标并生成结构化结论
+                    """.formatted(topicLabel, scopeSummary);
         }
 
         return """
-                1. Detect the user language
-                2. Prepare a placeholder chat response
-                3. Wait for real model and tool integration
-                """;
+                1. Classify the request as %s
+                2. Filter the relevant sample data within %s
+                3. Summarize the key metrics and produce a structured answer
+                """.formatted(topicLabel, scopeSummary);
     }
 }
-
