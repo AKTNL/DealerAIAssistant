@@ -9,11 +9,13 @@
 - 登录页支持中英文切换、口令校验、加载态、失败提示、输入框抖动和 `sessionStorage` 认证标记
 - 前端聊天工作台支持 SSE 流式响应、`<think>` 展示、追问提取和会话清空
 - 后端已提供真实的 H2 + JPA 数据实体与查询接口，不再是空占位返回
-- 聊天接口已从纯占位回复升级为“基于样例数据的规则分析回复”
+- 聊天接口支持“双轨模式”：
+  - 配好 `OPENAI_API_KEY / OPENAI_BASE_URL / OPENAI_MODEL` 时，直接调用兼容 OpenAI 的模型
+  - 未配置模型时，分析类问题回退到内置样例数据的规则分析，普通聊天返回配置指引
 - 启动时会优先尝试读取 `APP_EXCEL_PATH` 指向的 Excel；如果文件不存在或解析失败，会自动回退到内置样例数据
 - 前端构建产物会输出到 `backend/src/main/resources/static`，可由后端统一托管
 
-当前聊天分析支持的主题包括：
+当前规则分析支持的主题包括：
 
 - 目标达成率
 - 商机漏斗
@@ -27,7 +29,7 @@
 - 前端：`Vue 3`、`Vite`
 - 后端：`Java 21`、`Spring Boot 3.4.x`
 - 数据：`H2`、`Spring Data JPA`、`Apache POI`
-- AI 接入预留：`Spring AI 1.0.0`
+- 模型接入：`Spring AI 1.0.0`
 - 通信：`HTTP + SSE`
 
 ## 目录结构
@@ -126,20 +128,22 @@ java -jar target/agent-poc-backend-0.0.1-SNAPSHOT.jar
 
 主配置文件位于 `backend/src/main/resources/application.yml`。
 
-常用环境变量：
+至少支持以下配置项：
 
-- `APP_ACCESS_KEY`：登录口令，默认 `demo123`
-- `APP_API_KEY`：数据接口 `X-API-Key`，默认 `poc-api-key`
-- `APP_EXCEL_PATH`：Excel 路径，默认 `classpath:Sample Data.xlsx`
-- `OPENAI_API_KEY`：模型服务 API Key
-- `OPENAI_BASE_URL`：模型服务地址，默认 `https://api.openai.com`
-- `OPENAI_MODEL`：模型名，默认 `gpt-4o-mini`
+- `SERVER_PORT`：服务端口，默认 `8081`
+- `APP_ACCESS_KEY`：访问口令，默认 `demo123`
+- `APP_API_KEY`：报表接口 `X-API-Key`，默认 `poc-api-key`
+- `OPENAI_API_KEY`：OpenAI 兼容模型 API Key
+- `OPENAI_BASE_URL`：OpenAI 兼容模型 Base URL，默认 `https://api.openai.com`
+- `OPENAI_MODEL`：OpenAI 兼容模型名称，默认 `gpt-4o-mini`
+- `APP_EXCEL_PATH`：Excel 样例数据路径，默认 `classpath:Sample Data.xlsx`
 
 说明：
 
 - 仓库当前未包含真实 Excel 文件
 - 如果 `APP_EXCEL_PATH` 对应文件不可用，系统会自动写入内置样例数据，保证项目可运行
-- `Spring AI` 相关配置已预留，但当前聊天回复仍以规则分析为主，还没有真正调用大模型
+- 只要配置好 `OPENAI_API_KEY`、`OPENAI_BASE_URL` 和 `OPENAI_MODEL`，聊天接口就会直接调用你自己的兼容模型
+- 仓库根目录额外提供了 `.env.example`，方便快速查看这 7 个配置项的最小示例
 
 ## 接口概览
 
@@ -229,7 +233,8 @@ curl "http://127.0.0.1:8081/api/v1/data/targets?city=Beijing" \
 - `frontend` 执行 `npm run build` 通过
 - `backend` 执行 `mvn -s settings.xml "-Dfrontend.skip=true" clean install` 通过
 - `GET /actuator/health` 返回 `200`
-- `POST /api/chat` 返回基于样例数据的结构化分析结果
+- 未配置模型时，`POST /api/chat` 的普通聊天会返回配置指引
+- 未配置模型时，`POST /api/chat` 的分析类问题会回退到内置样例数据分析
 - `POST /api/chat/stream` 按 `progress -> message -> done` 顺序返回 SSE 事件
 
 ## 当前限制
@@ -241,7 +246,7 @@ curl "http://127.0.0.1:8081/api/v1/data/targets?city=Beijing" \
 
 ## 下一步建议
 
-1. 用真实 `Sample Data.xlsx` 对齐并验证各 Sheet 列名映射
-2. 为规则分析和数据筛选补单元测试
-3. 让聊天分析优先走数据工具，再接入真实模型生成最终答案
-4. 继续完善聊天页和分析结果页的可视化表达
+1. 先补一份可直接复制的模型配置模板，方便你接自己的兼容模型
+2. 接着用真实 `OPENAI_API_KEY / BASE_URL / MODEL` 实测同步和流式聊天
+3. 等拿到 `Sample Data.xlsx` 后，再把真实报表数据接入分析链路
+4. 后续再考虑做前端“模型配置面板”，让你不改环境变量也能切模型
