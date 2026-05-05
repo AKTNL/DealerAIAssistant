@@ -892,6 +892,12 @@ textarea::placeholder {
   color: inherit;
 }
 
+.markdown-body .hljs {
+  display: block;
+  overflow-x: auto;
+  background: transparent !important;
+}
+
 .token-keyword,
 .token-tag {
   color: #9ad7a8;
