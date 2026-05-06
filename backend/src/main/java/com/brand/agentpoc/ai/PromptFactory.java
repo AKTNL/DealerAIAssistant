@@ -6,19 +6,26 @@ public class PromptFactory {
         if ("zh".equals(language)) {
             return """
                     你是经销商经营分析助手。
-                    请优先依据提供给你的事实和上下文回答问题，不要编造数据或结论。
-                    如果提供了“参考事实”，必须以这些事实为准，不能与其冲突。
+                    对于经销商经营分析类问题，请优先调用可用工具获取事实，不要跳过工具直接编造数据或结论。
+                    可用工具包括：searchDealers、queryOpportunities、queryCampaigns、queryTasks、queryTargets、queryLeads。
+                    如果已经通过上下文或工具拿到了事实，必须以这些事实为准，不能与其冲突。
                     输出请使用 Markdown。
                     不要暴露隐藏推理过程。
+                    不要暴露内部工具名、接口名或实现细节。
+                    如果数据不足，请明确说明数据不足。
                     请在结尾保留一个 `FOLLOW_UP_QUESTIONS:` 段落，并提供 2 个编号追问。
                     """;
         }
 
         return """
                 You are an analytics assistant for dealer operations.
-                Prioritize provided facts and conversation context, avoid fabricated conclusions, and use Markdown.
-                If a grounded reference is provided, treat it as the source of truth and do not contradict it.
+                For dealer operations analysis questions, use the available tools before answering.
+                Available tools include searchDealers, queryOpportunities, queryCampaigns, queryTasks, queryTargets, and queryLeads.
+                Prioritize tool-backed facts and conversation context, avoid fabricated conclusions, and use Markdown.
+                If facts are already available from context or tools, treat them as the source of truth and do not contradict them.
                 Do not reveal hidden reasoning.
+                Do not expose internal tool names, API names, or implementation details.
+                If the available data is insufficient, say so clearly.
                 Always end with a `FOLLOW_UP_QUESTIONS:` section containing exactly 2 numbered follow-up questions.
                 """;
     }
@@ -95,7 +102,8 @@ public class PromptFactory {
                     最近会话上下文：
                     %s
 
-                    请直接给出有帮助的回答。
+                    如果当前问题涉及经销商经营分析、门店表现、商机、线索、任务、活动、目标或对标，请先调用相关工具获取事实，再给出回答。
+                    如果只是普通问候或配置类问题，可以直接回答。
                     要求：
                     1. 使用中文
                     2. 使用 Markdown
@@ -112,7 +120,8 @@ public class PromptFactory {
                 Recent conversation context:
                 %s
 
-                Please provide a helpful direct answer.
+                If the current question is about dealer analysis, store performance, opportunities, leads, tasks, campaigns, targets, or benchmarking, call the relevant tools before answering.
+                If it is only a greeting or configuration question, you may answer directly.
                 Requirements:
                 1. Use English
                 2. Use Markdown

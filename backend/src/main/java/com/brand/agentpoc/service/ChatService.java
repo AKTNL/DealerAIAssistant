@@ -15,6 +15,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.model.ChatModel;
+import org.springframework.ai.tool.ToolCallbackProvider;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Service;
 
@@ -31,6 +32,7 @@ public class ChatService {
     private final PromptFactory promptFactory;
     private final OpenAiProperties openAiProperties;
     private final ObjectProvider<ChatModel> chatModelProvider;
+    private final ToolCallbackProvider aiToolCallbackProvider;
 
     public ChatService(
             SessionMemoryService sessionMemoryService,
@@ -38,7 +40,8 @@ public class ChatService {
             RuleBasedAnalyticsService analyticsService,
             PromptFactory promptFactory,
             OpenAiProperties openAiProperties,
-            ObjectProvider<ChatModel> chatModelProvider
+            ObjectProvider<ChatModel> chatModelProvider,
+            ToolCallbackProvider aiToolCallbackProvider
     ) {
         this.sessionMemoryService = sessionMemoryService;
         this.languageDetector = languageDetector;
@@ -46,6 +49,7 @@ public class ChatService {
         this.promptFactory = promptFactory;
         this.openAiProperties = openAiProperties;
         this.chatModelProvider = chatModelProvider;
+        this.aiToolCallbackProvider = aiToolCallbackProvider;
     }
 
     public String chat(ChatRequest request) {
@@ -73,9 +77,6 @@ public class ChatService {
     private GeneratedReply generateReply(ChatRequest request) {
         String language = languageDetector.detectLanguage(request.message());
         boolean analyticsRequested = looksLikeAnalyticsRequest(request.message());
-        RuleBasedAnalyticsService.AnalyticsResponse analyticsResponse = analyticsRequested
-                ? analyticsService.analyze(request.message(), language)
-                : null;
 
         ChatModel chatModel = isModelConfigured() ? chatModelProvider.getIfAvailable() : null;
         if (chatModel != null) {
@@ -84,15 +85,12 @@ public class ChatService {
                         chatModel,
                         request.sessionId(),
                         request.message(),
-                        language,
-                        analyticsResponse
+                        language
                 );
                 return new GeneratedReply(
                         ensureFollowUpQuestions(reply, language, analyticsRequested),
                         buildModelProgressMessages(language, analyticsRequested),
-                        analyticsRequested && analyticsResponse != null
-                                ? analyticsResponse.visibleThinking()
-                                : buildConversationThinking(language)
+                        buildModelVisibleThinking(language, analyticsRequested)
                 );
             } catch (Exception exception) {
                 log.warn(
@@ -104,7 +102,9 @@ public class ChatService {
             }
         }
 
-        if (analyticsResponse != null) {
+        if (analyticsRequested) {
+            RuleBasedAnalyticsService.AnalyticsResponse analyticsResponse =
+                    analyticsService.analyze(request.message(), language);
             return new GeneratedReply(
                     analyticsResponse.reply(),
                     analyticsResponse.progressMessages(),
@@ -123,18 +123,16 @@ public class ChatService {
             ChatModel chatModel,
             String sessionId,
             String message,
-            String language,
-            RuleBasedAnalyticsService.AnalyticsResponse analyticsResponse
+            String language
     ) {
         String sessionHistory = formatSessionHistory(sessionId, language);
-        String userPrompt = analyticsResponse != null
-                ? promptFactory.buildGroundedModelPrompt(language, message, sessionHistory, analyticsResponse.reply())
-                : promptFactory.buildConversationModelPrompt(language, message, sessionHistory);
+        String userPrompt = promptFactory.buildConversationModelPrompt(language, message, sessionHistory);
 
         String reply = ChatClient.create(chatModel)
                 .prompt()
                 .system(promptFactory.buildSystemPrompt(language))
                 .user(userPrompt)
+                .toolCallbacks(aiToolCallbackProvider)
                 .call()
                 .content();
 
@@ -150,7 +148,7 @@ public class ChatService {
             if (analyticsRequested) {
                 return List.of(
                         "正在识别分析主题",
-                        "正在整理样例数据中的参考事实",
+                        "正在调用经营分析工具获取事实",
                         "正在调用已配置模型生成回复"
                 );
             }
@@ -165,7 +163,7 @@ public class ChatService {
         if (analyticsRequested) {
             return List.of(
                     "Identifying the analysis theme",
-                    "Preparing grounded facts from the sample data",
+                    "Collecting facts through the analytics tools",
                     "Calling the configured model"
             );
         }
@@ -207,6 +205,26 @@ public class ChatService {
                 2. Call the configured compatible model
                 3. Append follow-up questions and return the response
                 """;
+    }
+
+    private String buildModelVisibleThinking(String language, boolean analyticsRequested) {
+        if (analyticsRequested) {
+            if ("zh".equals(language)) {
+                return """
+                        1. 识别当前分析主题
+                        2. 调用相关数据工具获取事实
+                        3. 汇总结果并生成结构化回复
+                        """;
+            }
+
+            return """
+                    1. Identify the current analysis theme
+                    2. Gather facts with the relevant data tools
+                    3. Synthesize the results into a structured reply
+                    """;
+        }
+
+        return buildConversationThinking(language);
     }
 
     private String buildConfigurationThinking(String language) {
