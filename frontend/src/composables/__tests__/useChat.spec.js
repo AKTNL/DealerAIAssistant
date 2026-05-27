@@ -198,8 +198,9 @@ FOLLOW_UP_QUESTIONS:
     expect(wrapper.vm.requestError).toBe("The model is busy right now. Please try again shortly.");
   });
 
-  it("removes progress placeholders after the stream finishes", async () => {
+  it("keeps progress events as a retained processing history after the stream finishes", async () => {
     streamChatMock.mockImplementationOnce(async ({ onEvent }) => {
+      onEvent({ event: "progress", data: "Identifying the analysis theme" });
       onEvent({
         event: "step",
         data: JSON.stringify({
@@ -213,6 +214,7 @@ FOLLOW_UP_QUESTIONS:
         })
       });
       onEvent({ event: "progress", data: "Calling the configured model" });
+      onEvent({ event: "progress", data: "Validating data consistency" });
       onEvent({ event: "message", data: "Visible reply" });
       onEvent({ event: "done", data: "[DONE]" });
     });
@@ -226,9 +228,18 @@ FOLLOW_UP_QUESTIONS:
 
     await wrapper.vm.submitPrompt("Hello");
 
-    expect(wrapper.vm.messages[1].steps).toHaveLength(1);
-    expect(wrapper.vm.messages[1].steps[0].label).toBe("Loaded data");
-    expect(wrapper.vm.messages[1].steps.some(step => step.label === "Calling the configured model")).toBe(false);
+    expect(wrapper.vm.messages[1].steps.map(step => step.label)).toEqual([
+      "Identifying the analysis theme",
+      "Loaded data",
+      "Calling the configured model",
+      "Validating data consistency"
+    ]);
+    expect(wrapper.vm.messages[1].steps.filter(step => step.type === "progress").map(step => step.label)).toEqual([
+      "Identifying the analysis theme",
+      "Calling the configured model",
+      "Validating data consistency"
+    ]);
+    expect(wrapper.vm.messages[1].steps.filter(step => step.type === "progress").every(step => step.status === "success")).toBe(true);
   });
 
   it("appends multiple streamed message events into one assistant reply", async () => {
@@ -297,7 +308,7 @@ FOLLOW_UP_QUESTIONS:
     vi.useRealTimers();
   });
 
-  it("preserves accumulated assistant content when the stream errors after partial chunks", async () => {
+  it("preserves accumulated assistant content without showing a duplicate error after partial chunks", async () => {
     streamChatMock.mockImplementationOnce(async ({ onEvent }) => {
       onEvent({ event: "message", data: "Partial" });
       onEvent({ event: "message", data: " answer" });
@@ -318,7 +329,26 @@ FOLLOW_UP_QUESTIONS:
     expect(wrapper.vm.messages[1].html).toContain("Partial answer");
     expect(wrapper.vm.messages[1].streaming).toBe(false);
     expect(wrapper.vm.isSending).toBe(false);
-    expect(wrapper.vm.requestError).toBe("The model is busy right now. Please try again shortly.");
+    expect(wrapper.vm.requestError).toBe("");
+  });
+
+  it("suppresses rejected stream errors after visible partial content", async () => {
+    streamChatMock.mockImplementationOnce(async ({ onEvent }) => {
+      onEvent({ event: "message", data: "Partial answer" });
+      throw new Error("429 busy");
+    });
+    const wrapper = mountChatHarness(
+      ref({
+        apiKey: "sk-test",
+        baseUrl: "https://api.example.com",
+        model: "gpt-4.1-mini"
+      })
+    );
+
+    await wrapper.vm.submitPrompt("Hello");
+
+    expect(wrapper.vm.messages[1].content).toBe("Partial answer");
+    expect(wrapper.vm.requestError).toBe("");
   });
 
   it("marks unread immediately when visible messages are inserted while the viewport is unpinned", async () => {
@@ -482,7 +512,7 @@ FOLLOW_UP_QUESTIONS:
     await nextTick();
 
     expect(wrapper.vm.hasUnreadContent).toBe(false);
-    expect(wrapper.vm.requestError).toBe("The model is busy right now. Please try again shortly.");
+    expect(wrapper.vm.requestError).toBe("");
 
     deferred.resolve();
     await submitPromise;

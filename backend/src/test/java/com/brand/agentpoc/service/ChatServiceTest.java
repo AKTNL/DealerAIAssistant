@@ -35,6 +35,8 @@ import reactor.core.publisher.Flux;
 
 class ChatServiceTest {
 
+    private static final String GENERAL_MESSAGE = "What is CRM hygiene?";
+
     private SessionMemoryService sessionMemoryService;
     private LanguageDetector languageDetector;
     private RuleBasedAnalyticsService analyticsService;
@@ -60,8 +62,14 @@ class ChatServiceTest {
     }
 
     @Test
-    void streamsAGuidanceReplyWhenModelSettingsAreMissing() throws Exception {
-        ChatRequest request = new ChatRequest("s1", "你好", "", "", "");
+    void streamsBuiltInChineseGreetingWithoutCallingModelOrAnalytics() throws Exception {
+        ChatRequest request = new ChatRequest(
+                "s1",
+                "你好",
+                "https://api.example.com",
+                "sk-test",
+                "gpt-4.1-mini"
+        );
         ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
         ArgumentCaptor<String> replyCaptor = ArgumentCaptor.forClass(String.class);
 
@@ -70,24 +78,100 @@ class ChatServiceTest {
         chatService.streamChat(request, outputStream);
 
         String payload = outputStream.toString(StandardCharsets.UTF_8);
-        assertThat(payload).contains("event: progress");
         assertThat(payload).contains("event: message");
-        assertThat(payload).contains("我现在还没连接外部模型");
-        assertThat(payload).contains("FOLLOW_UP_QUESTIONS");
+        assertThat(payload).contains("我是经销商 AI 分析助手");
+        assertThat(payload).contains("目标达成");
+        assertThat(payload).contains("FOLLOW_UP_QUESTIONS:");
+        assertThat(payload).contains("哪些门店目标达成率最低？");
+        assertThat(payload).contains("分析一下各门店的商机漏斗转化情况");
+        assertThat(payload).doesNotContain("接口调用链");
+        assertThat(payload).doesNotContain("核心结论");
+        assertThat(payload).doesNotContain("数据支撑");
+        assertThat(payload).doesNotContain("event: progress");
+        assertThat(payload).doesNotContain("event: error");
         assertThat(payload).contains("event: done");
         verify(sessionMemoryService).addUserMessage("s1", "你好");
         verify(sessionMemoryService).addAssistantMessage(eq("s1"), replyCaptor.capture());
-        assertThat(replyCaptor.getValue()).contains("我现在还没连接外部模型");
+        assertThat(replyCaptor.getValue()).contains("我是经销商 AI 分析助手");
+        assertThat(replyCaptor.getValue()).contains("FOLLOW_UP_QUESTIONS:");
+        assertThat(replyCaptor.getValue()).contains("哪些门店目标达成率最低？");
+        assertThat(replyCaptor.getValue()).contains("分析一下各门店的商机漏斗转化情况");
+        assertThat(replyCaptor.getValue()).doesNotContain("接口调用链");
+        verifyNoInteractions(modelConfigService);
+        verifyNoInteractions(analyticsService);
+    }
+
+    @Test
+    void streamsBuiltInEnglishGreetingWithoutCallingModelOrAnalytics() throws Exception {
+        ChatRequest request = new ChatRequest(
+                "s1",
+                "hello",
+                "https://api.example.com",
+                "sk-test",
+                "gpt-4.1-mini"
+        );
+        ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
+        ArgumentCaptor<String> replyCaptor = ArgumentCaptor.forClass(String.class);
+
+        when(languageDetector.detectLanguage("hello")).thenReturn("en");
+
+        chatService.streamChat(request, outputStream);
+
+        String payload = outputStream.toString(StandardCharsets.UTF_8);
+        assertThat(payload).contains("event: message");
+        assertThat(payload).contains("dealer AI analytics assistant");
+        assertThat(payload).contains("target achievement");
+        assertThat(payload).contains("FOLLOW_UP_QUESTIONS:");
+        assertThat(payload).contains("Which dealers have the lowest target achievement rate?");
+        assertThat(payload).contains("Analyze opportunity funnel conversion by dealer");
+        assertThat(payload).doesNotContain("Interface Call Chain");
+        assertThat(payload).doesNotContain("Data Support");
+        assertThat(payload).doesNotContain("event: progress");
+        assertThat(payload).doesNotContain("event: error");
+        assertThat(payload).contains("event: done");
+        verify(sessionMemoryService).addUserMessage("s1", "hello");
+        verify(sessionMemoryService).addAssistantMessage(eq("s1"), replyCaptor.capture());
+        assertThat(replyCaptor.getValue()).contains("dealer AI analytics assistant");
+        assertThat(replyCaptor.getValue()).contains("FOLLOW_UP_QUESTIONS:");
+        assertThat(replyCaptor.getValue()).contains("Which dealers have the lowest target achievement rate?");
+        assertThat(replyCaptor.getValue()).contains("Analyze opportunity funnel conversion by dealer");
+        assertThat(replyCaptor.getValue()).doesNotContain("Interface Call Chain");
+        verifyNoInteractions(modelConfigService);
+        verifyNoInteractions(analyticsService);
+    }
+
+    @Test
+    void chatReturnsBuiltInIntroForIdentityQuestionWithoutCallingModelOrAnalytics() {
+        ChatRequest request = new ChatRequest(
+                "s1",
+                "你是谁",
+                "https://api.example.com",
+                "sk-test",
+                "gpt-4.1-mini"
+        );
+
+        when(languageDetector.detectLanguage("你是谁")).thenReturn("zh");
+
+        String reply = chatService.chat(request);
+
+        assertThat(reply).contains("我是经销商 AI 分析助手");
+        assertThat(reply).contains("FOLLOW_UP_QUESTIONS:");
+        assertThat(reply).contains("哪些门店目标达成率最低？");
+        assertThat(reply).contains("分析一下各门店的商机漏斗转化情况");
+        assertThat(reply).doesNotContain("接口调用链");
+        assertThat(reply).doesNotContain("核心结论");
+        verify(sessionMemoryService).addUserMessage("s1", "你是谁");
+        verify(sessionMemoryService).addAssistantMessage("s1", reply);
         verifyNoInteractions(modelConfigService);
         verifyNoInteractions(analyticsService);
     }
 
     @Test
     void missingConfigGeneralStreamingUsesConfigurationProgressMessage() throws Exception {
-        ChatRequest request = new ChatRequest("s1", "hello", "", "", "");
+        ChatRequest request = new ChatRequest("s1", GENERAL_MESSAGE, "", "", "");
         ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
 
-        when(languageDetector.detectLanguage("hello")).thenReturn("en");
+        when(languageDetector.detectLanguage(GENERAL_MESSAGE)).thenReturn("en");
 
         chatService.streamChat(request, outputStream);
 
@@ -140,16 +224,16 @@ class ChatServiceTest {
     void usesTheRequestScopedModelConfiguration() {
         ChatRequest request = new ChatRequest(
                 "s1",
-                "hello",
+                GENERAL_MESSAGE,
                 "https://api.example.com",
                 "sk-test",
                 "gpt-4.1-mini"
         );
         ChatModel chatModel = mock(ChatModel.class);
 
-        when(languageDetector.detectLanguage("hello")).thenReturn("en");
+        when(languageDetector.detectLanguage(GENERAL_MESSAGE)).thenReturn("en");
         when(modelConfigService.createChatModel(request)).thenReturn(chatModel);
-        when(promptFactory.buildConversationModelPrompt("en", "hello", "None")).thenReturn("Prompt body");
+        when(promptFactory.buildConversationModelPrompt("en", GENERAL_MESSAGE, "None")).thenReturn("Prompt body");
         when(promptFactory.buildSystemPrompt("en")).thenReturn("System prompt");
         when(chatModel.call(any(Prompt.class))).thenReturn(new ChatResponse(List.of(
                 new Generation(new AssistantMessage("Model reply"))
@@ -159,7 +243,7 @@ class ChatServiceTest {
 
         assertThat(reply).contains("Model reply");
         verify(modelConfigService).createChatModel(request);
-        verify(sessionMemoryService).addUserMessage("s1", "hello");
+        verify(sessionMemoryService).addUserMessage("s1", GENERAL_MESSAGE);
         verify(sessionMemoryService).addAssistantMessage(eq("s1"), eq(reply));
         verifyNoInteractions(analyticsService);
     }
@@ -168,7 +252,7 @@ class ChatServiceTest {
     void includesUpToTwentyMessagesOfConversationHistoryInPrompt() {
         ChatRequest request = new ChatRequest(
                 "s1",
-                "hello",
+                GENERAL_MESSAGE,
                 "https://api.example.com",
                 "sk-test",
                 "gpt-4.1-mini"
@@ -182,10 +266,10 @@ class ChatServiceTest {
             history.add("ASSISTANT:assistant-" + i);
         }
 
-        when(languageDetector.detectLanguage("hello")).thenReturn("en");
+        when(languageDetector.detectLanguage(GENERAL_MESSAGE)).thenReturn("en");
         when(sessionMemoryService.getMessages("s1")).thenReturn(history);
         when(modelConfigService.createChatModel(request)).thenReturn(chatModel);
-        when(promptFactory.buildConversationModelPrompt(eq("en"), eq("hello"), any(String.class))).thenReturn("Prompt body");
+        when(promptFactory.buildConversationModelPrompt(eq("en"), eq(GENERAL_MESSAGE), any(String.class))).thenReturn("Prompt body");
         when(promptFactory.buildSystemPrompt("en")).thenReturn("System prompt");
         when(chatModel.call(any(Prompt.class))).thenReturn(new ChatResponse(List.of(
                 new Generation(new AssistantMessage("Model reply"))
@@ -193,7 +277,7 @@ class ChatServiceTest {
 
         chatService.chat(request);
 
-        verify(promptFactory).buildConversationModelPrompt(eq("en"), eq("hello"), historyCaptor.capture());
+        verify(promptFactory).buildConversationModelPrompt(eq("en"), eq(GENERAL_MESSAGE), historyCaptor.capture());
         assertThat(historyCaptor.getValue()).contains("- User: user-1");
         assertThat(historyCaptor.getValue()).contains("- Assistant: assistant-1");
         assertThat(historyCaptor.getValue()).contains("- User: user-6");
@@ -204,7 +288,7 @@ class ChatServiceTest {
     void streamsProgressAndAnErrorEventWhenTheConfiguredModelFails() throws Exception {
         ChatRequest request = new ChatRequest(
                 "s1",
-                "hello",
+                GENERAL_MESSAGE,
                 "https://api.example.com",
                 "sk-test",
                 "gpt-4.1-mini"
@@ -212,9 +296,9 @@ class ChatServiceTest {
         ChatModel chatModel = mock(ChatModel.class);
         ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
 
-        when(languageDetector.detectLanguage("hello")).thenReturn("en");
+        when(languageDetector.detectLanguage(GENERAL_MESSAGE)).thenReturn("en");
         when(modelConfigService.createChatModel(request)).thenReturn(chatModel);
-        when(promptFactory.buildConversationModelPrompt("en", "hello", "None")).thenReturn("Prompt body");
+        when(promptFactory.buildConversationModelPrompt("en", GENERAL_MESSAGE, "None")).thenReturn("Prompt body");
         when(promptFactory.buildSystemPrompt("en")).thenReturn("System prompt");
         when(chatModel.stream(any(Prompt.class))).thenReturn(Flux.error(new RuntimeException("429 busy")));
 
@@ -225,7 +309,7 @@ class ChatServiceTest {
         assertThat(payload).contains("data: Preparing the current conversation context");
         assertThat(payload).contains("event: error");
         assertThat(payload).contains("data: 429 busy");
-        verify(sessionMemoryService).addUserMessage("s1", "hello");
+        verify(sessionMemoryService).addUserMessage("s1", GENERAL_MESSAGE);
         verify(sessionMemoryService, never()).addAssistantMessage(eq("s1"), any());
     }
 
@@ -233,14 +317,14 @@ class ChatServiceTest {
     void streamsAnErrorEventWhenModelUrlPolicyRejectsTheRequest() throws Exception {
         ChatRequest request = new ChatRequest(
                 "s1",
-                "hello",
+                GENERAL_MESSAGE,
                 "http://localhost:11434/v1",
                 "sk-test",
                 "gpt-4.1-mini"
         );
         ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
 
-        when(languageDetector.detectLanguage("hello")).thenReturn("en");
+        when(languageDetector.detectLanguage(GENERAL_MESSAGE)).thenReturn("en");
         when(modelConfigService.createChatModel(request))
                 .thenThrow(new IllegalArgumentException("Model base URL is not allowed."));
 
@@ -250,7 +334,7 @@ class ChatServiceTest {
         assertThat(payload).contains("event: progress");
         assertThat(payload).contains("event: error");
         assertThat(payload).contains("data: Model base URL is not allowed.");
-        verify(sessionMemoryService).addUserMessage("s1", "hello");
+        verify(sessionMemoryService).addUserMessage("s1", GENERAL_MESSAGE);
         verify(sessionMemoryService, never()).addAssistantMessage(eq("s1"), any());
     }
 
@@ -258,7 +342,7 @@ class ChatServiceTest {
     void writesAnInitialProgressEventBeforeInvokingTheConfiguredModel() throws Exception {
         ChatRequest request = new ChatRequest(
                 "s1",
-                "hello",
+                GENERAL_MESSAGE,
                 "https://api.example.com",
                 "sk-test",
                 "gpt-4.1-mini"
@@ -267,9 +351,9 @@ class ChatServiceTest {
         ByteArrayOutputStream buffer = new ByteArrayOutputStream();
         AtomicBoolean progressSeen = new AtomicBoolean(false);
 
-        when(languageDetector.detectLanguage("hello")).thenReturn("en");
+        when(languageDetector.detectLanguage(GENERAL_MESSAGE)).thenReturn("en");
         when(modelConfigService.createChatModel(request)).thenReturn(chatModel);
-        when(promptFactory.buildConversationModelPrompt("en", "hello", "None")).thenReturn("Prompt body");
+        when(promptFactory.buildConversationModelPrompt("en", GENERAL_MESSAGE, "None")).thenReturn("Prompt body");
         when(promptFactory.buildSystemPrompt("en")).thenReturn("System prompt");
         when(chatModel.stream(any(Prompt.class))).thenAnswer(invocation -> {
             assertThat(progressSeen.get()).isTrue();
@@ -291,14 +375,14 @@ class ChatServiceTest {
         chatService.streamChat(request, outputStream);
 
         assertThat(new String(buffer.toByteArray(), StandardCharsets.UTF_8)).contains("data: Preparing the current conversation context");
-        verify(sessionMemoryService).addUserMessage("s1", "hello");
+        verify(sessionMemoryService).addUserMessage("s1", GENERAL_MESSAGE);
     }
 
     @Test
     void streamsConfiguredModelRepliesAcrossMultipleMessageEvents() throws Exception {
         ChatRequest request = new ChatRequest(
                 "s1",
-                "hello",
+                GENERAL_MESSAGE,
                 "https://api.example.com",
                 "sk-test",
                 "gpt-4.1-mini"
@@ -307,9 +391,9 @@ class ChatServiceTest {
         ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
         ArgumentCaptor<String> replyCaptor = ArgumentCaptor.forClass(String.class);
 
-        when(languageDetector.detectLanguage("hello")).thenReturn("en");
+        when(languageDetector.detectLanguage(GENERAL_MESSAGE)).thenReturn("en");
         when(modelConfigService.createChatModel(request)).thenReturn(chatModel);
-        when(promptFactory.buildConversationModelPrompt("en", "hello", "None")).thenReturn("Prompt body");
+        when(promptFactory.buildConversationModelPrompt("en", GENERAL_MESSAGE, "None")).thenReturn("Prompt body");
         when(promptFactory.buildSystemPrompt("en")).thenReturn("System prompt");
         when(chatModel.stream(any(Prompt.class))).thenReturn(Flux.just(
                 new ChatResponse(List.of(new Generation(new AssistantMessage("Hello ")))),
@@ -334,7 +418,7 @@ class ChatServiceTest {
     void preservesWhitespaceOnlyChunksAsDistinctMessageEvents() throws Exception {
         ChatRequest request = new ChatRequest(
                 "s1",
-                "hello",
+                GENERAL_MESSAGE,
                 "https://api.example.com",
                 "sk-test",
                 "gpt-4.1-mini"
@@ -343,9 +427,9 @@ class ChatServiceTest {
         ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
         ArgumentCaptor<String> replyCaptor = ArgumentCaptor.forClass(String.class);
 
-        when(languageDetector.detectLanguage("hello")).thenReturn("en");
+        when(languageDetector.detectLanguage(GENERAL_MESSAGE)).thenReturn("en");
         when(modelConfigService.createChatModel(request)).thenReturn(chatModel);
-        when(promptFactory.buildConversationModelPrompt("en", "hello", "None")).thenReturn("Prompt body");
+        when(promptFactory.buildConversationModelPrompt("en", GENERAL_MESSAGE, "None")).thenReturn("Prompt body");
         when(promptFactory.buildSystemPrompt("en")).thenReturn("System prompt");
         when(chatModel.stream(any(Prompt.class))).thenReturn(Flux.just(
                 new ChatResponse(List.of(new Generation(new AssistantMessage("Hello")))),
@@ -375,7 +459,7 @@ class ChatServiceTest {
     void keepsPartialChunksVisibleButSkipsAssistantPersistenceWhenStreamingFails() throws Exception {
         ChatRequest request = new ChatRequest(
                 "s1",
-                "hello",
+                GENERAL_MESSAGE,
                 "https://api.example.com",
                 "sk-test",
                 "gpt-4.1-mini"
@@ -383,9 +467,9 @@ class ChatServiceTest {
         ChatModel chatModel = mock(ChatModel.class);
         ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
 
-        when(languageDetector.detectLanguage("hello")).thenReturn("en");
+        when(languageDetector.detectLanguage(GENERAL_MESSAGE)).thenReturn("en");
         when(modelConfigService.createChatModel(request)).thenReturn(chatModel);
-        when(promptFactory.buildConversationModelPrompt("en", "hello", "None")).thenReturn("Prompt body");
+        when(promptFactory.buildConversationModelPrompt("en", GENERAL_MESSAGE, "None")).thenReturn("Prompt body");
         when(promptFactory.buildSystemPrompt("en")).thenReturn("System prompt");
         when(chatModel.stream(any(Prompt.class))).thenReturn(Flux.concat(
                 Flux.just(new ChatResponse(List.of(new Generation(new AssistantMessage("Hello "))))),
@@ -405,7 +489,7 @@ class ChatServiceTest {
     void doesNotEmitDoneBeforePersistenceFailureOnSuccessfulStream() throws Exception {
         ChatRequest request = new ChatRequest(
                 "s1",
-                "hello",
+                GENERAL_MESSAGE,
                 "https://api.example.com",
                 "sk-test",
                 "gpt-4.1-mini"
@@ -413,9 +497,9 @@ class ChatServiceTest {
         ChatModel chatModel = mock(ChatModel.class);
         ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
 
-        when(languageDetector.detectLanguage("hello")).thenReturn("en");
+        when(languageDetector.detectLanguage(GENERAL_MESSAGE)).thenReturn("en");
         when(modelConfigService.createChatModel(request)).thenReturn(chatModel);
-        when(promptFactory.buildConversationModelPrompt("en", "hello", "None")).thenReturn("Prompt body");
+        when(promptFactory.buildConversationModelPrompt("en", GENERAL_MESSAGE, "None")).thenReturn("Prompt body");
         when(promptFactory.buildSystemPrompt("en")).thenReturn("System prompt");
         when(chatModel.stream(any(Prompt.class))).thenReturn(Flux.just(
                 new ChatResponse(List.of(new Generation(new AssistantMessage("Hello"))))
@@ -437,7 +521,7 @@ class ChatServiceTest {
     void stopsStreamingWhenTheAccumulatedReplyExceedsTheHardLimit() throws Exception {
         ChatRequest request = new ChatRequest(
                 "s1",
-                "hello",
+                GENERAL_MESSAGE,
                 "https://api.example.com",
                 "sk-test",
                 "gpt-4.1-mini"
@@ -446,9 +530,9 @@ class ChatServiceTest {
         ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
         String oversizedChunk = "x".repeat(32_001);
 
-        when(languageDetector.detectLanguage("hello")).thenReturn("en");
+        when(languageDetector.detectLanguage(GENERAL_MESSAGE)).thenReturn("en");
         when(modelConfigService.createChatModel(request)).thenReturn(chatModel);
-        when(promptFactory.buildConversationModelPrompt("en", "hello", "None")).thenReturn("Prompt body");
+        when(promptFactory.buildConversationModelPrompt("en", GENERAL_MESSAGE, "None")).thenReturn("Prompt body");
         when(promptFactory.buildSystemPrompt("en")).thenReturn("System prompt");
         when(chatModel.stream(any(Prompt.class))).thenReturn(Flux.just(
                 new ChatResponse(List.of(new Generation(new AssistantMessage(oversizedChunk))))
@@ -466,7 +550,7 @@ class ChatServiceTest {
     void doesNotEmitTheFollowUpTailWhenItWouldExceedTheHardLimit() throws Exception {
         ChatRequest request = new ChatRequest(
                 "s1",
-                "hello",
+                GENERAL_MESSAGE,
                 "https://api.example.com",
                 "sk-test",
                 "gpt-4.1-mini"
@@ -475,9 +559,9 @@ class ChatServiceTest {
         ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
         String nearLimitChunk = "x".repeat(ChatService.MAX_STREAMED_REPLY_CHARS - 32);
 
-        when(languageDetector.detectLanguage("hello")).thenReturn("en");
+        when(languageDetector.detectLanguage(GENERAL_MESSAGE)).thenReturn("en");
         when(modelConfigService.createChatModel(request)).thenReturn(chatModel);
-        when(promptFactory.buildConversationModelPrompt("en", "hello", "None")).thenReturn("Prompt body");
+        when(promptFactory.buildConversationModelPrompt("en", GENERAL_MESSAGE, "None")).thenReturn("Prompt body");
         when(promptFactory.buildSystemPrompt("en")).thenReturn("System prompt");
         when(chatModel.stream(any(Prompt.class))).thenReturn(Flux.just(
                 new ChatResponse(List.of(new Generation(new AssistantMessage(nearLimitChunk))))
@@ -496,7 +580,7 @@ class ChatServiceTest {
     void preservesTrailingWhitespaceWhenAppendingTheFollowUpTail() throws Exception {
         ChatRequest request = new ChatRequest(
                 "s1",
-                "hello",
+                GENERAL_MESSAGE,
                 "https://api.example.com",
                 "sk-test",
                 "gpt-4.1-mini"
@@ -506,9 +590,9 @@ class ChatServiceTest {
         ArgumentCaptor<String> replyCaptor = ArgumentCaptor.forClass(String.class);
         String streamedChunk = "Hello from stream \n";
 
-        when(languageDetector.detectLanguage("hello")).thenReturn("en");
+        when(languageDetector.detectLanguage(GENERAL_MESSAGE)).thenReturn("en");
         when(modelConfigService.createChatModel(request)).thenReturn(chatModel);
-        when(promptFactory.buildConversationModelPrompt("en", "hello", "None")).thenReturn("Prompt body");
+        when(promptFactory.buildConversationModelPrompt("en", GENERAL_MESSAGE, "None")).thenReturn("Prompt body");
         when(promptFactory.buildSystemPrompt("en")).thenReturn("System prompt");
         when(chatModel.stream(any(Prompt.class))).thenReturn(Flux.just(
                 new ChatResponse(List.of(new Generation(new AssistantMessage(streamedChunk))))
@@ -536,7 +620,7 @@ class ChatServiceTest {
     void repairsPartialStreamedFollowUpSections() throws Exception {
         ChatRequest request = new ChatRequest(
                 "s1",
-                "hello",
+                GENERAL_MESSAGE,
                 "https://api.example.com",
                 "sk-test",
                 "gpt-4.1-mini"
@@ -545,9 +629,9 @@ class ChatServiceTest {
         ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
         ArgumentCaptor<String> replyCaptor = ArgumentCaptor.forClass(String.class);
 
-        when(languageDetector.detectLanguage("hello")).thenReturn("en");
+        when(languageDetector.detectLanguage(GENERAL_MESSAGE)).thenReturn("en");
         when(modelConfigService.createChatModel(request)).thenReturn(chatModel);
-        when(promptFactory.buildConversationModelPrompt("en", "hello", "None")).thenReturn("Prompt body");
+        when(promptFactory.buildConversationModelPrompt("en", GENERAL_MESSAGE, "None")).thenReturn("Prompt body");
         when(promptFactory.buildSystemPrompt("en")).thenReturn("System prompt");
         when(chatModel.stream(any(Prompt.class))).thenReturn(Flux.just(
                 new ChatResponse(List.of(new Generation(new AssistantMessage("Hello")))),
@@ -617,10 +701,18 @@ class ChatServiceTest {
 
         chatService.streamChat(request, outputStream);
 
-        List<String> messageEvents = extractEventData(outputStream.toString(StandardCharsets.UTF_8), "message").stream()
+        String payload = outputStream.toString(StandardCharsets.UTF_8);
+        List<String> progressEvents = extractEventData(payload, "progress");
+        List<String> messageEvents = extractEventData(payload, "message").stream()
                 .filter(eventData -> !eventData.startsWith("<think>"))
                 .toList();
 
+        assertThat(progressEvents).containsExactly(
+                "Identifying the analysis theme",
+                "Calling the external model to generate the business analysis report",
+                "Model generation complete, validating data consistency",
+                "Model output failed data consistency validation, falling back to the rule-based analysis report"
+        );
         assertThat(messageEvents).containsExactly(plan.fallbackReply().trim());
         verify(sessionMemoryService).addAssistantMessage(eq("s1"), replyCaptor.capture());
         assertThat(replyCaptor.getValue()).isEqualTo(plan.fallbackReply().trim());
@@ -678,14 +770,64 @@ class ChatServiceTest {
 
         chatService.streamChat(request, outputStream);
 
-        List<String> messageEvents = extractEventData(outputStream.toString(StandardCharsets.UTF_8), "message").stream()
+        String payload = outputStream.toString(StandardCharsets.UTF_8);
+        List<String> progressEvents = extractEventData(payload, "progress");
+        List<String> messageEvents = extractEventData(payload, "message").stream()
                 .filter(eventData -> !eventData.startsWith("<think>"))
                 .toList();
 
+        assertThat(progressEvents).containsExactly(
+                "Identifying the analysis theme",
+                "Calling the external model to generate the business analysis report",
+                "Model generation complete, validating data consistency",
+                "Data consistency validation passed, returning the final report"
+        );
         assertThat(messageEvents).containsExactly(validReply);
         verify(sessionMemoryService).addAssistantMessage(eq("s1"), replyCaptor.capture());
         assertThat(replyCaptor.getValue()).isEqualTo(validReply);
         assertThat(messageEvents.getFirst()).isEqualTo(replyCaptor.getValue());
+    }
+
+    @Test
+    void streamingAnalyticsUsesLocalizedChineseProgressMessages() throws Exception {
+        ChatRequest request = new ChatRequest(
+                "s1",
+                "本月哪些经销商目标达成率最低？",
+                "https://api.example.com",
+                "sk-test",
+                "gpt-4.1-mini"
+        );
+        ChatModel chatModel = mock(ChatModel.class);
+        ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
+        AnalyticsPlan plan = analyticsPlan(
+                AnalyticsPlan.Scenario.TARGET_ACHIEVEMENT,
+                chineseAnalyticsFallbackReport()
+        );
+        String validReply = chineseAnalyticsValidReply().trim();
+
+        when(languageDetector.detectLanguage(request.message())).thenReturn("zh");
+        when(languageDetector.detectLanguage(plan.fallbackReply())).thenReturn("zh");
+        when(modelConfigService.createChatModel(request)).thenReturn(chatModel);
+        when(analyticsService.plan(eq(request.message()), eq("zh"), anyString(), any())).thenReturn(plan);
+        when(promptFactory.buildGroundedModelPrompt("zh", request.message(), "无", plan.groundedReference()))
+                .thenReturn("Grounded prompt");
+        when(promptFactory.buildSystemPrompt("zh")).thenReturn("System prompt");
+        when(chatModel.stream(any(Prompt.class))).thenReturn(Flux.just(
+                new ChatResponse(List.of(new Generation(new AssistantMessage(validReply))))
+        ));
+
+        chatService.streamChat(request, outputStream);
+
+        String payload = outputStream.toString(StandardCharsets.UTF_8);
+        List<String> progressEvents = extractEventData(payload, "progress");
+
+        assertThat(progressEvents).containsExactly(
+                "正在识别分析主题",
+                "正在调用外部模型生成经营分析报告",
+                "模型生成完成，正在校验数据一致性",
+                "数据一致性校验通过，正在返回最终报告"
+        );
+        assertThat(extractEventData(payload, "message")).containsExactly(validReply);
     }
 
     @Test
@@ -729,7 +871,13 @@ class ChatServiceTest {
         List<String> messageEvents = extractEventData(payload, "message").stream()
                 .filter(eventData -> !eventData.startsWith("<think>"))
                 .toList();
+        List<String> progressEvents = extractEventData(payload, "progress");
 
+        assertThat(progressEvents).containsExactly(
+                "Identifying the analysis theme",
+                "Calling the external model to generate the business analysis report",
+                "Model call failed, falling back to the rule-based analysis report"
+        );
         assertThat(messageEvents).containsExactly(plan.fallbackReply().trim());
         assertThat(payload).contains("event: done");
         assertThat(payload).doesNotContain("event: error");
@@ -1098,7 +1246,7 @@ class ChatServiceTest {
     void repairsMalformedFollowUpSectionWithDefaults() throws Exception {
         ChatRequest request = new ChatRequest(
                 "s1",
-                "hello",
+                GENERAL_MESSAGE,
                 "https://api.example.com",
                 "sk-test",
                 "gpt-4.1-mini"
@@ -1106,9 +1254,9 @@ class ChatServiceTest {
         ChatModel chatModel = mock(ChatModel.class);
         ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
 
-        when(languageDetector.detectLanguage("hello")).thenReturn("en");
+        when(languageDetector.detectLanguage(GENERAL_MESSAGE)).thenReturn("en");
         when(modelConfigService.createChatModel(request)).thenReturn(chatModel);
-        when(promptFactory.buildConversationModelPrompt("en", "hello", "None")).thenReturn("Prompt body");
+        when(promptFactory.buildConversationModelPrompt("en", GENERAL_MESSAGE, "None")).thenReturn("Prompt body");
         when(promptFactory.buildSystemPrompt("en")).thenReturn("System prompt");
         when(chatModel.stream(any(Prompt.class))).thenReturn(Flux.just(
                 new ChatResponse(List.of(new Generation(new AssistantMessage("Hello")))),

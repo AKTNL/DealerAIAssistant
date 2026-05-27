@@ -92,6 +92,7 @@ public class ChatService {
     public void streamChat(ChatRequest request, OutputStream outputStream) throws IOException {
         String language = languageDetector.detectLanguage(request.message());
         boolean analyticsRequested = looksLikeAnalyticsRequest(request.message());
+        String directReply = buildDirectCasualReply(request.message(), language, analyticsRequested);
         boolean configuredModel = hasConfiguredModelSettings(request);
         String traceId = java.util.UUID.randomUUID().toString().replace("-", "").substring(0, 8);
         sessionMemoryService.addUserMessage(request.sessionId(), request.message());
@@ -108,6 +109,13 @@ public class ChatService {
                 }
             };
             try {
+                if (directReply != null) {
+                    writeChunkedEvent(writer, "message", directReply);
+                    sessionMemoryService.addAssistantMessage(request.sessionId(), directReply);
+                    writeEvent(writer, "done", "[DONE]");
+                    return;
+                }
+
                 AnalyticsPlan analyticsPlan = analyticsRequested
                         ? analyticsService.plan(request.message(), language, traceId, onStep)
                         : null;
@@ -214,6 +222,11 @@ public class ChatService {
         String finalReply;
 
         try {
+            writeEvent(writer, "progress", localizedProgress(
+                    language,
+                    "正在调用外部模型生成经营分析报告",
+                    "Calling the external model to generate the business analysis report"
+            ));
             chatModel.stream(prompt)
                     .doOnNext(chunkResponse -> {
                         String reasoning = extractReasoningContent(chunkResponse);
@@ -234,14 +247,42 @@ public class ChatService {
                     .blockLast();
 
             String rawReply = streamedReply.toString();
-            finalReply = finalizeAnalyticsStreamedReply(stripThinkTags(rawReply), language, analyticsPlan);
+            writeEvent(writer, "progress", localizedProgress(
+                    language,
+                    "模型生成完成，正在校验数据一致性",
+                    "Model generation complete, validating data consistency"
+            ));
+
+            String candidateReply = ensureFollowUpQuestions(stripThinkTags(rawReply), language, true);
+            if (isValidAnalyticsReply(candidateReply, analyticsPlan.fallbackReply())) {
+                finalReply = candidateReply;
+                writeEvent(writer, "progress", localizedProgress(
+                        language,
+                        "数据一致性校验通过，正在返回最终报告",
+                        "Data consistency validation passed, returning the final report"
+                ));
+            } else {
+                finalReply = analyticsPlan.fallbackReply().trim();
+                writeEvent(writer, "progress", localizedProgress(
+                        language,
+                        "模型输出未通过数据一致性校验，已回退到规则分析报告",
+                        "Model output failed data consistency validation, falling back to the rule-based analysis report"
+                ));
+            }
         } catch (UncheckedIOException uncheckedIoException) {
             throw uncheckedIoException.getCause();
+        } catch (IOException ioException) {
+            throw ioException;
         } catch (Exception exception) {
             if (isStreamLimitFailure(exception)) {
                 throw new IllegalStateException(STREAMED_REPLY_LIMIT_MESSAGE, exception);
             }
             finalReply = analyticsPlan.fallbackReply().trim();
+            writeEvent(writer, "progress", localizedProgress(
+                    language,
+                    "模型调用异常，已回退到规则分析报告",
+                    "Model call failed, falling back to the rule-based analysis report"
+            ));
         }
 
         if (finalReply.length() > MAX_STREAMED_REPLY_CHARS) {
@@ -326,17 +367,8 @@ public class ChatService {
         accumulator.append(chunk);
     }
 
-    private String finalizeAnalyticsStreamedReply(String streamedReply, String language, AnalyticsPlan analyticsPlan) {
-        String normalizedReply = ensureFollowUpQuestions(streamedReply, language, true);
-        String finalReply = isValidAnalyticsReply(normalizedReply, analyticsPlan.fallbackReply())
-                ? normalizedReply
-                : analyticsPlan.fallbackReply().trim();
-
-        if (finalReply.length() > MAX_STREAMED_REPLY_CHARS) {
-            throw new IllegalStateException(STREAMED_REPLY_LIMIT_MESSAGE);
-        }
-
-        return finalReply;
+    private String localizedProgress(String language, String zh, String en) {
+        return "zh".equals(language) ? zh : en;
     }
 
     private boolean isStreamLimitFailure(Throwable exception) {
@@ -387,6 +419,11 @@ public class ChatService {
     }
 
     private GeneratedReply generateReply(ChatRequest request, String language, boolean analyticsRequested) {
+        String directReply = buildDirectCasualReply(request.message(), language, analyticsRequested);
+        if (directReply != null) {
+            return new GeneratedReply(directReply, List.of(), "");
+        }
+
         if (!hasConfiguredModelSettings(request)) {
             if (analyticsRequested) {
                 AnalyticsPlan plan = analyticsService.plan(request.message(), language);
@@ -1064,6 +1101,69 @@ public class ChatService {
 
     private boolean hasText(String value) {
         return value != null && !value.isBlank();
+    }
+
+    private String buildDirectCasualReply(String message, String language, boolean analyticsRequested) {
+        if (analyticsRequested || !looksLikeCasualGreetingOrIntro(message)) {
+            return null;
+        }
+
+        if ("zh".equals(language)) {
+            return """
+                    你好，我是经销商 AI 分析助手。你可以问我目标达成、商机漏斗、销售跟进、市场活动、线索来源等业务问题。
+
+                    FOLLOW_UP_QUESTIONS:
+                    1. 哪些门店目标达成率最低？
+                    2. 分析一下各门店的商机漏斗转化情况
+                    """.trim();
+        }
+
+        return """
+                Hi, I'm the dealer AI analytics assistant. You can ask about target achievement, opportunity funnels, sales follow-up, campaigns, lead sources, and related business questions.
+
+                FOLLOW_UP_QUESTIONS:
+                1. Which dealers have the lowest target achievement rate?
+                2. Analyze opportunity funnel conversion by dealer
+                """.trim();
+    }
+
+    private boolean looksLikeCasualGreetingOrIntro(String message) {
+        String normalized = message == null ? "" : message.trim().toLowerCase(Locale.ROOT);
+        if (normalized.isBlank()) {
+            return false;
+        }
+
+        String compact = normalized.replaceAll("[\\s\\p{Punct}，。！？、；：‘’“”（）【】《》]+", "");
+        if (compact.isBlank()) {
+            return false;
+        }
+
+        if (List.of(
+                "你好", "您好", "嗨", "哈喽", "哈啰", "hello", "hi", "hey",
+                "你是谁", "你是誰", "介绍一下系统", "介绍系统", "系统介绍",
+                "你能做什么", "你可以做什么", "你能干什么"
+        ).contains(compact)) {
+            return true;
+        }
+
+        if ((compact.startsWith("你好") || compact.startsWith("您好")) && compact.length() <= 4) {
+            return true;
+        }
+
+        if (compact.contains("介绍") && compact.contains("系统") && compact.length() <= 20) {
+            return true;
+        }
+
+        if (compact.contains("你是谁") || compact.contains("你是誰")) {
+            return true;
+        }
+
+        String asciiOnly = compact.replaceAll("[^a-z]", "");
+        return List.of(
+                "hello", "hi", "hey", "hithere", "hellothere",
+                "whoareyou", "whatareyou", "introduceyourself",
+                "introducethesystem", "whatcanyoudo"
+        ).contains(asciiOnly);
     }
 
     private String stripThinkTags(String text) {

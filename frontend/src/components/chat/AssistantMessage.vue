@@ -18,6 +18,7 @@ const props = defineProps({
 defineEmits(["submit-follow-up"]);
 
 const timelineExpanded = ref(false);
+const thinkingCollapsed = ref(false);
 
 const messageCard = ref(null);
 const chartJsonBlocks = ref([]);
@@ -29,12 +30,22 @@ const EMPTY_ANALYSIS_ENHANCEMENTS = { charts: [], metricCards: [] };
 
 const thinkingSummary = computed(() => buildThinkingSummary(props.message?.steps, props.locale));
 const thinkingSummaryTitle = computed(() => props.locale === "zh" ? "证据链" : "Evidence trail");
+const progressTitle = computed(() => props.locale === "zh" ? "分析进度" : "Processing progress");
+const progressSteps = computed(() => {
+  const steps = Array.isArray(props.message?.steps) ? props.message.steps : [];
+  return steps.filter(step => step?.type === "progress" || step?.progressPlaceholder === true);
+});
 const timelineSteps = computed(() => {
   const steps = Array.isArray(props.message?.steps) ? props.message.steps : [];
-  const thoughtSteps = steps.filter(step => step?.type === "model_thought");
+  const auditSteps = steps.filter(step => step?.type !== "progress" && step?.progressPlaceholder !== true);
+  const thoughtSteps = auditSteps.filter(step => step?.type === "model_thought");
 
-  return thoughtSteps.length ? thoughtSteps : steps;
+  return thoughtSteps.length ? thoughtSteps : auditSteps;
 });
+const hasThinkingDetails = computed(() =>
+  thinkingSummary.value.length > 0 || progressSteps.value.length > 0 || timelineSteps.value.length > 0
+);
+const showThinkingDetails = computed(() => !thinkingCollapsed.value);
 
 const analysisEnhancements = computed(() => {
   if (!props.message?.html || props.message?.streaming || props.message?.rendered === false) {
@@ -56,10 +67,15 @@ const analysisEnhancements = computed(() => {
 
 
 watch(() => props.message?.streaming, (streaming) => {
-  if (streaming) {
-    timelineExpanded.value = true;
-  }
+  const expanded = Boolean(streaming);
+  timelineExpanded.value = expanded;
+  thinkingCollapsed.value = !expanded;
 }, { immediate: true });
+
+function toggleThinkingDetails() {
+  timelineExpanded.value = !timelineExpanded.value;
+  thinkingCollapsed.value = !timelineExpanded.value;
+}
 
 function hasActiveModelThought() {
   return props.message?.steps?.some(s => s.type === 'model_thought' && s.status === 'loading');
@@ -547,18 +563,18 @@ onBeforeUnmount(() => {
         </div>
 
         <button
-          v-if="timelineSteps.length"
+          v-if="hasThinkingDetails"
           class="timeline-toggle timeline-toggle-inline"
           type="button"
           :aria-expanded="String(Boolean(timelineExpanded))"
-          @click="timelineExpanded = !timelineExpanded"
+          @click="toggleThinkingDetails"
         >
           {{ timelineExpanded ? dictionary.hideThinking : dictionary.showThinking }}
         </button>
       </div>
 
       <section
-        v-if="thinkingSummary.length"
+        v-if="thinkingSummary.length && showThinkingDetails"
         class="thinking-summary"
         :aria-label="thinkingSummaryTitle"
       >
@@ -578,6 +594,25 @@ onBeforeUnmount(() => {
             <span v-if="card.detail" class="thinking-summary-detail">{{ card.detail }}</span>
           </article>
         </div>
+      </section>
+
+      <section v-if="progressSteps.length && showThinkingDetails" class="processing-progress" :aria-label="progressTitle">
+        <div class="processing-progress-header">
+          <span>{{ progressTitle }}</span>
+          <span class="processing-progress-count">{{ progressSteps.length }}</span>
+        </div>
+
+        <ol class="processing-progress-list">
+          <li
+            v-for="step in progressSteps"
+            :key="`${step.seq}-${step.ts}-${step.label}`"
+            class="processing-progress-item"
+            :class="`processing-progress-item--${step.status || 'loading'}`"
+          >
+            <span class="processing-progress-dot" aria-hidden="true"></span>
+            <span class="processing-progress-label">{{ step.label }}</span>
+          </li>
+        </ol>
       </section>
 
       <!-- Timeline panel: model thought first, structured audit fallback -->
@@ -615,7 +650,7 @@ onBeforeUnmount(() => {
             <details
               v-if="step.type === 'model_thought'"
               class="timeline-step-detail"
-              :open="message.streaming"
+              :open="message.streaming || timelineExpanded"
             >
               <summary>{{ dictionary.showThinking || (locale === 'zh' ? '模型思考过程' : 'Model reasoning') }}</summary>
               <div class="markdown-body">{{ step.detail }}</div>

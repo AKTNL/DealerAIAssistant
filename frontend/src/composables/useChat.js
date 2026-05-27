@@ -359,17 +359,49 @@ export function useChat({ authVerified, dictionary, locale, modelSettings, openM
       crossChunkBuffer = "";
     }
 
-    function clearProgressPlaceholders() {
-      assistantMessage.steps = assistantMessage.steps.filter(step => step.progressPlaceholder !== true);
+    function finishLoadingProgressSteps() {
+      for (const step of assistantMessage.steps) {
+        if (step.type === "progress" && step.status === "loading") {
+          step.status = "success";
+        }
+      }
     }
 
     function finalizeTimelineSteps() {
-      clearProgressPlaceholders();
+      finishLoadingProgressSteps();
       for (const step of assistantMessage.steps) {
         if (step.status === "loading") {
           step.status = "success";
         }
       }
+    }
+
+    function appendProgressStep(label) {
+      const normalizedLabel = String(label ?? "").trim();
+      if (!normalizedLabel) {
+        return;
+      }
+
+      const previousStep = assistantMessage.steps[assistantMessage.steps.length - 1];
+      if (previousStep?.type === "progress" && previousStep.label === normalizedLabel) {
+        return;
+      }
+
+      finishLoadingProgressSteps();
+      assistantMessage.steps.push({
+        traceId: null,
+        seq: assistantMessage.steps.length + 1,
+        type: "progress",
+        status: "loading",
+        label: normalizedLabel,
+        detail: "",
+        meta: null,
+        ts: Date.now()
+      });
+    }
+
+    function hasVisibleAssistantBody() {
+      return assistantMessage.content.trim().length > 0;
     }
 
     function modelThoughtLabel() {
@@ -396,7 +428,7 @@ export function useChat({ authVerified, dictionary, locale, modelSettings, openM
               return;
             }
 
-            clearProgressPlaceholders();
+            finishLoadingProgressSteps();
 
             // Ensure status field exists
             if (!stepData.status) {
@@ -414,18 +446,7 @@ export function useChat({ authVerified, dictionary, locale, modelSettings, openM
           }
 
           if (event === "progress") {
-            // Push loading placeholder — will be cleared when real step arrives
-            assistantMessage.steps.push({
-              traceId: null,
-              seq: assistantMessage.steps.length + 1,
-              type: null,
-              status: "loading",
-              label: eventText || "",
-              detail: "",
-              meta: null,
-              ts: Date.now(),
-              progressPlaceholder: true
-            });
+            appendProgressStep(eventText);
             syncViewport();
             return;
           }
@@ -540,7 +561,9 @@ export function useChat({ authVerified, dictionary, locale, modelSettings, openM
             finalizeTimelineSteps();
             streamPhase.value = STREAM_PHASE.IDLE;
             flushAssistantRender(assistantMessage);
-            requestError.value = getModelErrorMessage(eventText, dictionary.value, locale.value);
+            if (!hasVisibleAssistantBody()) {
+              requestError.value = getModelErrorMessage(eventText, dictionary.value, locale.value);
+            }
             assistantMessage.status = "";
             assistantMessage.streaming = false;
             syncViewport();
@@ -573,10 +596,12 @@ export function useChat({ authVerified, dictionary, locale, modelSettings, openM
         return;
       }
 
-      if (error.name === "AbortError") {
-        requestError.value = locale.value === "zh" ? "请求已中断。" : "The request was interrupted.";
-      } else {
-        requestError.value = getModelErrorMessage(error, dictionary.value, locale.value);
+      if (!hasVisibleAssistantBody()) {
+        if (error.name === "AbortError") {
+          requestError.value = locale.value === "zh" ? "请求已中断。" : "The request was interrupted.";
+        } else {
+          requestError.value = getModelErrorMessage(error, dictionary.value, locale.value);
+        }
       }
     } finally {
       flushAssistantRender(assistantMessage);

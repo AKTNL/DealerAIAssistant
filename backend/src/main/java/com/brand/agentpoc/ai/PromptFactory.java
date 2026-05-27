@@ -204,13 +204,13 @@ public class PromptFactory {
                     最近会话上下文：
                     %s
 
-                    如果当前问题涉及经销商经营分析、门店表现、商机、线索、任务、活动、目标或对标，请先调用相关工具获取事实，再给出回答。
+                    这是普通对话路径，不是带事实依据的经营分析报告路径。
                     要求：
                     1. 使用中文
-                    2. 使用 Markdown，段落标题必须使用中文
-                    3. 回答专业、自然，信息充分，引用具体数据
-                    4. 不要暴露隐藏推理过程
-                    5. 结尾必须保留 `追问：`，并给出 2 个编号追问，每个追问必须与当前对话主题的具体实体或指标直接相关，禁止笼统的泛泛追问
+                    2. 回答自然、简短、友好，优先直接回应用户当前问题
+                    3. 如果用户是在问候、询问你是谁或介绍系统，请说明你是经销商 AI 分析助手，并提示可以询问目标达成、商机漏斗、销售跟进、市场活动、线索来源等业务问题
+                    4. 不要使用经营分析报告的固定标题或结构，不要编造业务数据
+                    5. 不要暴露隐藏推理过程
                     """.formatted(userMessage, sessionHistory);
         }
 
@@ -221,13 +221,13 @@ public class PromptFactory {
                 Recent conversation context:
                 %s
 
-                If the current question is about dealer analysis, store performance, opportunities, leads, tasks, campaigns, targets, or benchmarking, call the relevant tools before answering.
+                This is the general conversation path, not the grounded analytics report path.
                 Requirements:
                 1. Use English
-                2. Use Markdown
-                3. Keep the answer professional, informative, and reference specific data
-                4. Do not reveal hidden reasoning
-                5. End with `FOLLOW_UP_QUESTIONS:` and provide exactly 2 numbered follow-up questions, each directly related to the specific entities or metrics discussed. No vague generic questions.
+                2. Keep the answer natural, brief, and helpful
+                3. If the user greets you, asks who you are, or asks for a system introduction, say you are a dealer AI analytics assistant and suggest business questions such as target achievement, opportunity funnel, sales follow-up, campaigns, and lead sources
+                4. Do not use the fixed analytics report headings or structure, and do not invent business data
+                5. Do not reveal hidden reasoning
                 """.formatted(userMessage, sessionHistory);
     }
 

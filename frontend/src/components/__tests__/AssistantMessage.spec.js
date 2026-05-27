@@ -304,6 +304,179 @@ describe("AssistantMessage mermaid blocks", () => {
 });
 
 describe("AssistantMessage timeline panel", () => {
+  test("renders retained progress steps in a localized processing progress section", async () => {
+    const steps = [
+      { seq: 1, type: "progress", status: "success", label: "正在识别分析主题", ts: 1000 },
+      { seq: 2, type: "progress", status: "success", label: "正在调用外部模型生成经营分析报告", ts: 1001 },
+      { seq: 3, type: "progress", status: "success", label: "模型生成完成，正在校验数据一致性", ts: 1002 }
+    ];
+
+    const wrapper = mountAssistant(buildMessage("<p>response</p>", {
+      id: "assistant-progress",
+      steps,
+      streaming: false
+    }));
+
+    expect(wrapper.find(".processing-progress").exists()).toBe(false);
+    await wrapper.find(".timeline-toggle").trigger("click");
+
+    const progress = wrapper.find(".processing-progress");
+    expect(progress.exists()).toBe(true);
+    expect(progress.text()).toContain("分析进度");
+    expect(progress.findAll(".processing-progress-item")).toHaveLength(3);
+    expect(progress.text()).toContain("正在识别分析主题");
+    expect(progress.text()).toContain("正在调用外部模型生成经营分析报告");
+    expect(progress.text()).toContain("模型生成完成，正在校验数据一致性");
+  });
+
+  test("renders English processing progress title", async () => {
+    const wrapper = mount(AssistantMessage, {
+      props: {
+        dictionary,
+        locale: "en",
+        message: buildMessage("<p>response</p>", {
+          id: "assistant-progress-en",
+          steps: [
+            { seq: 1, type: "progress", status: "success", label: "Calling the external model", ts: 1000 }
+          ],
+          streaming: false
+        })
+      },
+      global: {
+        stubs: {
+          FollowUpButtons: { template: "<div />" }
+        }
+      }
+    });
+
+    expect(wrapper.find(".processing-progress").exists()).toBe(false);
+    await wrapper.find(".timeline-toggle").trigger("click");
+
+    expect(wrapper.find(".processing-progress").text()).toContain("Processing progress");
+  });
+
+  test("auto-collapses thought and progress when streaming finishes and reopens with the thinking toggle", async () => {
+    const steps = [
+      { seq: 1, type: "model_thought", status: "loading", label: "Reasoning", detail: "Checking inputs", ts: 1000 },
+      { seq: 2, type: "progress", status: "loading", label: "Calling model", ts: 1001 }
+    ];
+
+    const wrapper = mount(AssistantMessage, {
+      props: {
+        dictionary,
+        locale: "en",
+        message: buildMessage("<p>Final answer</p>", {
+          id: "assistant-auto-collapse",
+          steps,
+          streaming: true,
+          rendered: false
+        }),
+        streamPhase: "thinking"
+      },
+      global: {
+        stubs: {
+          FollowUpButtons: { template: "<div />" }
+        }
+      }
+    });
+
+    expect(wrapper.find(".timeline-panel").exists()).toBe(true);
+    expect(wrapper.find(".processing-progress").exists()).toBe(true);
+
+    await wrapper.setProps({
+      message: buildMessage("<p>Final answer</p>", {
+        id: "assistant-auto-collapse",
+        steps: steps.map(step => ({ ...step, status: "success" })),
+        streaming: false,
+        rendered: true,
+        followUps: ["What should we inspect next?"]
+      }),
+      streamPhase: "idle"
+    });
+
+    const toggle = wrapper.find(".timeline-toggle");
+    expect(toggle.attributes("aria-expanded")).toBe("false");
+    expect(wrapper.find(".timeline-panel").exists()).toBe(false);
+    expect(wrapper.find(".processing-progress").exists()).toBe(false);
+    expect(wrapper.find(".analysis-response-body").text()).toContain("Final answer");
+
+    await toggle.trigger("click");
+
+    expect(wrapper.find(".timeline-panel").exists()).toBe(true);
+    expect(wrapper.find(".processing-progress").exists()).toBe(true);
+    expect(wrapper.find(".timeline-panel").text()).toContain("Checking inputs");
+  });
+
+  test("keeps progress-only completed messages collapsed until the thinking toggle is opened", async () => {
+    const wrapper = mount(AssistantMessage, {
+      props: {
+        dictionary,
+        locale: "en",
+        message: buildMessage("<p>Final answer</p>", {
+          id: "assistant-progress-only-collapse",
+          steps: [
+            { seq: 1, type: "progress", status: "success", label: "Calling model", ts: 1000 }
+          ],
+          streaming: false,
+          rendered: true
+        }),
+        streamPhase: "idle"
+      },
+      global: {
+        stubs: {
+          FollowUpButtons: { template: "<div />" }
+        }
+      }
+    });
+
+    const toggle = wrapper.find(".timeline-toggle");
+    expect(toggle.exists()).toBe(true);
+    expect(toggle.attributes("aria-expanded")).toBe("false");
+    expect(wrapper.find(".processing-progress").exists()).toBe(false);
+
+    await toggle.trigger("click");
+
+    expect(wrapper.find(".processing-progress").exists()).toBe(true);
+    expect(wrapper.find(".processing-progress").text()).toContain("Calling model");
+  });
+
+  test("collapses evidence summary and processing progress with the thinking toggle", async () => {
+    const steps = [
+      {
+        seq: 1,
+        type: "data_load",
+        status: "success",
+        label: "Load target data",
+        ts: "2026-05-26T10:00:00Z",
+        meta: {
+          file_name: "performance_2026.xlsx",
+          recordCount: 248,
+          source_type: "excel"
+        }
+      },
+      { seq: 2, type: "progress", status: "success", label: "姝ｅ湪璋冪敤澶栭儴妯″瀷鐢熸垚缁忚惀鍒嗘瀽鎶ュ憡", ts: 1001 }
+    ];
+
+    const wrapper = mountAssistant(buildMessage("<p>response</p>", {
+      id: "assistant-process-collapse",
+      steps,
+      streaming: true
+    }));
+
+    expect(wrapper.find(".thinking-summary").exists()).toBe(true);
+    expect(wrapper.find(".processing-progress").exists()).toBe(true);
+
+    await wrapper.find(".timeline-toggle").trigger("click");
+
+    expect(wrapper.find(".thinking-summary").exists()).toBe(false);
+    expect(wrapper.find(".processing-progress").exists()).toBe(false);
+
+    await wrapper.find(".timeline-toggle").trigger("click");
+
+    expect(wrapper.find(".thinking-summary").exists()).toBe(true);
+    expect(wrapper.find(".processing-progress").exists()).toBe(true);
+  });
+
   test("renders structured timeline steps when no model thought is present", () => {
     const steps = [
       { seq: 1, type: "data_load", status: "success", label: "Load sales data", ts: "2026-05-26T10:00:00Z", detail: "Loaded 1,234 rows" },
@@ -360,7 +533,7 @@ describe("AssistantMessage timeline panel", () => {
     expect(steps_el[0].find(".timeline-step-detail .markdown-body").text()).toBe("The model considered multiple factors.");
   });
 
-  test("renders a compact evidence summary from step metadata", () => {
+  test("renders a compact evidence summary from step metadata", async () => {
     const steps = [
       {
         seq: 1,
@@ -428,6 +601,10 @@ describe("AssistantMessage timeline panel", () => {
         }
       }
     });
+
+    expect(wrapper.find(".thinking-summary").exists()).toBe(false);
+
+    await wrapper.find(".timeline-toggle").trigger("click");
 
     const summary = wrapper.find(".thinking-summary");
     expect(summary.exists()).toBe(true);
@@ -578,7 +755,6 @@ describe("AssistantMessage timeline panel", () => {
     expect(wrapper.find(".thinking-indicator").exists()).toBe(false);
   });
 });
-
 describe("AssistantMessage analysis enhancements", () => {
   test("renders metric cards from current reply values and not fixed examples", async () => {
     const html = renderMarkdownLite(`## Conclusion

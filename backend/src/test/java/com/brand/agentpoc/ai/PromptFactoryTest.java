@@ -66,34 +66,33 @@ class PromptFactoryTest {
     }
 
     @Test
-    void systemPromptIncludesNewReportStructureInChinese() {
+    void systemPromptDoesNotForceReportStructureInChinese() {
         String prompt = promptFactory.buildSystemPrompt("zh");
 
-        assertThat(prompt).contains("## 接口调用链");
-        assertThat(prompt).contains("## 核心结论");
-        assertThat(prompt).contains("## 数据支撑");
-        assertThat(prompt).contains("## 经营分析");
-        assertThat(prompt).contains("## 问题诊断与解决");
-        assertThat(prompt).contains("## 改进建议");
-        assertThat(prompt).contains("严禁修改以下二级标题的任何文字");
-        assertThat(prompt).contains("严禁在【数据支撑】后方或报告末尾创造任何形式");
+        assertThat(prompt).contains("经销商");
+        assertThat(prompt).doesNotContain("## 接口调用链");
+        assertThat(prompt).doesNotContain("## 核心结论");
+        assertThat(prompt).doesNotContain("## 数据支撑");
+        assertThat(prompt).doesNotContain("## 经营分析");
+        assertThat(prompt).doesNotContain("## 问题诊断与解决");
+        assertThat(prompt).doesNotContain("## 改进建议");
+        assertThat(prompt).doesNotContain("严禁修改以下二级标题的任何文字");
         assertThat(prompt).doesNotContain("## 数据汇总");
     }
 
     @Test
-    void systemPromptIncludesNewReportStructureInEnglish() {
+    void systemPromptDoesNotForceReportStructureInEnglish() {
         String prompt = promptFactory.buildSystemPrompt("en");
 
-        assertThat(prompt).contains("## Interface Call Chain");
-        assertThat(prompt).contains("## Conclusion");
-        assertThat(prompt).contains("## Data Support");
-        assertThat(prompt).contains("## Short Analysis");
-        assertThat(prompt).contains("## Problem Diagnosis & Solutions");
-        assertThat(prompt).contains("## Improvement Suggestions");
-        assertThat(prompt).contains("Do not change any required level-2 heading text");
-        assertThat(prompt).contains("chart-json");
-        assertThat(prompt).contains("Do not convert chart-json blocks into Mermaid");
-        assertThat(prompt).contains("Do not create any data overview");
+        assertThat(prompt).contains("dealer operations");
+        assertThat(prompt).doesNotContain("## Interface Call Chain");
+        assertThat(prompt).doesNotContain("## Conclusion");
+        assertThat(prompt).doesNotContain("## Data Support");
+        assertThat(prompt).doesNotContain("## Short Analysis");
+        assertThat(prompt).doesNotContain("## Problem Diagnosis & Solutions");
+        assertThat(prompt).doesNotContain("## Improvement Suggestions");
+        assertThat(prompt).doesNotContain("Do not change any required level-2 heading text");
+        assertThat(prompt).doesNotContain("Do not create any data overview");
         assertThat(prompt).doesNotContain("## Data Summary");
     }
 
@@ -121,6 +120,32 @@ class PromptFactoryTest {
         assertThat(prompt).contains("Do not change any required level-2 heading text");
         assertThat(prompt).contains("Do not create any data overview");
         assertThat(prompt).doesNotContain("## Data Summary");
+    }
+
+    @Test
+    void conversationPromptDoesNotRequireAnalyticsReportStructureInChinese() {
+        String prompt = promptFactory.buildConversationModelPrompt("zh", "你好", "无");
+
+        assertThat(prompt).contains("自然");
+        assertThat(prompt).doesNotContain("## 接口调用链");
+        assertThat(prompt).doesNotContain("## 核心结论");
+        assertThat(prompt).doesNotContain("## 数据支撑");
+        assertThat(prompt).doesNotContain("## 经营分析");
+        assertThat(prompt).doesNotContain("## 问题诊断与解决");
+        assertThat(prompt).doesNotContain("## 改进建议");
+    }
+
+    @Test
+    void conversationPromptDoesNotRequireAnalyticsReportStructureInEnglish() {
+        String prompt = promptFactory.buildConversationModelPrompt("en", "hello", "None");
+
+        assertThat(prompt).contains("natural");
+        assertThat(prompt).doesNotContain("## Interface Call Chain");
+        assertThat(prompt).doesNotContain("## Conclusion");
+        assertThat(prompt).doesNotContain("## Data Support");
+        assertThat(prompt).doesNotContain("## Short Analysis");
+        assertThat(prompt).doesNotContain("## Problem Diagnosis & Solutions");
+        assertThat(prompt).doesNotContain("## Improvement Suggestions");
     }
 
     @Test
@@ -190,11 +215,11 @@ class PromptFactoryTest {
     }
 
     @Test
-    void systemPromptAsksForNaturalThinkingParagraphsInsteadOfNumberedChecklists() {
+    void systemPromptDoesNotRequireThinkingOrFixedReportStructureForGeneralConversation() {
         String prompt = promptFactory.buildSystemPrompt("en");
 
-        assertThat(prompt).contains("natural-language paragraph");
-        assertThat(prompt).contains("Do not write the <think> content as a numbered list");
+        assertThat(prompt).doesNotContain("Before generating the final reply");
+        assertThat(prompt).doesNotContain("The final reply follows immediately after </think>");
         assertThat(prompt).doesNotContain("1. Interpret the user's core intent");
     }
 }
