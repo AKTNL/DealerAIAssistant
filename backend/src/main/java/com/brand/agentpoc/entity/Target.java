@@ -42,6 +42,9 @@ public class Target {
     @Column(nullable = false)
     private Integer opportunityWonCount;
 
+    @Column(nullable = false)
+    private Integer opportunityCreateCount;
+
     protected Target() {
     }
 
@@ -54,7 +57,8 @@ public class Target {
             Integer targetYear,
             Integer targetMonth,
             Integer asKTarget,
-            Integer opportunityWonCount
+            Integer opportunityWonCount,
+            Integer opportunityCreateCount
     ) {
         this.dealerCode = dealerCode;
         this.dealerName = dealerName;
@@ -65,6 +69,7 @@ public class Target {
         this.targetMonth = targetMonth;
         this.asKTarget = asKTarget;
         this.opportunityWonCount = opportunityWonCount;
+        this.opportunityCreateCount = opportunityCreateCount;
     }
 
     public Long getId() {
@@ -105,5 +110,9 @@ public class Target {
 
     public Integer getOpportunityWonCount() {
         return opportunityWonCount;
+    }
+
+    public Integer getOpportunityCreateCount() {
+        return opportunityCreateCount;
     }
 }

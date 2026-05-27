@@ -38,6 +38,7 @@ function handleSignOut() {
 
   <ChatView
     v-else
+    :auth-verified="authVerified"
     :dictionary="dictionary"
     :locale="locale"
     @toggle-locale="toggleLocale"

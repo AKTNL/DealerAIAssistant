@@ -4,7 +4,9 @@ import jakarta.validation.constraints.NotBlank;
 
 public record ChatRequest(
         @NotBlank String sessionId,
-        @NotBlank String message
+        @NotBlank String message,
+        String baseUrl,
+        String apiKey,
+        String model
 ) {
 }
-

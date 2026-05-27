@@ -27,7 +27,7 @@ public class LeadTools {
             String city,
             @ToolParam(description = "Optional exact dealer group name filter.", required = false)
             String dealerGroupName,
-            @ToolParam(description = "Optional lead source filter such as Website, Campaign, WeChat, or Referral.", required = false)
+            @ToolParam(description = "Required lead source filter such as Website, Campaign, WeChat, or Referral.", required = true)
             String leadSource,
             @ToolParam(description = "Optional lead stage filter such as New, Qualified, Converted, or Lost.", required = false)
             String stageName,
@@ -39,9 +39,11 @@ public class LeadTools {
             String endDate,
             @ToolParam(description = "Optional conversion flag true or false.", required = false)
             Boolean isConverted,
-            @ToolParam(description = "Optional raw mode flag. When true, return full matching rows.", required = false)
+            @ToolParam(description = "Required raw mode flag. When true, return full matching rows.", required = true)
             Boolean raw
     ) {
+        ToolFilterSupport.requireText("leadSource", leadSource);
+        ToolFilterSupport.requireBoolean("raw", raw);
         Map<String, String> filters = ToolFilterSupport.newFilters();
         ToolFilterSupport.put(filters, "dealerCode", dealerCode);
         ToolFilterSupport.put(filters, "city", city);

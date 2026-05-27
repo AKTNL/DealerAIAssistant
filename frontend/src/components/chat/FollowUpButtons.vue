@@ -25,6 +25,7 @@ defineEmits(["select"]);
         type="button"
         @click="$emit('select', followUp)"
       >
+        <span class="material-icons">search</span>
         {{ followUp }}
       </button>
     </div>

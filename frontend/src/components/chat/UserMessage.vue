@@ -13,9 +13,9 @@ defineProps({
 
 <template>
   <article class="message-row message-user">
-    <div class="avatar">YOU</div>
+    <div class="avatar avatar-user">ME</div>
 
-    <div class="message-card">
+    <div class="message-card message-card-user message-bubble-user">
       <div class="message-meta">
         <span>{{ dictionary.userLabel }}</span>
       </div>

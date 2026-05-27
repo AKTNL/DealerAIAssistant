@@ -1,0 +1,1175 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "经销商分析助手全域业务 API",
+    "version": "4.0.0",
+    "description": "提供大模型分析经销商业务的核心API。包含【汇总指标】与【全字段明细】。\n\n**大模型（AI）调度规则（必须遵守）：**\n1. **首选汇总**：遇到分析趋势、达成率、对比、宏观统计时，优先调用 `_metrics` 接口获取已计算好的数据。\n2. **按需抓取明细**：只有用户明确要求查看具体流水记录时，才调用 `_details` 接口。\n3. **分页与归纳法则**：当 `_details` 返回大量数据时，AI必须使用 `page` 和 `pageSize` (默认50) 进行分批抓取。"
+  },
+  "servers": [
+    {
+      "url": "http://localhost:8081",
+      "description": "本地开发环境"
+    },
+    {
+      "url": "https://your-api-domain.com",
+      "description": "生产环境"
+    }
+  ],
+  "security": [
+    {
+      "ApiKeyAuth": []
+    }
+  ],
+  "components": {
+    "securitySchemes": {
+      "ApiKeyAuth": {
+        "type": "apiKey",
+        "in": "header",
+        "name": "X-API-Key"
+      }
+    },
+    "schemas": {
+      "TargetMetrics": {
+        "type": "object",
+        "properties": {
+          "totalDealers": {
+            "type": "integer"
+          },
+          "totalAsKTarget": {
+            "type": "integer"
+          },
+          "totalOpportunityWon": {
+            "type": "integer"
+          },
+          "averageAchievementRate": {
+            "type": "number"
+          },
+          "lowestDealer": {
+            "$ref": "#/components/schemas/DealerMetric"
+          },
+          "highestDealer": {
+            "$ref": "#/components/schemas/DealerMetric"
+          }
+        }
+      },
+      "DealerMetric": {
+        "type": "object",
+        "properties": {
+          "dealerCode": {
+            "type": "string"
+          },
+          "dealerName": {
+            "type": "string"
+          },
+          "achievementRate": {
+            "type": "number"
+          }
+        }
+      },
+      "TargetDetail": {
+        "type": "object",
+        "properties": {
+          "dealerCode": {
+            "type": "string"
+          },
+          "dealerName": {
+            "type": "string"
+          },
+          "city": {
+            "type": "string"
+          },
+          "dealerGroupName": {
+            "type": "string"
+          },
+          "productModel": {
+            "type": "string"
+          },
+          "targetYear": {
+            "type": "integer"
+          },
+          "targetMonth": {
+            "type": "integer"
+          },
+          "asKTarget": {
+            "type": "integer"
+          },
+          "opportunityWonCount": {
+            "type": "integer"
+          }
+        }
+      },
+      "OpportunityMetrics": {
+        "type": "object",
+        "properties": {
+          "totalOpportunities": {
+            "type": "integer"
+          },
+          "wonCount": {
+            "type": "integer"
+          },
+          "lostCount": {
+            "type": "integer"
+          },
+          "openCount": {
+            "type": "integer"
+          },
+          "winRate": {
+            "type": "number"
+          },
+          "stageDistribution": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "integer"
+            }
+          },
+          "topLossReasons": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/LossReason"
+            }
+          }
+        }
+      },
+      "LossReason": {
+        "type": "object",
+        "properties": {
+          "reason": {
+            "type": "string"
+          },
+          "count": {
+            "type": "integer"
+          }
+        }
+      },
+      "OpportunityDetail": {
+        "type": "object",
+        "properties": {
+          "opportunityId": {
+            "type": "string"
+          },
+          "dealerCode": {
+            "type": "string"
+          },
+          "dealerName": {
+            "type": "string"
+          },
+          "city": {
+            "type": "string"
+          },
+          "dealerGroupName": {
+            "type": "string"
+          },
+          "productModel": {
+            "type": "string"
+          },
+          "stageName": {
+            "type": "string"
+          },
+          "leadSource": {
+            "type": "string"
+          },
+          "createdDate": {
+            "type": "string"
+          },
+          "probability": {
+            "type": "integer"
+          }
+        }
+      },
+      "LeadMetrics": {
+        "type": "object",
+        "properties": {
+          "totalLeads": {
+            "type": "integer"
+          },
+          "convertedCount": {
+            "type": "integer"
+          },
+          "conversionRate": {
+            "type": "number"
+          },
+          "sourceDistribution": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "integer"
+            }
+          },
+          "bestConversionSource": {
+            "$ref": "#/components/schemas/SourceMetric"
+          }
+        }
+      },
+      "SourceMetric": {
+        "type": "object",
+        "properties": {
+          "source": {
+            "type": "string"
+          },
+          "conversionRate": {
+            "type": "number"
+          }
+        }
+      },
+      "LeadDetail": {
+        "type": "object",
+        "properties": {
+          "leadId": {
+            "type": "string"
+          },
+          "dealerCode": {
+            "type": "string"
+          },
+          "dealerName": {
+            "type": "string"
+          },
+          "city": {
+            "type": "string"
+          },
+          "dealerGroupName": {
+            "type": "string"
+          },
+          "leadSource": {
+            "type": "string"
+          },
+          "stageName": {
+            "type": "string"
+          },
+          "productModel": {
+            "type": "string"
+          },
+          "createdDate": {
+            "type": "string"
+          },
+          "isConverted": {
+            "type": "boolean"
+          }
+        }
+      },
+      "TaskMetrics": {
+        "type": "object",
+        "properties": {
+          "totalTasks": {
+            "type": "integer"
+          },
+          "completedCount": {
+            "type": "integer"
+          },
+          "openCount": {
+            "type": "integer"
+          },
+          "overdueCount": {
+            "type": "integer"
+          },
+          "completionRate": {
+            "type": "number"
+          },
+          "highestBacklogDealer": {
+            "$ref": "#/components/schemas/BacklogDealer"
+          }
+        }
+      },
+      "BacklogDealer": {
+        "type": "object",
+        "properties": {
+          "dealerCode": {
+            "type": "string"
+          },
+          "dealerName": {
+            "type": "string"
+          },
+          "openCount": {
+            "type": "integer"
+          },
+          "overdueCount": {
+            "type": "integer"
+          }
+        }
+      },
+      "TaskDetail": {
+        "type": "object",
+        "properties": {
+          "taskId": {
+            "type": "string"
+          },
+          "dealerCode": {
+            "type": "string"
+          },
+          "dealerName": {
+            "type": "string"
+          },
+          "city": {
+            "type": "string"
+          },
+          "dealerGroupName": {
+            "type": "string"
+          },
+          "opportunityId": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "createdDate": {
+            "type": "string"
+          }
+        }
+      },
+      "CampaignMetrics": {
+        "type": "object",
+        "properties": {
+          "totalCampaigns": {
+            "type": "integer"
+          },
+          "averageAttainment": {
+            "type": "number"
+          },
+          "bestCampaign": {
+            "$ref": "#/components/schemas/BestCampaign"
+          },
+          "totalActualOpportunities": {
+            "type": "integer"
+          },
+          "totalTarget": {
+            "type": "integer"
+          }
+        }
+      },
+      "BestCampaign": {
+        "type": "object",
+        "properties": {
+          "campaignId": {
+            "type": "string"
+          },
+          "campaignName": {
+            "type": "string"
+          },
+          "attainmentRate": {
+            "type": "number"
+          }
+        }
+      },
+      "CampaignDetail": {
+        "type": "object",
+        "properties": {
+          "campaignId": {
+            "type": "string"
+          },
+          "dealerCode": {
+            "type": "string"
+          },
+          "dealerName": {
+            "type": "string"
+          },
+          "city": {
+            "type": "string"
+          },
+          "dealerGroupName": {
+            "type": "string"
+          },
+          "productModel": {
+            "type": "string"
+          },
+          "campaignType": {
+            "type": "string"
+          },
+          "createdDate": {
+            "type": "string"
+          },
+          "actualOpportunityCount": {
+            "type": "integer"
+          },
+          "totalNewCustomerTarget": {
+            "type": "integer"
+          }
+        }
+      }
+    }
+  },
+  "paths": {
+    "/api/targets/metrics": {
+      "get": {
+        "operationId": "getTargetMetrics",
+        "summary": "【目标达成】指标汇总查询",
+        "parameters": [
+          {
+            "name": "year",
+            "in": "query",
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "month",
+            "in": "query",
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "productModel",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "dealerCode",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "city",
+            "in": "query",
+            "description": "Optional city filter. Supports values such as 沈阳 or Beijing.",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "dealerName",
+            "in": "query",
+            "description": "Optional dealer name keyword filter, such as 经销商AJ.",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "dealerGroupName",
+            "in": "query",
+            "description": "Optional dealer group name keyword filter.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "code": {
+                      "type": "integer"
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "data": {
+                      "$ref": "#/components/schemas/TargetMetrics"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/targets/details": {
+      "get": {
+        "operationId": "getTargetDetails",
+        "summary": "【目标达成】全字段流水明细",
+        "parameters": [
+          {
+            "name": "year",
+            "in": "query",
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "month",
+            "in": "query",
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "productModel",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "dealerCode",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "city",
+            "in": "query",
+            "description": "Optional city filter. Supports values such as 沈阳 or Beijing.",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "dealerName",
+            "in": "query",
+            "description": "Optional dealer name keyword filter, such as 经销商AJ.",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "dealerGroupName",
+            "in": "query",
+            "description": "Optional dealer group name keyword filter.",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "page",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "default": 1
+            }
+          },
+          {
+            "name": "pageSize",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "default": 50
+            }
+          },
+          {
+            "name": "sortBy",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "default": "dealerCode"
+            }
+          },
+          {
+            "name": "sortOrder",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "default": "asc"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "code": {
+                      "type": "integer"
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "items": {
+                          "type": "array",
+                          "items": {
+                            "$ref": "#/components/schemas/TargetDetail"
+                          }
+                        },
+                        "total": {
+                          "type": "integer"
+                        },
+                        "page": {
+                          "type": "integer"
+                        },
+                        "pageSize": {
+                          "type": "integer"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/opportunities/metrics": {
+      "get": {
+        "operationId": "getOpportunityMetrics",
+        "summary": "【商机漏斗】留存与转化指标",
+        "parameters": [
+          {
+            "name": "dealerCode",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "startDate",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "endDate",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "code": {
+                      "type": "integer"
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "data": {
+                      "$ref": "#/components/schemas/OpportunityMetrics"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/opportunities/details": {
+      "get": {
+        "operationId": "getOpportunityDetails",
+        "summary": "【商机漏斗】全字段流水明细",
+        "parameters": [
+          {
+            "name": "dealerCode",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "startDate",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "endDate",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "keyword",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "stageName",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "page",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "default": 1
+            }
+          },
+          {
+            "name": "pageSize",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "default": 50
+            }
+          },
+          {
+            "name": "sortBy",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "default": "createdDate"
+            }
+          },
+          {
+            "name": "sortOrder",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "default": "desc"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "code": {
+                      "type": "integer"
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "items": {
+                          "type": "array",
+                          "items": {
+                            "$ref": "#/components/schemas/OpportunityDetail"
+                          }
+                        },
+                        "total": {
+                          "type": "integer"
+                        },
+                        "page": {
+                          "type": "integer"
+                        },
+                        "pageSize": {
+                          "type": "integer"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/leads/metrics": {
+      "get": {
+        "operationId": "getLeadMetrics",
+        "summary": "【线索转化】渠道质量指标",
+        "parameters": [
+          {
+            "name": "leadSource",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "dealerCode",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "code": {
+                      "type": "integer"
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "data": {
+                      "$ref": "#/components/schemas/LeadMetrics"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/leads/details": {
+      "get": {
+        "operationId": "getLeadDetails",
+        "summary": "【线索转化】全字段流水明细",
+        "parameters": [
+          {
+            "name": "leadSource",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "dealerCode",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "page",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "default": 1
+            }
+          },
+          {
+            "name": "pageSize",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "default": 50
+            }
+          },
+          {
+            "name": "sortBy",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "default": "createdDate"
+            }
+          },
+          {
+            "name": "sortOrder",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "default": "desc"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "code": {
+                      "type": "integer"
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "items": {
+                          "type": "array",
+                          "items": {
+                            "$ref": "#/components/schemas/LeadDetail"
+                          }
+                        },
+                        "total": {
+                          "type": "integer"
+                        },
+                        "page": {
+                          "type": "integer"
+                        },
+                        "pageSize": {
+                          "type": "integer"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/tasks/metrics": {
+      "get": {
+        "operationId": "getTaskMetrics",
+        "summary": "【销售跟进】执行效能指标",
+        "parameters": [
+          {
+            "name": "dealerCode",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "code": {
+                      "type": "integer"
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "data": {
+                      "$ref": "#/components/schemas/TaskMetrics"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/tasks/details": {
+      "get": {
+        "operationId": "getTaskDetails",
+        "summary": "【销售跟进】全字段流水明细",
+        "parameters": [
+          {
+            "name": "dealerCode",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "keyword",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "page",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "default": 1
+            }
+          },
+          {
+            "name": "pageSize",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "default": 50
+            }
+          },
+          {
+            "name": "sortBy",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "default": "createdDate"
+            }
+          },
+          {
+            "name": "sortOrder",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "default": "desc"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "code": {
+                      "type": "integer"
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "items": {
+                          "type": "array",
+                          "items": {
+                            "$ref": "#/components/schemas/TaskDetail"
+                          }
+                        },
+                        "total": {
+                          "type": "integer"
+                        },
+                        "page": {
+                          "type": "integer"
+                        },
+                        "pageSize": {
+                          "type": "integer"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/campaigns/metrics": {
+      "get": {
+        "operationId": "getCampaignMetrics",
+        "summary": "【市场活动】ROI与转化指标",
+        "parameters": [
+          {
+            "name": "campaignType",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "code": {
+                      "type": "integer"
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "data": {
+                      "$ref": "#/components/schemas/CampaignMetrics"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/campaigns/details": {
+      "get": {
+        "operationId": "getCampaignDetails",
+        "summary": "【市场活动】全字段流水明细",
+        "parameters": [
+          {
+            "name": "campaignType",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "keyword",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "page",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "default": 1
+            }
+          },
+          {
+            "name": "pageSize",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "default": 50
+            }
+          },
+          {
+            "name": "sortBy",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "default": "createdDate"
+            }
+          },
+          {
+            "name": "sortOrder",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "default": "desc"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "code": {
+                      "type": "integer"
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "items": {
+                          "type": "array",
+                          "items": {
+                            "$ref": "#/components/schemas/CampaignDetail"
+                          }
+                        },
+                        "total": {
+                          "type": "integer"
+                        },
+                        "page": {
+                          "type": "integer"
+                        },
+                        "pageSize": {
+                          "type": "integer"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

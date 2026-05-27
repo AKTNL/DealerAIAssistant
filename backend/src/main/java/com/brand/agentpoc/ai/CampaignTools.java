@@ -35,9 +35,10 @@ public class CampaignTools {
             String startDate,
             @ToolParam(description = "Optional end date in ISO format YYYY-MM-DD.", required = false)
             String endDate,
-            @ToolParam(description = "Optional raw mode flag. When true, return full matching rows.", required = false)
+            @ToolParam(description = "Required raw mode flag. When true, return full matching rows.", required = true)
             Boolean raw
     ) {
+        ToolFilterSupport.requireBoolean("raw", raw);
         Map<String, String> filters = ToolFilterSupport.newFilters();
         ToolFilterSupport.put(filters, "dealerCode", dealerCode);
         ToolFilterSupport.put(filters, "city", city);

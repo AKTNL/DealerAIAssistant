@@ -34,4 +34,22 @@ final class ToolFilterSupport {
             filters.put(key, String.valueOf(value));
         }
     }
+
+    static void requireText(String paramName, String value) {
+        if (value == null || value.trim().isEmpty()) {
+            throw new IllegalArgumentException(paramName + " is required.");
+        }
+    }
+
+    static void requireInteger(String paramName, Integer value) {
+        if (value == null) {
+            throw new IllegalArgumentException(paramName + " is required.");
+        }
+    }
+
+    static void requireBoolean(String paramName, Boolean value) {
+        if (value == null) {
+            throw new IllegalArgumentException(paramName + " is required.");
+        }
+    }
 }

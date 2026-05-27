@@ -6,8 +6,8 @@ import java.util.Map;
 public record DataQueryResponse(
         String dataset,
         Map<String, String> filters,
-        long totalCount,
-        List<Map<String, Object>> items
+        int count,
+        List<Map<String, Object>> items,
+        Map<String, Object> metadata
 ) {
 }
-

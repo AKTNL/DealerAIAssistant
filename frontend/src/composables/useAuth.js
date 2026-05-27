@@ -1,35 +1,38 @@
-import { ref } from "vue";
+import { computed, ref } from "vue";
 import { verifyAccessKey } from "../api/auth";
-import { STORAGE_KEYS } from "../constants/storageKeys";
-import { readStorageValue, removeStorageValue, writeStorageValue } from "../utils/storage";
+import { clearAuthSession, isAuthSessionValid, writeAuthSession } from "../api/sessionToken";
 
 export function useAuth({ dictionary }) {
   const accessKey = ref("");
-  const loginError = ref("");
+  const hasError = ref(false);
   const loginLoading = ref(false);
-  const authVerified = ref(readStorageValue("session", STORAGE_KEYS.auth, "false") === "true");
+  const authVerified = ref(isAuthSessionValid());
+
+  const loginError = computed(() =>
+    hasError.value ? dictionary.value.loginError : ""
+  );
 
   async function submitAccessKey() {
     if (!accessKey.value.trim() || loginLoading.value) {
       return;
     }
 
-    loginError.value = "";
+    hasError.value = false;
     loginLoading.value = true;
 
     try {
       const result = await verifyAccessKey(accessKey.value.trim());
 
-      if (!result.success) {
+      if (!result.success || !writeAuthSession(result)) {
         throw new Error(dictionary.value.loginError);
       }
 
       authVerified.value = true;
       accessKey.value = "";
-      writeStorageValue("session", STORAGE_KEYS.auth, "true");
     } catch {
       accessKey.value = "";
-      loginError.value = dictionary.value.loginError;
+      hasError.value = true;
+      clearAuthSession();
     } finally {
       loginLoading.value = false;
     }
@@ -38,8 +41,8 @@ export function useAuth({ dictionary }) {
   function signOut() {
     authVerified.value = false;
     accessKey.value = "";
-    loginError.value = "";
-    removeStorageValue("session", STORAGE_KEYS.auth);
+    hasError.value = false;
+    clearAuthSession();
   }
 
   return {

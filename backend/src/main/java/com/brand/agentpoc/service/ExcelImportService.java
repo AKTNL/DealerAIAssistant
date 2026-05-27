@@ -25,6 +25,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Stream;
 import org.apache.poi.ss.usermodel.Cell;
 import org.apache.poi.ss.usermodel.CellType;
@@ -70,6 +71,8 @@ public class ExcelImportService implements ApplicationRunner {
     private final TargetRepository targetRepository;
     private final LeadRepository leadRepository;
     private final DataFormatter dataFormatter = new DataFormatter();
+    private final AtomicInteger campaignRowsProcessedCount = new AtomicInteger();
+    private final AtomicInteger normalizedRowsCount = new AtomicInteger();
 
     public ExcelImportService(
             AppProperties appProperties,
@@ -154,6 +157,8 @@ public class ExcelImportService implements ApplicationRunner {
 
     private boolean importWorkbook(Resource resource) {
         log.info("Attempting workbook import from {}", resource);
+        campaignRowsProcessedCount.set(0);
+        normalizedRowsCount.set(0);
 
         try (InputStream inputStream = resource.getInputStream();
              Workbook workbook = WorkbookFactory.create(inputStream)) {
@@ -178,17 +183,38 @@ public class ExcelImportService implements ApplicationRunner {
         } catch (Exception exception) {
             log.error("Workbook import failed. Falling back to built-in sample data.", exception);
             return false;
+        } finally {
+            log.info(
+                    "[Import-Normalization] Campaign import completed. Total rows processed: {}, rows with defaulted non-critical fields: {}.",
+                    campaignRowsProcessedCount.get(),
+                    normalizedRowsCount.get()
+            );
         }
     }
 
     private ParsedWorkbook parseWorkbook(Workbook workbook) {
-        List<Opportunity> opportunities = parseOpportunitySheet(findSheet(workbook, "Opportunity", "Opportunities"));
-        List<Campaign> campaigns = parseCampaignSheet(findSheet(workbook, "Campaign", "Campaigns"));
-        List<Task> tasks = parseTaskSheet(findSheet(workbook, "Task", "Tasks"));
-        List<Target> targets = parseTargetSheet(findSheet(workbook, "AE Target Data", "Target", "Targets"));
-        List<Lead> leads = parseLeadSheet(findSheet(workbook, "Lead", "Leads"));
-        List<Dealer> dealers = deriveDealers(opportunities, campaigns, tasks, targets, leads);
+        // Parse AE Target Data first to extract dealer group name lookup
+        Map<String, String> dealerGroupByCode = new LinkedHashMap<>();
+        List<Target> targets = parseTargetSheet(findSheet(workbook, "AE Target Data", "Target", "Targets"), dealerGroupByCode);
 
+        // Parse sheets that have direct dealer info
+        List<Opportunity> opportunities = parseOpportunitySheet(
+                findSheet(workbook, "Opportunity", "Opportunities"), dealerGroupByCode);
+        List<Campaign> campaigns = parseCampaignSheet(
+                findSheet(workbook, "Campaign", "Campaigns"), dealerGroupByCode);
+        List<Lead> leads = parseLeadSheet(
+                findSheet(workbook, "Lead", "Leads"), dealerGroupByCode);
+
+        // Task sheet has no direct dealer info — join via Opportunity
+        Map<String, String[]> oppDealerInfo = new LinkedHashMap<>();
+        for (Opportunity opp : opportunities) {
+            oppDealerInfo.put(opp.getOpportunityId(),
+                    new String[]{opp.getDealerCode(), opp.getDealerName(), opp.getCity(), opp.getDealerGroupName()});
+        }
+        List<Task> tasks = parseTaskSheet(
+                findSheet(workbook, "Task", "Tasks"), oppDealerInfo, dealerGroupByCode);
+
+        List<Dealer> dealers = deriveDealers(opportunities, campaigns, tasks, targets, leads);
         return new ParsedWorkbook(dealers, opportunities, campaigns, tasks, targets, leads);
     }
 
@@ -225,7 +251,7 @@ public class ExcelImportService implements ApplicationRunner {
         return null;
     }
 
-    private List<Opportunity> parseOpportunitySheet(Sheet sheet) {
+    private List<Opportunity> parseOpportunitySheet(Sheet sheet, Map<String, String> dealerGroupByCode) {
         if (sheet == null) {
             return List.of();
         }
@@ -242,25 +268,37 @@ public class ExcelImportService implements ApplicationRunner {
                 continue;
             }
 
-            String opportunityId = getString(row, headerInfo.headers(), "opportunityid", "商机id", "商机编号");
+            String opportunityId = getString(row, headerInfo.headers(), "opportunityid", "id", "商机id", "商机编号");
             String dealerCode = getString(row, headerInfo.headers(), "dealercode", "经销商代码", "门店代码");
-            String dealerName = getString(row, headerInfo.headers(), "dealername", "经销商名称", "门店名称");
-            String city = getString(row, headerInfo.headers(), "city", "城市");
-            String dealerGroupName = getString(row, headerInfo.headers(), "dealergroupname", "集团名称", "经销商集团名称");
+            String dealerName = getString(row, headerInfo.headers(), "dealername", "经销商名称", "门店名称",
+                    "salesretailerr.name", "retailerr.name");
             String productModel = getString(row, headerInfo.headers(), "productmodel", "车型", "产品型号", "model");
             String stageName = getString(row, headerInfo.headers(), "stagename", "阶段", "阶段名称", "商机阶段");
             String leadSource = getString(row, headerInfo.headers(), "leadsource", "线索来源", "来源");
-            LocalDate createdDate = getDate(row, headerInfo.headers(), "createddate", "创建日期", "创建时间", "日期");
-            LocalDate expectedCloseDate = getDate(row, headerInfo.headers(), "expectedclosedate", "预计成交日期", "预计关闭日期", "expectedclosedate");
-            Integer probability = getInteger(row, headerInfo.headers(), "probability", "成交概率", "赢单概率", "概率");
+            LocalDate createdDate = getDate("createdDate", row, headerInfo.headers(), "createddate", "创建日期", "创建时间", "日期");
+            LocalDate expectedCloseDate = getDate("expectedCloseDate", row, headerInfo.headers(), "expectedclosedate",
+                    "预计成交日期", "预计关闭日期", "expectedclosedate");
+            if (expectedCloseDate == null) {
+                expectedCloseDate = createdDate != null ? createdDate.plusDays(30) : null;
+            }
+            Integer probability = getInteger("probability", row, headerInfo.headers(), "probability", "成交概率", "赢单概率", "概率");
 
-            if (hasBlank(opportunityId, dealerCode, dealerName, city, dealerGroupName, productModel, stageName, leadSource)
+            if (hasBlank(opportunityId, dealerCode, dealerName, stageName)
                     || createdDate == null
                     || expectedCloseDate == null
                     || probability == null) {
                 log.debug("Skipping opportunity row {} due to missing required values.", rowIndex + 1);
                 continue;
             }
+
+            if (productModel == null) {
+                productModel = "未知";
+            }
+            if (leadSource == null) {
+                leadSource = "未知";
+            }
+            String city = deriveCity(dealerName);
+            String dealerGroupName = lookupDealerGroup(dealerCode, dealerGroupByCode);
 
             items.add(new Opportunity(
                     opportunityId,
@@ -280,7 +318,7 @@ public class ExcelImportService implements ApplicationRunner {
         return items;
     }
 
-    private List<Campaign> parseCampaignSheet(Sheet sheet) {
+    private List<Campaign> parseCampaignSheet(Sheet sheet, Map<String, String> dealerGroupByCode) {
         if (sheet == null) {
             return List.of();
         }
@@ -296,27 +334,64 @@ public class ExcelImportService implements ApplicationRunner {
             if (isRowBlank(row)) {
                 continue;
             }
+            campaignRowsProcessedCount.incrementAndGet();
 
-            String campaignId = getString(row, headerInfo.headers(), "campaignid", "活动id", "活动编号");
-            String dealerCode = getString(row, headerInfo.headers(), "dealercode", "经销商代码", "门店代码");
-            String dealerName = getString(row, headerInfo.headers(), "dealername", "经销商名称", "门店名称");
-            String city = getString(row, headerInfo.headers(), "city", "城市");
-            String dealerGroupName = getString(row, headerInfo.headers(), "dealergroupname", "集团名称", "经销商集团名称");
-            String productModel = getString(row, headerInfo.headers(), "productmodel", "车型", "产品型号", "model");
-            String campaignType = getString(row, headerInfo.headers(), "campaigntype", "活动类型", "campaigntype");
-            LocalDate createdDate = getDate(row, headerInfo.headers(), "createddate", "创建日期", "创建时间", "日期");
-            Integer actualOpportunityCount = getInteger(row, headerInfo.headers(),
-                    "actualopportunitycount", "实际商机数", "商机数", "实际新增商机数");
-            Integer totalNewCustomerTarget = getInteger(row, headerInfo.headers(),
-                    "totalnewcustomertarget", "新增客户目标", "新客户目标", "新客目标");
+            String campaignId = getString(row, headerInfo.headers(), "campaignid", "id", "活动id", "活动编号");
+            String dealerCode = getString(row, headerInfo.headers(), "dealercode", "经销商代码", "门店代码",
+                    "retailerc");
+            String dealerName = getString(row, headerInfo.headers(), "dealername", "经销商名称", "门店名称",
+                    "salesretailerr.name", "retailerr.name");
+            String productModel = getString(row, headerInfo.headers(), "productmodel", "车型", "产品型号", "model",
+                    "productmodelc");
+            String campaignType = getString(row, headerInfo.headers(), "campaigntype", "活动类型", "type",
+                    "campaigntypec");
+            LocalDate createdDate = getDate("createdDate", row, headerInfo.headers(), "createddate", "创建日期", "创建时间", "日期");
+            Integer actualOpportunityCount = getInteger("actualOpportunityCount", row, headerInfo.headers(),
+                    "actualopportunitycount", "实际商机数", "商机数", "实际新增商机数", "numberofopportunities");
+            Integer totalNewCustomerTarget = getInteger("totalNewCustomerTarget", row, headerInfo.headers(),
+                    "totalnewcustomertarget", "新增客户目标", "新客户目标", "新客目标", "newcustomercountc");
 
-            if (hasBlank(campaignId, dealerCode, dealerName, city, dealerGroupName, productModel, campaignType)
-                    || createdDate == null
-                    || actualOpportunityCount == null
-                    || totalNewCustomerTarget == null) {
+            boolean normalized = false;
+            if (campaignType == null) {
+                campaignType = "0";
+                normalized = true;
+                log.debug("[Import-Normalization] Row {}: campaignType is blank, defaulting to '0'", rowIndex + 1);
+            }
+            if (dealerCode == null) {
+                dealerCode = "未分配";
+                normalized = true;
+                log.debug("[Import-Normalization] Row {}: dealerCode is blank, defaulting to '未分配'", rowIndex + 1);
+            }
+            if (dealerName == null) {
+                dealerName = "未分配";
+                normalized = true;
+                log.debug("[Import-Normalization] Row {}: dealerName is blank, defaulting to '未分配'", rowIndex + 1);
+            }
+            if (actualOpportunityCount == null) {
+                actualOpportunityCount = 0;
+                normalized = true;
+                log.debug("[Import-Normalization] Row {}: actualOpportunityCount is blank, defaulting to 0", rowIndex + 1);
+            }
+            if (totalNewCustomerTarget == null) {
+                totalNewCustomerTarget = 0;
+                normalized = true;
+                log.debug("[Import-Normalization] Row {}: totalNewCustomerTarget is blank, defaulting to 0", rowIndex + 1);
+            }
+            if (productModel == null) {
+                productModel = "未知";
+                normalized = true;
+                log.debug("[Import-Normalization] Row {}: productModel is blank, defaulting to '未知'", rowIndex + 1);
+            }
+            if (normalized) {
+                normalizedRowsCount.incrementAndGet();
+            }
+
+            if (hasBlank(campaignId) || createdDate == null) {
                 log.debug("Skipping campaign row {} due to missing required values.", rowIndex + 1);
                 continue;
             }
+            String city = deriveCity(dealerName);
+            String dealerGroupName = lookupDealerGroup(dealerCode, dealerGroupByCode);
 
             items.add(new Campaign(
                     campaignId,
@@ -335,7 +410,8 @@ public class ExcelImportService implements ApplicationRunner {
         return items;
     }
 
-    private List<Task> parseTaskSheet(Sheet sheet) {
+    private List<Task> parseTaskSheet(Sheet sheet, Map<String, String[]> oppDealerInfo,
+            Map<String, String> dealerGroupByCode) {
         if (sheet == null) {
             return List.of();
         }
@@ -352,17 +428,27 @@ public class ExcelImportService implements ApplicationRunner {
                 continue;
             }
 
-            String taskId = getString(row, headerInfo.headers(), "taskid", "任务id", "任务编号");
-            String dealerCode = getString(row, headerInfo.headers(), "dealercode", "经销商代码", "门店代码");
-            String dealerName = getString(row, headerInfo.headers(), "dealername", "经销商名称", "门店名称");
-            String city = getString(row, headerInfo.headers(), "city", "城市");
-            String dealerGroupName = getString(row, headerInfo.headers(), "dealergroupname", "集团名称", "经销商集团名称");
+            String taskId = getString(row, headerInfo.headers(), "taskid", "id", "任务id", "任务编号");
             String opportunityId = getString(row, headerInfo.headers(), "opportunityid", "商机id", "商机编号");
             String status = getString(row, headerInfo.headers(), "status", "任务状态", "状态");
-            LocalDate createdDate = getDate(row, headerInfo.headers(), "createddate", "创建日期", "创建时间", "日期");
+            LocalDate createdDate = getDate("createdDate", row, headerInfo.headers(), "createddate", "创建日期", "创建时间", "日期");
 
-            if (hasBlank(taskId, dealerCode, dealerName, city, dealerGroupName, opportunityId, status)
-                    || createdDate == null) {
+            // Task sheet has no dealer columns — look up from parsed Opportunities
+            String dealerCode = "";
+            String dealerName = "";
+            String city = "";
+            String dealerGroupName = "";
+            if (opportunityId != null && oppDealerInfo.containsKey(opportunityId)) {
+                String[] info = oppDealerInfo.get(opportunityId);
+                dealerCode = info[0];
+                dealerName = info[1];
+                city = info[2];
+                dealerGroupName = info[3];
+            } else {
+                dealerGroupName = lookupDealerGroup(dealerCode, dealerGroupByCode);
+            }
+
+            if (hasBlank(taskId, opportunityId, status) || createdDate == null) {
                 log.debug("Skipping task row {} due to missing required values.", rowIndex + 1);
                 continue;
             }
@@ -382,7 +468,7 @@ public class ExcelImportService implements ApplicationRunner {
         return items;
     }
 
-    private List<Target> parseTargetSheet(Sheet sheet) {
+    private List<Target> parseTargetSheet(Sheet sheet, Map<String, String> dealerGroupByCode) {
         if (sheet == null) {
             return List.of();
         }
@@ -400,42 +486,61 @@ public class ExcelImportService implements ApplicationRunner {
             }
 
             String dealerCode = getString(row, headerInfo.headers(), "dealercode", "经销商代码", "门店代码");
-            String dealerName = getString(row, headerInfo.headers(), "dealername", "经销商名称", "门店名称");
-            String city = getString(row, headerInfo.headers(), "city", "城市");
-            String dealerGroupName = getString(row, headerInfo.headers(), "dealergroupname", "集团名称", "经销商集团名称");
-            String productModel = getString(row, headerInfo.headers(), "productmodel", "车型", "产品型号", "model");
-            Integer targetYear = getInteger(row, headerInfo.headers(), "targetyear", "目标年份", "年份");
-            Integer targetMonth = getInteger(row, headerInfo.headers(), "targetmonth", "目标月份", "月份");
-            Integer asKTarget = getInteger(row, headerInfo.headers(), "asktarget", "asktarget", "目标值", "销量目标", "ask目标");
-            Integer opportunityWonCount = getInteger(row, headerInfo.headers(),
-                    "opportunitywoncount", "成交商机数", "已成交商机数", "赢单数");
+            String dealerName = getString(row, headerInfo.headers(), "dealername", "经销商名称", "门店名称",
+                    "salesretailerr.name", "retailerr.name");
+            String city = deriveCity(dealerName);
+            String dealerGroupName = getString(row, headerInfo.headers(), "dealergroupname", "集团名称",
+                    "经销商集团名称", "dealergroupnamec");
+            String productModel = getString(row, headerInfo.headers(), "productmodel", "车型", "产品型号", "model",
+                    "productmodelc");
+            Integer targetYear = getInteger("targetYear", row, headerInfo.headers(), "targetyear", "目标年份", "年份", "yearc");
+            Integer targetMonth = getInteger("targetMonth", row, headerInfo.headers(), "targetmonth", "目标月份", "月份", "monthc");
+            Integer asKTarget = getInteger("asKTarget", row, headerInfo.headers(), "asktarget", "目标值", "销量目标", "ask目标",
+                    "aaktargetc");
+            if (asKTarget == null) {
+                asKTarget = 0;
+            }
+            Integer opportunityWonCount = getInteger("opportunityWonCount", row, headerInfo.headers(),
+                    "opportunitywoncount", "成交商机数", "已成交商机数", "赢单数", "opportunitywoncountc");
+            Integer opportunityCreateCount = getInteger("opportunityCreateCount", row, headerInfo.headers(),
+                    "opportunitycreatecount", "商机创建数", "商机创建数量",
+                    "opportunitycreatecountc");
+            if (opportunityCreateCount == null) {
+                opportunityCreateCount = 0;
+            }
 
-            if (hasBlank(dealerCode, dealerName, city, dealerGroupName, productModel)
+            if (hasBlank(dealerCode, dealerName, productModel)
                     || targetYear == null
                     || targetMonth == null
-                    || asKTarget == null
                     || opportunityWonCount == null) {
                 log.debug("Skipping target row {} due to missing required values.", rowIndex + 1);
                 continue;
+            }
+
+            // Populate dealer group lookup for other sheets
+            if (dealerGroupName != null && !dealerGroupName.isBlank()
+                    && dealerCode != null && !dealerCode.isBlank()) {
+                dealerGroupByCode.putIfAbsent(dealerCode, dealerGroupName);
             }
 
             items.add(new Target(
                     dealerCode,
                     dealerName,
                     city,
-                    dealerGroupName,
+                    dealerGroupName != null ? dealerGroupName : "",
                     productModel,
                     targetYear,
                     targetMonth,
                     asKTarget,
-                    opportunityWonCount
+                    opportunityWonCount,
+                    opportunityCreateCount
             ));
         }
 
         return items;
     }
 
-    private List<Lead> parseLeadSheet(Sheet sheet) {
+    private List<Lead> parseLeadSheet(Sheet sheet, Map<String, String> dealerGroupByCode) {
         if (sheet == null) {
             return List.of();
         }
@@ -452,23 +557,38 @@ public class ExcelImportService implements ApplicationRunner {
                 continue;
             }
 
-            String leadId = getString(row, headerInfo.headers(), "leadid", "线索id", "线索编号");
+            String leadId = getString(row, headerInfo.headers(), "leadid", "id", "线索id", "线索编号");
             String dealerCode = getString(row, headerInfo.headers(), "dealercode", "经销商代码", "门店代码");
-            String dealerName = getString(row, headerInfo.headers(), "dealername", "经销商名称", "门店名称");
-            String city = getString(row, headerInfo.headers(), "city", "城市");
-            String dealerGroupName = getString(row, headerInfo.headers(), "dealergroupname", "集团名称", "经销商集团名称");
-            String leadSource = getString(row, headerInfo.headers(), "leadsource", "线索来源", "来源");
-            String stageName = getString(row, headerInfo.headers(), "stagename", "阶段", "阶段名称", "线索阶段");
+            String dealerName = getString(row, headerInfo.headers(), "dealername", "经销商名称", "门店名称",
+                    "salesretailerr.name", "retailerr.name");
             String productModel = getString(row, headerInfo.headers(), "productmodel", "车型", "产品型号", "model");
-            LocalDate createdDate = getDate(row, headerInfo.headers(), "createddate", "创建日期", "创建时间", "日期");
+            String leadSource = getString(row, headerInfo.headers(), "leadsource", "线索来源", "来源");
+            String stageName = getString(row, headerInfo.headers(), "stagename", "阶段", "阶段名称", "线索阶段",
+                    "status");
+            LocalDate createdDate = getDate("createdDate", row, headerInfo.headers(), "createddate", "创建日期", "创建时间", "日期");
             Boolean converted = getBoolean(row, headerInfo.headers(), "isconverted", "converted", "是否转化", "已转化");
 
-            if (hasBlank(leadId, dealerCode, dealerName, city, dealerGroupName, leadSource, stageName, productModel)
+            if (hasBlank(leadId, stageName)
                     || createdDate == null
                     || converted == null) {
                 log.debug("Skipping lead row {} due to missing required values.", rowIndex + 1);
                 continue;
             }
+
+            if (dealerCode == null) {
+                dealerCode = "未分配";
+            }
+            if (dealerName == null) {
+                dealerName = "未分配";
+            }
+            if (productModel == null) {
+                productModel = "未知";
+            }
+            if (leadSource == null) {
+                leadSource = "未知";
+            }
+            String city = deriveCity(dealerName);
+            String dealerGroupName = lookupDealerGroup(dealerCode, dealerGroupByCode);
 
             items.add(new Lead(
                     leadId,
@@ -534,10 +654,11 @@ public class ExcelImportService implements ApplicationRunner {
     }
 
     private void addDealer(Map<String, Dealer> dealers, String dealerCode, String dealerName, String city, String dealerGroupName) {
-        if (hasBlank(dealerCode, dealerName, city, dealerGroupName)) {
+        if (hasBlank(dealerCode, dealerName, city)) {
             return;
         }
-        dealers.putIfAbsent(dealerCode, new Dealer(dealerCode, dealerName, city, dealerGroupName));
+        dealers.putIfAbsent(dealerCode, new Dealer(dealerCode, dealerName, city,
+                dealerGroupName != null ? dealerGroupName : ""));
     }
 
     private String getString(Row row, Map<String, Integer> headers, String... aliases) {
@@ -555,7 +676,7 @@ public class ExcelImportService implements ApplicationRunner {
         return trimmed.isEmpty() ? null : trimmed;
     }
 
-    private Integer getInteger(Row row, Map<String, Integer> headers, String... aliases) {
+    private Integer getInteger(String fieldName, Row row, Map<String, Integer> headers, String... aliases) {
         Integer columnIndex = findColumnIndex(headers, aliases);
         if (columnIndex == null) {
             return null;
@@ -584,7 +705,9 @@ public class ExcelImportService implements ApplicationRunner {
 
         try {
             return (int) Math.round(Double.parseDouble(sanitized));
-        } catch (NumberFormatException ignored) {
+        } catch (NumberFormatException exception) {
+            log.debug("Failed to parse {} from value '{}' as integer: {}", fieldName, text,
+                    exception.getClass().getSimpleName());
             return null;
         }
     }
@@ -612,7 +735,7 @@ public class ExcelImportService implements ApplicationRunner {
         };
     }
 
-    private LocalDate getDate(Row row, Map<String, Integer> headers, String... aliases) {
+    private LocalDate getDate(String fieldName, Row row, Map<String, Integer> headers, String... aliases) {
         Integer columnIndex = findColumnIndex(headers, aliases);
         if (columnIndex == null) {
             return null;
@@ -641,15 +764,32 @@ public class ExcelImportService implements ApplicationRunner {
             try {
                 double serial = Double.parseDouble(trimmed);
                 return DateUtil.getLocalDateTime(serial).toLocalDate();
-            } catch (Exception ignored) {
+            } catch (Exception exception) {
+                log.debug("Failed to parse {} from value '{}' as date serial: {}", fieldName, trimmed,
+                        exception.getClass().getSimpleName());
                 // Fall through to pattern parsing below.
+            }
+        }
+
+        // ISO datetime with timezone: "2026-03-15T08:54:24.000+0000"
+        int tIdx = trimmed.indexOf('T');
+        if (tIdx > 0) {
+            String datePart = trimmed.substring(0, tIdx);
+            try {
+                return LocalDate.parse(datePart, DateTimeFormatter.ISO_LOCAL_DATE);
+            } catch (DateTimeParseException exception) {
+                log.debug("Failed to parse {} from value '{}' as date: {}", fieldName, trimmed,
+                        exception.getClass().getSimpleName());
+                // Fall through to other patterns.
             }
         }
 
         for (DateTimeFormatter formatter : DATE_PATTERNS) {
             try {
                 return LocalDate.parse(trimmed, formatter);
-            } catch (DateTimeParseException ignored) {
+            } catch (DateTimeParseException exception) {
+                log.debug("Failed to parse {} from value '{}' as date using pattern {}: {}", fieldName, trimmed,
+                        formatter, exception.getClass().getSimpleName());
                 // Try the next supported date pattern.
             }
         }
@@ -660,8 +800,23 @@ public class ExcelImportService implements ApplicationRunner {
     private Integer findColumnIndex(Map<String, Integer> headers, String... aliases) {
         for (String alias : aliases) {
             String normalizedAlias = normalizeHeader(alias);
-            if (normalizedAlias != null && headers.containsKey(normalizedAlias)) {
+            if (normalizedAlias == null) {
+                continue;
+            }
+            if (headers.containsKey(normalizedAlias)) {
                 return headers.get(normalizedAlias);
+            }
+        }
+        // Fallback: contains match for compound names (e.g. SalesRetailer__r.DealerCode__c)
+        for (String alias : aliases) {
+            String normalizedAlias = normalizeHeader(alias);
+            if (normalizedAlias == null) {
+                continue;
+            }
+            for (Map.Entry<String, Integer> entry : headers.entrySet()) {
+                if (entry.getKey().contains(normalizedAlias)) {
+                    return entry.getValue();
+                }
             }
         }
         return null;
@@ -688,6 +843,43 @@ public class ExcelImportService implements ApplicationRunner {
             }
         }
         return false;
+    }
+
+    private String deriveCity(String dealerName) {
+        if (dealerName == null || dealerName.isBlank()) {
+            return "";
+        }
+        String trimmed = dealerName.trim();
+        String parenthesizedCity = extractParenthesizedSuffix(trimmed, '(', ')');
+        if (parenthesizedCity == null) {
+            parenthesizedCity = extractParenthesizedSuffix(trimmed, '（', '）');
+        }
+        if (parenthesizedCity != null) {
+            return parenthesizedCity;
+        }
+        // Extract first word as likely city (e.g. "Beijing Star Motors" → "Beijing")
+        int spaceIdx = trimmed.indexOf(' ');
+        if (spaceIdx > 0) {
+            return trimmed.substring(0, spaceIdx);
+        }
+        return trimmed;
+    }
+
+    private String extractParenthesizedSuffix(String value, char openChar, char closeChar) {
+        int openIdx = value.lastIndexOf(openChar);
+        int closeIdx = value.lastIndexOf(closeChar);
+        if (openIdx < 0 || closeIdx <= openIdx) {
+            return null;
+        }
+        String extracted = value.substring(openIdx + 1, closeIdx).trim();
+        return extracted.isEmpty() ? null : extracted;
+    }
+
+    private String lookupDealerGroup(String dealerCode, Map<String, String> dealerGroupByCode) {
+        if (dealerCode == null || dealerCode.isBlank()) {
+            return "";
+        }
+        return dealerGroupByCode.getOrDefault(dealerCode, "");
     }
 
     private String normalizeHeader(String value) {
@@ -762,12 +954,12 @@ public class ExcelImportService implements ApplicationRunner {
         ));
 
         targetRepository.saveAll(List.of(
-                new Target("BJ001", "Beijing Star Motors", "Beijing", "North Star Group", "M7", 2026, 4, 120, 92),
-                new Target("BJ002", "Beijing Horizon Auto", "Beijing", "North Star Group", "M7", 2026, 4, 100, 68),
-                new Target("SH001", "Shanghai Prime Mobility", "Shanghai", "East River Group", "X5", 2026, 4, 130, 126),
-                new Target("HZ001", "Hangzhou Lakeside Auto", "Hangzhou", "East River Group", "X5", 2026, 4, 110, 97),
-                new Target("GZ001", "Guangzhou Motion Hub", "Guangzhou", "South Bay Group", "E3", 2026, 4, 105, 88),
-                new Target("CD001", "Chengdu Drive Center", "Chengdu", "West Link Group", "E3", 2026, 4, 95, 61)
+                new Target("BJ001", "Beijing Star Motors", "Beijing", "North Star Group", "M7", 2026, 4, 120, 92, 110),
+                new Target("BJ002", "Beijing Horizon Auto", "Beijing", "North Star Group", "M7", 2026, 4, 100, 68, 80),
+                new Target("SH001", "Shanghai Prime Mobility", "Shanghai", "East River Group", "X5", 2026, 4, 130, 126, 145),
+                new Target("HZ001", "Hangzhou Lakeside Auto", "Hangzhou", "East River Group", "X5", 2026, 4, 110, 97, 115),
+                new Target("GZ001", "Guangzhou Motion Hub", "Guangzhou", "South Bay Group", "E3", 2026, 4, 105, 88, 100),
+                new Target("CD001", "Chengdu Drive Center", "Chengdu", "West Link Group", "E3", 2026, 4, 95, 61, 72)
         ));
 
         leadRepository.saveAll(List.of(

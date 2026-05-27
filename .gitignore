@@ -1,21 +1,69 @@
-# OS and editors
+# Dependencies
+node_modules/
+.pnp
+.pnp.js
+
+# Build output
+dist/
+build/
+target/
+*.class
+*.jar
+*.war
+backend/src/main/resources/static/assets/
+
+# Claude/Agent
+.agent/
+.claude/
+.worktrees/
+
+# IDE
+.idea/
+.vscode/
+*.iml
+*.iws
+*.ipr
+.project
+.classpath
+.settings/
+
+# OS
 .DS_Store
 Thumbs.db
-.idea/
-*.iml
+Desktop.ini
+$RECYCLE.BIN/
 
-# Frontend
-frontend/node_modules/
-frontend/dist/
+# Logs
+*.log
+logs/
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# Temp
+*.tmp
+*.temp
+*.swp
+*.swo
+*~
+.ftp/
+
+# Test
+coverage/
+.nyc_output/
+
+# Maven local repo
+backend/.m2/
+
+# Frontend cache
 frontend/.npm-cache/
 frontend/.tmp/
 
-# Backend
-backend/target/
-backend/.m2/
-
-# Logs and temp files
-*.log
-*.tmp
-*.temp
+# Process
 *.pid
+
+# Package lock (optional)
+# package-lock.json
+# yarn.lock

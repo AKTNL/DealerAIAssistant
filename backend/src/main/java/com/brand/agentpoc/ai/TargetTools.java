@@ -29,11 +29,13 @@ public class TargetTools {
             String dealerGroupName,
             @ToolParam(description = "Optional product model filter such as M7 or X5.", required = false)
             String productModel,
-            @ToolParam(description = "Optional target year, such as 2026.", required = false)
+            @ToolParam(description = "Required target year, such as 2026.", required = true)
             Integer targetYear,
-            @ToolParam(description = "Optional target month, from 1 to 12.", required = false)
+            @ToolParam(description = "Required target month, from 1 to 12.", required = true)
             Integer targetMonth
     ) {
+        ToolFilterSupport.requireInteger("targetYear", targetYear);
+        ToolFilterSupport.requireInteger("targetMonth", targetMonth);
         Map<String, String> filters = ToolFilterSupport.newFilters();
         ToolFilterSupport.put(filters, "dealerCode", dealerCode);
         ToolFilterSupport.put(filters, "city", city);

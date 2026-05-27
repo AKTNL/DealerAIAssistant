@@ -1,12 +1,14 @@
 package com.brand.agentpoc.config;
 
 import com.brand.agentpoc.ai.CampaignTools;
+import com.brand.agentpoc.ai.CurrentDateTools;
 import com.brand.agentpoc.ai.DealerTools;
 import com.brand.agentpoc.ai.LeadTools;
 import com.brand.agentpoc.ai.OpportunityTools;
 import com.brand.agentpoc.ai.PromptFactory;
 import com.brand.agentpoc.ai.TargetTools;
 import com.brand.agentpoc.ai.TaskTools;
+import java.time.Clock;
 import org.springframework.ai.tool.ToolCallbackProvider;
 import org.springframework.ai.tool.method.MethodToolCallbackProvider;
 import org.springframework.context.annotation.Bean;
@@ -21,7 +23,13 @@ public class AiConfig {
     }
 
     @Bean
+    public Clock systemClock() {
+        return Clock.systemDefaultZone();
+    }
+
+    @Bean
     public ToolCallbackProvider aiToolCallbackProvider(
+            CurrentDateTools currentDateTools,
             DealerTools dealerTools,
             OpportunityTools opportunityTools,
             CampaignTools campaignTools,
@@ -31,6 +39,7 @@ public class AiConfig {
     ) {
         return MethodToolCallbackProvider.builder()
                 .toolObjects(
+                        currentDateTools,
                         dealerTools,
                         opportunityTools,
                         campaignTools,

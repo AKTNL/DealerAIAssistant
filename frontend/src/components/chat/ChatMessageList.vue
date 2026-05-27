@@ -1,5 +1,6 @@
 <script setup>
 import AssistantMessage from "./AssistantMessage.vue";
+import SystemMessage from "./SystemMessage.vue";
 import UserMessage from "./UserMessage.vue";
 
 defineProps({
@@ -7,29 +8,31 @@ defineProps({
     type: Object,
     required: true
   },
-  hasMessages: {
-    type: Boolean,
-    default: false
+  locale: {
+    type: String,
+    default: "zh"
   },
   messages: {
     type: Array,
     default: () => []
-  }
+  },
+  streamPhase: { type: String, default: "idle" }
 });
 
-defineEmits(["submit-follow-up", "toggle-thinking"]);
+defineEmits(["submit-follow-up"]);
 </script>
 
 <template>
   <div>
-    <div v-if="!hasMessages" class="empty-state">
-      <h3>{{ dictionary.emptyTitle }}</h3>
-      <p>{{ dictionary.emptyBody }}</p>
-    </div>
-
     <template v-for="message in messages" :key="message.id">
+      <SystemMessage
+        v-if="message.role === 'system'"
+        :type="message.type"
+        :dictionary="dictionary"
+      />
+
       <UserMessage
-        v-if="message.role === 'user'"
+        v-else-if="message.role === 'user'"
         :dictionary="dictionary"
         :message="message"
       />
@@ -37,9 +40,10 @@ defineEmits(["submit-follow-up", "toggle-thinking"]);
       <AssistantMessage
         v-else
         :dictionary="dictionary"
+        :locale="locale"
         :message="message"
+        :stream-phase="streamPhase"
         @submit-follow-up="$emit('submit-follow-up', $event)"
-        @toggle-thinking="$emit('toggle-thinking', $event)"
       />
     </template>
   </div>

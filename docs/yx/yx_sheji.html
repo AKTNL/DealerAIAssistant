@@ -1,0 +1,530 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>经销商 AI 分析助手 - 原型架构与全景模拟器</title>
+    
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        brand: {
+                            blue: '#0891b2',  // Cyan 600
+                            light: '#cffafe', // Cyan 100
+                            dark: '#164e63',  // Cyan 900
+                            gray: '#f8fafc',  // Slate 50
+                            text: '#334155'   // Slate 700
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+    
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+    <style>
+        /* 自定义滚动条 */
+        ::-webkit-scrollbar { width: 6px; height: 6px; }
+        ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+
+        /* 毛玻璃效果 */
+        .glass-card {
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(12px);
+            border: 1px solid rgba(255, 255, 255, 0.4);
+            box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.05);
+        }
+
+        /* 字典表格样式 */
+        .table-responsive { width: 100%; overflow-x: auto; margin: 1rem 0; border-radius: 0.5rem; border: 1px solid #e2e8f0; }
+        table { width: 100%; border-collapse: collapse; text-align: left; font-size: 0.8rem; }
+        th { background-color: #f8fafc; padding: 0.75rem 1rem; font-weight: 600; color: #475569; border-bottom: 2px solid #e2e8f0; white-space: nowrap; }
+        td { padding: 0.75rem 1rem; border-bottom: 1px solid #f1f5f9; color: #334155; }
+        tr:last-child td { border-bottom: none; }
+        tr:hover { background-color: #f8fafc; }
+
+        /* 动画 */
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        .animate-fade-in { animation: fadeIn 0.4s ease-out forwards; }
+    </style>
+</head>
+<body class="bg-brand-gray text-brand-text font-sans antialiased">
+
+    <header class="bg-white/90 backdrop-blur-md sticky top-0 z-50 border-b border-slate-200 shadow-sm">
+        <div class="max-w-screen-2xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex justify-between items-center">
+            <div class="flex items-center gap-3">
+                <div class="w-10 h-10 rounded-xl bg-brand-blue flex items-center justify-center text-white font-bold text-xl shadow-lg shadow-cyan-500/30">
+                    AI
+                </div>
+                <div>
+                    <h1 class="text-xl font-bold text-slate-800 tracking-tight">经销商 AI 分析助手 <span class="text-xs font-medium text-brand-blue bg-cyan-50 px-2 py-1 rounded-full ml-2">架构白皮书</span></h1>
+                    <p class="text-[10px] text-slate-400 mt-0.5 uppercase tracking-widest font-medium">V2.0 完整架构设计与数据字典规范</p>
+                </div>
+            </div>
+            <nav class="hidden md:flex gap-6 items-center text-sm font-medium text-slate-600">
+                <a href="#arch" class="hover:text-brand-blue transition-colors">核心架构</a>
+                <a href="#system-api" class="hover:text-brand-blue transition-colors">系统调度 API</a>
+                <a href="#tools" class="hover:text-brand-blue transition-colors">业务 API 字典</a>
+                <a href="#mapping" class="hover:text-brand-blue transition-colors">意图映射</a>
+                <a href="#actions" class="hover:text-brand-blue transition-colors text-brand-blue font-bold px-3 py-1 bg-cyan-50 rounded-lg">执行输出 (Action)</a>
+            </nav>
+        </div>
+    </header>
+
+    <main class="max-w-screen-2xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-16">
+
+        <section id="arch" class="scroll-mt-24">
+            <div class="mb-8">
+                <h2 class="text-2xl font-bold text-slate-800 flex items-center gap-2">
+                    <span>⚙️</span> 五层核心架构与 Agent 运行逻辑
+                </h2>
+                <p class="text-slate-500 text-sm mt-1">系统采用标准智能体架构：记忆驱动、规划决策、工具执行与反馈闭环。</p>
+            </div>
+            
+            <div class="max-w-5xl mx-auto space-y-6">
+                <div class="grid grid-cols-12">
+                    <div class="col-span-12 glass-card p-5 rounded-2xl border-t-4 border-t-blue-400 text-center relative">
+                        <div class="flex justify-center items-center gap-2 mb-2">
+                            <span class="text-2xl">💾</span>
+                            <h3 class="font-bold text-slate-800 text-lg">Memory (记忆模块)</h3>
+                        </div>
+                        <p class="text-xs text-slate-500">SessionStorage 鉴权 | <b>严格限制 20 轮上下文窗口</b> | 物理双向清空会话记忆 | sessionId 持久化维持</p>
+                        <div class="absolute left-1/2 top-full w-px h-6 bg-slate-200 -translate-x-1/2"></div>
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-12 gap-6 items-stretch pt-6">
+                    <div class="col-span-4 glass-card p-6 rounded-2xl border-l-4 border-l-indigo-400 flex flex-col justify-center">
+                        <div class="font-bold text-slate-800 mb-3 flex items-center gap-2">
+                            <span class="text-xl">🧭</span> Planning (规划)
+                        </div>
+                        <ul class="text-[11px] text-slate-500 space-y-2">
+                            <li>• <b>意图识别：</b>Pre-routing 拦截与预判</li>
+                            <li>• <b>CoT 思维链：</b>强制 &lt;think&gt; 标签封装</li>
+                            <li>• <b>任务拆解：</b>决策工具链调用顺序与逻辑</li>
+                        </ul>
+                    </div>
+
+                    <div class="col-span-4 bg-brand-blue rounded-[2.5rem] p-8 text-white text-center shadow-xl shadow-cyan-500/20 flex flex-col justify-center relative border-4 border-cyan-100/20">
+                        <div class="text-4xl mb-3">🧠</div>
+                        <h3 class="text-xl font-bold tracking-tight">Agent Core</h3>
+                        <p class="text-[10px] opacity-70 mt-1 uppercase tracking-widest font-medium">Spring AI + LLM Controller</p>
+                        <div class="mt-5 text-[11px] bg-white/10 py-2 px-3 rounded-full border border-white/20 inline-block mx-auto">SSE 流式推送数据中枢</div>
+                    </div>
+
+                    <div class="col-span-4 glass-card p-6 rounded-2xl border-r-4 border-r-teal-400 flex flex-col justify-center text-right">
+                        <div class="font-bold text-slate-800 mb-3 flex items-center justify-end gap-2">
+                            Action (反馈) <span class="text-xl">📊</span>
+                        </div>
+                        <ul class="text-[11px] text-slate-500 space-y-2">
+                            <li>• <b>KPI 计算：</b>执行二次数学逻辑与数据汇总</li>
+                            <li>• <b>结构化输出：</b>Markdown 表格、列表及深度分析</li>
+                            <li>• <b>追问提取：</b>正则动态生成后续业务推荐按钮</li>
+                        </ul>
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-12 pt-6">
+                    <div class="col-span-12 glass-card p-5 rounded-2xl border-b-4 border-b-cyan-500 text-center relative">
+                        <div class="absolute left-1/2 bottom-full w-px h-6 bg-slate-200 -translate-x-1/2"></div>
+                        <div class="flex justify-center items-center gap-2 mb-2">
+                            <span class="text-2xl">🛠️</span>
+                            <h3 class="font-bold text-slate-800 text-lg">Tools (工具执行层)</h3>
+                        </div>
+                        <p class="text-xs text-slate-500">H2 内存数据库 | <b>7个核心业务 API 映射</b> | 基于 Excel 样例数据动态映射 | 支持 Raw/聚合双模式</p>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <section id="system-api" class="scroll-mt-24">
+            <div class="mb-8">
+                <h2 class="text-2xl font-bold text-slate-800 flex items-center gap-2">
+                    <span>📡</span> 系统调度与会话控制 API (Core Control)
+                </h2>
+                <p class="text-slate-500 text-sm mt-1">定义前端 Web 界面与 Agent Core 之间的通信契约，涵盖鉴权、流式会话管理及状态重置。</p>
+            </div>
+
+            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                <div class="glass-card p-5 rounded-2xl border-l-4 border-l-brand-blue">
+                    <div class="flex justify-between items-start mb-3">
+                        <span class="px-2 py-1 bg-cyan-100 text-brand-blue text-[10px] font-bold rounded">POST</span>
+                        <span class="text-slate-400 text-[10px] font-mono">/api/auth/verify</span>
+                    </div>
+                    <h4 class="font-bold text-slate-800 text-sm mb-1">访问密钥验证</h4>
+                    <p class="text-[11px] text-slate-500 leading-relaxed">校验用户输入的访问口令，通过后建立 Session 会话。失败触发 401 状态码及前端抖动动效。</p>
+                </div>
+
+                <div class="glass-card p-5 rounded-2xl border-l-4 border-l-brand-blue">
+                    <div class="flex justify-between items-start mb-3">
+                        <span class="px-2 py-1 bg-cyan-600 text-white text-[10px] font-bold rounded">POST</span>
+                        <span class="text-slate-400 text-[10px] font-mono">/api/chat/stream</span>
+                    </div>
+                    <h4 class="font-bold text-slate-800 text-sm mb-1">流式 AI 对话 (SSE)</h4>
+                    <p class="text-[11px] text-slate-500 leading-relaxed">核心交互接口。基于 text/event-stream 协议实时推送思考进度、正文分片及 [DONE] 标记。</p>
+                </div>
+
+                <div class="glass-card p-5 rounded-2xl border-l-4 border-l-brand-blue">
+                    <div class="flex justify-between items-start mb-3">
+                        <span class="px-2 py-1 bg-slate-800 text-white text-[10px] font-bold rounded">POST</span>
+                        <span class="text-slate-400 text-[10px] font-mono">/api/chat</span>
+                    </div>
+                    <h4 class="font-bold text-slate-800 text-sm mb-1">同步 AI 对话</h4>
+                    <p class="text-[11px] text-slate-500 leading-relaxed">标准阻塞式 HTTP 请求。用于简单的问答测试，一次性返回完整消息体，不支持打字机效果。</p>
+                </div>
+
+                <div class="glass-card p-5 rounded-2xl border-l-4 border-l-red-400">
+                    <div class="flex justify-between items-start mb-3">
+                        <span class="px-2 py-1 bg-red-50 text-red-500 text-[10px] font-bold rounded">DELETE</span>
+                        <span class="text-slate-400 text-[10px] font-mono">/api/chat/{id}</span>
+                    </div>
+                    <h4 class="font-bold text-slate-800 text-sm mb-1">清除会话记忆</h4>
+                    <p class="text-[11px] text-slate-500 leading-relaxed">物理清除后端内存中的会话上下文。前端点击“清空会话”时调用，同时重置本地 sessionId。</p>
+                </div>
+            </div>
+        </section>
+
+        <section id="tools" class="scroll-mt-24">
+            <div class="mb-8">
+                <h2 class="text-2xl font-bold text-slate-800 flex items-center gap-2">
+                    <span>🛠️</span> 智能工具集与全量 API 字典
+                </h2>
+                <p class="text-slate-500 text-sm mt-1">严格按照 9.6 接口文档规范还原，涵盖所有必要入参和返参设计。</p>
+            </div>
+
+            <div class="grid grid-cols-1 lg:grid-cols-12 gap-6">
+                <div class="lg:col-span-3 flex flex-col gap-2 h-[560px] overflow-y-auto pr-2" id="tool-nav"></div>
+                <div class="lg:col-span-9 glass-card rounded-3xl border border-slate-200 p-8 shadow-sm h-[560px] overflow-y-auto" id="tool-detail"></div>
+            </div>
+        </section>
+
+        <section id="mapping" class="scroll-mt-24">
+            <div class="mb-8">
+                <h2 class="text-2xl font-bold text-slate-800 flex items-center gap-2">
+                    <span>🔗</span> 分析意图与工具调用映射矩阵
+                </h2>
+                <p class="text-slate-500 text-sm mt-1">详细说明在 6 大核心业务场景下，Agent 会如何通过 Chain of Thought (思维链) 编排底层 API 工具链。</p>
+            </div>
+            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6" id="mapping-grid"></div>
+        </section>
+
+        <section id="actions" class="scroll-mt-24">
+            <div class="mb-8">
+                <h2 class="text-2xl font-bold text-slate-800 flex items-center gap-2">
+                    <span>📊</span> 执行与输出规范 (Action Specs)
+                </h2>
+                <p class="text-slate-500 text-sm mt-1">定义 Agent 在执行阶段的数据加工公式及回复范式约束。</p>
+            </div>
+
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                <div class="glass-card p-8 rounded-[2rem] border-l-8 border-l-brand-blue">
+                    <h3 class="text-lg font-bold text-slate-800 mb-6 flex items-center gap-2">
+                        <span class="p-1.5 bg-cyan-100 rounded-lg text-brand-blue text-sm">f(x)</span>
+                        核心 KPI 算法引擎
+                    </h3>
+                    <div class="space-y-6">
+                        <div class="bg-white p-4 rounded-xl border border-slate-100 shadow-sm">
+                            <div class="text-[10px] text-brand-blue font-bold uppercase tracking-wider mb-1">🎯 目标达成率</div>
+                            <code class="text-xs font-mono font-bold text-slate-700 underline decoration-cyan-200">实际赢单数 ÷ 下达目标量 × 100%</code>
+                        </div>
+                        <div class="bg-white p-4 rounded-xl border border-slate-100 shadow-sm">
+                            <div class="text-[10px] text-brand-blue font-bold uppercase tracking-wider mb-1">🔽 漏斗流失率</div>
+                            <code class="text-xs font-mono font-bold text-slate-700 underline decoration-cyan-200">(当前阶段数 - 下一阶段数) ÷ 当前阶段数 × 100%</code>
+                        </div>
+                        <div class="bg-white p-4 rounded-xl border border-slate-100 shadow-sm">
+                            <div class="text-[10px] text-brand-blue font-bold uppercase tracking-wider mb-1">⚠️ 任务超期率</div>
+                            <code class="text-xs font-mono font-bold text-slate-700 underline decoration-cyan-200">Overdue任务数 ÷ 该维度总任务数 × 100%</code>
+                        </div>
+                        <div class="bg-white p-4 rounded-xl border border-slate-100 shadow-sm">
+                            <div class="text-[10px] text-brand-blue font-bold uppercase tracking-wider mb-1">📢 活动产出比 (ROI)</div>
+                            <code class="text-xs font-mono font-bold text-slate-700 underline decoration-cyan-200">实际产出商机 ÷ 规划新客目标 × 100%</code>
+                        </div>
+                        <div class="bg-white p-4 rounded-xl border border-slate-100 shadow-sm">
+                            <div class="text-[10px] text-brand-blue font-bold uppercase tracking-wider mb-1">📈 线索转化率</div>
+                            <code class="text-xs font-mono font-bold text-slate-700 underline decoration-cyan-200">IsConverted=True 数量 ÷ 总线索量 × 100%</code>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="glass-card p-8 rounded-[2rem] bg-slate-900 text-white border border-slate-700">
+                    <h3 class="text-lg font-bold mb-6 flex items-center gap-2">
+                        <span class="p-1.5 bg-white/10 rounded-lg text-white text-sm">📝</span>
+                        Markdown 输出范式约束
+                    </h3>
+                    <div class="relative pl-8 before:absolute before:left-3 before:top-2 before:bottom-2 before:w-px before:bg-slate-700">
+                        <div class="mb-8 relative">
+                            <div class="absolute -left-[25px] top-1 w-5 h-5 bg-brand-blue rounded-full border-4 border-slate-900 z-10 flex items-center justify-center text-[10px]">1</div>
+                            <h4 class="font-bold text-brand-blue text-sm mb-1">结论</h4>
+                            <p class="text-[11px] text-slate-400">提炼最核心的数据判断（如“表现稳健”、“严重流失”等）。</p>
+                        </div>
+                        <div class="mb-8 relative">
+                            <div class="absolute -left-[25px] top-1 w-5 h-5 bg-slate-700 rounded-full border-4 border-slate-900 z-10 flex items-center justify-center text-[10px]">2</div>
+                            <h4 class="font-bold text-slate-200 text-sm mb-1">数据支撑</h4>
+                            <p class="text-[11px] text-slate-400 mb-2"><b>必须使用 HTML &lt;table&gt; 格式</b>渲染。禁止文字罗列。</p>
+                            <div class="bg-white/5 p-3 rounded-lg border border-white/10 font-mono text-[12px] text-cyan-400 italic">
+                                强制结构: &lt;table&gt;...&lt;/table&gt;
+                            </div>
+                        </div>
+                        <div class="mb-8 relative">
+                            <div class="absolute -left-[25px] top-1 w-5 h-5 bg-slate-700 rounded-full border-4 border-slate-900 z-10 flex items-center justify-center text-[10px]">3</div>
+                            <h4 class="font-bold text-slate-200 text-sm mb-1">简短分析</h4>
+                            <p class="text-[11px] text-slate-400">基于数据计算出的极值给出根因猜测或行动建议。</p>
+                        </div>
+                        <div class="relative">
+                            <div class="absolute -left-[25px] top-1 w-5 h-5 bg-brand-blue rounded-full border-4 border-slate-900 z-10 flex items-center justify-center text-[10px]">4</div>
+                            <h4 class="font-bold text-brand-blue text-sm mb-1">💡 FOLLOW_UP_QUESTIONS:</h4>
+                            <p class="text-[11px] text-slate-400">结尾必须引导 2 个相关的业务追问按钮。</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+    </main>
+
+    <footer class="bg-white border-t border-slate-200 py-10 mt-12 text-center">
+        <p class="text-xs text-slate-400 font-mono">经销商 AI 分析助手 Agent_POC Architecture & API Specification © 2026</p>
+    </footer>
+
+    <script>
+        const toolsData = [
+            {
+                id: 'getCurrentDate', name: '系统时间工具', api: 'Native System',
+                desc: '获取当前的系统日期、年份、月份和所在的季度（提供时间锚点）。',
+                inputs: [], outputs: []
+            },
+            {
+                id: 'searchDealers', name: '经销商搜索工具', api: 'GET /dealers',
+                desc: '按关键字搜索门店；无关键字时可返回全部。',
+                inputs: [{ name: 'keyword', cn: '关键字', type: 'String', req: '是(按需)', desc: '按关键字搜索门店' }],
+                outputs: [
+                    { name: 'dealerCode', cn: '经销商代码', type: 'String', desc: '经销商的唯一标识码' },
+                    { name: 'dealerName', cn: '经销商名称', type: 'String', desc: '经销商的完整名称' },
+                    { name: 'city', cn: '城市', type: 'String', desc: '经销商所在城市' },
+                    { name: 'dealerGroupName', cn: '经销商集团', type: 'String', desc: '经销商所属的集团名称' }
+                ]
+            },
+            {
+                id: 'getOpportunities', name: '商机查询数据工具', api: 'GET /opportunities',
+                desc: '查询商机数据，用于漏斗、转化、在途商机等分析。',
+                inputs: [
+                    { name: 'dealerCode', cn: '经销商代码', type: 'String', req: '否', desc: '特定门店代码' },
+                    { name: 'city', cn: '城市', type: 'String', req: '否', desc: '特定城市' },
+                    { name: 'dealerGroupName', cn: '经销商集团', type: 'String', req: '否', desc: '特定集团' },
+                    { name: 'productModel', cn: '意向车型', type: 'String', req: '否', desc: '意向车型' },
+                    { name: 'startDate', cn: '开始日期', type: 'Date', req: '否', desc: '时间段起始' },
+                    { name: 'endDate', cn: '结束日期', type: 'Date', req: '否', desc: '时间段结束' },
+                    { name: 'raw', cn: '返回明细', type: 'Boolean', req: '是', desc: '控制是否聚合' }
+                ],
+                outputs: [
+                    { name: 'dealerCode', cn: '经销商代码', type: 'String', desc: '归属门店代码' },
+                    { name: 'dealerName', cn: '经销商名称', type: 'String', desc: '归属门店名称' },
+                    { name: 'city', cn: '城市', type: 'String', desc: '所在城市' },
+                    { name: 'dealerGroupName', cn: '经销商集团', type: 'String', desc: '所属集团' },
+                    { name: 'productModel', cn: '意向车型', type: 'String', desc: '意向车型' },
+                    { name: 'stageName', cn: '商机阶段', type: 'String', desc: '当前漏斗阶段' },
+                    { name: 'leadSource', cn: '线索来源', type: 'String', desc: '初始线索渠道' },
+                    { name: 'createdDate', cn: '创建日期', type: 'Date', desc: '商机创建时间' },
+                    { name: 'expectedCloseDate', cn: '预计赢单日', type: 'Date', desc: '预计成单日期' },
+                    { name: 'probability', cn: '赢单概率', type: 'Double', desc: '预计成单概率' },
+                    { name: 'totalCount', cn: '汇总数量', type: 'Integer', desc: '总量或等价汇总字段' }
+                ]
+            },
+            {
+                id: 'getCampaigns', name: '市场活动数据工具', api: 'GET /campaigns',
+                desc: '查询市场活动数据，用于活动规划、活动类型和产出效果分析。',
+                inputs: [
+                    { name: 'dealerCode', cn: '经销商代码', type: 'String', req: '否', desc: '特定门店代码' },
+                    { name: 'city', cn: '城市', type: 'String', req: '否', desc: '特定城市' },
+                    { name: 'dealerGroupName', cn: '经销商集团', type: 'String', req: '否', desc: '特定集团' },
+                    { name: 'productModel', cn: '意向车型', type: 'String', req: '否', desc: '相关车型' },
+                    { name: 'campaignType', cn: '活动类型', type: 'String', req: '否', desc: '补充: 筛选特定活动类型' },
+                    { name: 'startDate', cn: '开始日期', type: 'Date', req: '否', desc: '时间段起始' },
+                    { name: 'endDate', cn: '结束日期', type: 'Date', req: '否', desc: '时间段结束' },
+                    { name: 'raw', cn: '返回明细', type: 'Boolean', req: '是', desc: '控制是否聚合' }
+                ],
+                outputs: [
+                    { name: 'dealerCode', cn: '经销商代码', type: 'String', desc: '归属门店代码' },
+                    { name: 'dealerName', cn: '经销商名称', type: 'String', desc: '归属门店名称' },
+                    { name: 'city', cn: '城市', type: 'String', desc: '所在城市' },
+                    { name: 'dealerGroupName', cn: '经销商集团', type: 'String', desc: '所属集团' },
+                    { name: 'productModel', cn: '意向车型', type: 'String', desc: '相关车型' },
+                    { name: 'campaignType', cn: '活动类型', type: 'String', desc: '活动分类' },
+                    { name: 'createdDate', cn: '创建日期', type: 'Date', desc: '建立时间' },
+                    { name: 'campaignCount', cn: '活动场次', type: 'Integer', desc: '汇总场数' },
+                    { name: 'actualOpportunityCount', cn: '实际产出商机', type: 'Integer', desc: '转化出的商机量' },
+                    { name: 'totalNewCustomerTarget', cn: '新客获取目标', type: 'Integer', desc: '预期KPI数' }
+                ]
+            },
+            {
+                id: 'getTasks', name: '销售跟进任务工具', api: 'GET /tasks',
+                desc: '查询销售跟进任务，用于跟进活跃度分析。',
+                inputs: [
+                    { name: 'dealerCode', cn: '经销商代码', type: 'String', req: '否', desc: '特定门店' },
+                    { name: 'city', cn: '城市', type: 'String', req: '否', desc: '特定城市' },
+                    { name: 'dealerGroupName', cn: '经销商集团', type: 'String', req: '否', desc: '特定集团' },
+                    { name: 'status', cn: '任务状态', type: 'String', req: '否', desc: '补充: 过滤异常(如overdue)' },
+                    { name: 'startDate', cn: '开始日期', type: 'Date', req: '否', desc: '时间起始' },
+                    { name: 'endDate', cn: '结束日期', type: 'Date', req: '否', desc: '时间结束' },
+                    { name: 'raw', cn: '返回明细', type: 'Boolean', req: '是', desc: '控制是否聚合' }
+                ],
+                outputs: [
+                    { name: 'dealerCode', cn: '经销商代码', type: 'String', desc: '门店标识' },
+                    { name: 'dealerName', cn: '经销商名称', type: 'String', desc: '门店名称' },
+                    { name: 'city', cn: '城市', type: 'String', desc: '所在城市' },
+                    { name: 'dealerGroupName', cn: '经销商集团', type: 'String', desc: '所属集团' },
+                    { name: 'opportunityId', cn: '关联商机', type: 'String', desc: '商机ID' },
+                    { name: 'status', cn: '任务状态', type: 'String', desc: '当前进度' },
+                    { name: 'createdDate', cn: '创建日期', type: 'Date', desc: '下达时间' },
+                    { name: 'totalTaskCount', cn: '任务总量', type: 'Integer', desc: '任务数量汇总' }
+                ]
+            },
+            {
+                id: 'getTargets', name: '目标查询数据工具', api: 'GET /targets',
+                desc: '查询目标数据，用于目标达成和同比分析。',
+                inputs: [
+                    { name: 'dealerCode', cn: '经销商代码', type: 'String', req: '否', desc: '特定门店' },
+                    { name: 'city', cn: '城市', type: 'String', req: '否', desc: '城市汇总' },
+                    { name: 'dealerGroupName', cn: '经销商集团', type: 'String', req: '否', desc: '特定集团' },
+                    { name: 'productModel', cn: '意向车型', type: 'String', req: '否', desc: '特定车型' },
+                    { name: 'targetYear', cn: '目标年份', type: 'Integer', req: '是', desc: '所属年份' },
+                    { name: 'targetMonth', cn: '目标月份', type: 'Integer', req: '是', desc: '所属月份' }
+                ],
+                outputs: [
+                    { name: 'dealerCode', cn: '经销商代码', type: 'String', desc: '门店标识' },
+                    { name: 'dealerName', cn: '经销商/零售商', type: 'String', desc: '全称(retailerName)' },
+                    { name: 'city', cn: '城市', type: 'String', desc: '城市维度' },
+                    { name: 'dealerGroupName', cn: '经销商集团', type: 'String', desc: '集团维度' },
+                    { name: 'productModel', cn: '意向车型', type: 'String', desc: '车型维度' },
+                    { name: 'targetYear', cn: '目标年份', type: 'Integer', desc: '指标年份' },
+                    { name: 'targetMonth', cn: '目标月份', type: 'Integer', desc: '指标月份' },
+                    { name: 'asKTarget', cn: '下达目标量', type: 'Integer', desc: '基准 KPI' },
+                    { name: 'opportunityWonCount', cn: '实际赢单数', type: 'Integer', desc: '实际成交台数' }
+                ]
+            },
+            {
+                id: 'getLeads', name: '线索查询数据工具', api: 'GET /leads',
+                desc: '查询线索数据，用于线索来源、转化和趋势分析。',
+                inputs: [
+                    { name: 'dealerCode', cn: '经销商代码', type: 'String', req: '否', desc: '特定门店' },
+                    { name: 'city', cn: '城市', type: 'String', req: '否', desc: '所在城市' },
+                    { name: 'dealerGroupName', cn: '经销商集团', type: 'String', req: '否', desc: '所属集团' },
+                    { name: 'leadSource', cn: '线索来源', type: 'String', req: '是', desc: '获取渠道' },
+                    { name: 'productModel', cn: '意向车型', type: 'String', req: '否', desc: '关注车型' },
+                    { name: 'startDate', cn: '开始日期', type: 'Date', req: '否', desc: '时间起始' },
+                    { name: 'endDate', cn: '结束日期', type: 'Date', req: '否', desc: '时间结束' },
+                    { name: 'raw', cn: '返回明细', type: 'Boolean', req: '是', desc: '控制是否聚合' }
+                ],
+                outputs: [
+                    { name: 'dealerCode', cn: '经销商代码', type: 'String', desc: '门店标识' },
+                    { name: 'dealerName', cn: '经销商名称', type: 'String', desc: '门店全称' },
+                    { name: 'city', cn: '城市', type: 'String', desc: '所在城市' },
+                    { name: 'dealerGroupName', cn: '经销商集团', type: 'String', desc: '所属集团' },
+                    { name: 'leadSource', cn: '线索来源', type: 'String', desc: '产生渠道' },
+                    { name: 'stageName', cn: '线索阶段', type: 'String', desc: '所处阶段' },
+                    { name: 'productModel', cn: '意向车型', type: 'String', desc: '关注车型' },
+                    { name: 'createdDate', cn: '创建日期', type: 'Date', desc: '接入日期' },
+                    { name: 'isConverted', cn: '是否转化', type: 'Boolean', desc: '是否已转商机' },
+                    { name: 'totalCount', cn: '汇总数量', type: 'Integer', desc: '该维度的线索总量' }
+                ]
+            }
+        ];
+
+        const mappingData = [
+            {
+                title: '1. 目标达成分析',
+                question: '本月哪些经销商目标达成率最低？',
+                flow: [
+                    {step: '1. 获取动态时间锚点', tool: 'getCurrentDate()'},
+                    {step: '2. 定位特定区域实体', tool: 'searchDealers()'},
+                    {step: '3. 提取目标与赢单', tool: 'getTargets()'}
+                ],
+                logic: '对比下达的【目标销量(asKTarget)】与【实际赢单数(opportunityWonCount)】，执行达成百分比计算。'
+            },
+            {
+                title: '2. 商机漏斗与转化分析',
+                question: '上海市门店的商机漏斗转化情况如何？',
+                flow: [
+                    {step: '1. 锁定统计周期', tool: 'getCurrentDate()'},
+                    {step: '2. 锁定经销商代码', tool: 'searchDealers()'},
+                    {step: '3. 聚合漏斗数据', tool: 'getOpportunities()'}
+                ],
+                logic: '提取商机阶段(stageName)，统计各个节点的留存数量，计算漏斗阶段流失率。'
+            },
+            {
+                title: '3. 销售跟进分析',
+                question: '哪些门店跟进活跃度低？有多少超期任务？',
+                flow: [
+                    {step: '1. 时间参照界定', tool: 'getCurrentDate()'},
+                    {step: '2. 捕获异常任务数据', tool: 'getTasks(status="overdue")'},
+                    {step: '3. 实体溯源关联', tool: 'searchDealers()'}
+                ],
+                logic: '传递状态参数 status="overdue" 专项过滤严重超期的待办任务，评估各门店销售顾问的跟进效率。'
+            },
+            {
+                title: '4. 市场活动规划与效果分析',
+                question: '5月份商场外拓活动的规划目标和实际效果如何？',
+                flow: [
+                    {step: '1. 圈定活动周期', tool: 'getCurrentDate()'},
+                    {step: '2. 提取活动数据', tool: 'getCampaigns(campaignType="商场外拓")'}
+                ],
+                logic: 'Agent 同时提取 totalNewCustomerTarget(规划 KPI) 和 actualOpportunityCount(实际产出效果)，并计算活动达成率。'
+            },
+            {
+                title: '5. 经营对标分析',
+                question: '华东A店和华南B店各项销售指标对比如何？',
+                flow: [
+                    {step: '1. 并行解析实体 A/B', tool: 'searchDealers() × 2'},
+                    {step: '2. 并发提取数据 A', tool: 'getTargets()'},
+                    {step: '3. 并发提取数据 B', tool: 'getOpportunities()'}
+                ],
+                logic: '跨域调用，提取多店的综合经营包（达成率、转化率、线索量等），构建综合对比矩阵（雷达图）。'
+            },
+            {
+                title: '6. 线索来源与自然流量趋势分析',
+                question: '官网自然流量近期的转化趋势如何？',
+                flow: [
+                    {step: '1. 时间基准线确认', tool: 'getCurrentDate()'},
+                    {step: '2. 拉取自然流量线索', tool: 'getLeads(leadSource="官网自然流量")'}
+                ],
+                logic: '强制传入参数 leadSource="XY Online"(自然流量)，按时间序列统计自然流入数量及 isConverted 转化率。'
+            }
+        ];
+
+        function renderTools() {
+            const nav = document.getElementById('tool-nav');
+            const detail = document.getElementById('tool-detail');
+            nav.innerHTML = toolsData.map((t, idx) => `<button onclick="showTool(${idx})" class="w-full text-left px-4 py-3 rounded-xl border border-slate-200 bg-white hover:border-brand-blue hover:shadow-sm transition-all focus:outline-none tool-btn" data-idx="${idx}"><div class="font-bold text-slate-800 text-sm">${t.name}</div><div class="text-[11px] text-slate-400 font-mono mt-1">${t.id}</div></button>`).join('');
+            window.showTool = (idx) => {
+                document.querySelectorAll('.tool-btn').forEach(b => b.classList.remove('bg-cyan-50', 'border-brand-blue'));
+                document.querySelector(`.tool-btn[data-idx="${idx}"]`).classList.add('bg-cyan-50', 'border-brand-blue');
+                const t = toolsData[idx];
+                const buildTable = (data, isInput) => {
+                    if(!data || data.length === 0) return '<p class="text-sm text-slate-400 italic py-2">无相关参数/字段</p>';
+                    let rows = data.map(r => `<tr><td class="font-mono text-xs text-brand-blue font-bold">${r.name}</td><td class="text-xs text-slate-700">${r.cn}</td><td class="text-xs text-slate-600 font-mono">${r.type || 'N/A'}</td>${isInput ? `<td class="text-xs text-slate-500">${r.req || '否'}</td>` : ''}<td class="text-xs text-slate-500">${r.desc || ''}</td></tr>`).join('');
+                    return `<div class="table-responsive"><table class="w-full"><thead><tr><th class="w-1/5">${isInput ? '参数名' : '字段名'}</th><th class="w-1/6">中文名</th><th class="w-1/6">类型</th>${isInput ? `<th class="w-1/12">必填</th>` : ''}<th>说明</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+                };
+                detail.innerHTML = `<div class="animate-fade-in"><div class="flex items-center gap-3 mb-2"><h3 class="text-xl font-bold text-slate-800">${t.name}</h3><span class="px-2 py-0.5 bg-slate-800 text-white text-[10px] font-mono rounded tracking-wider">@Tool</span></div><div class="text-xs text-slate-500 font-mono mb-4 border-b border-slate-100 pb-4">Endpoint: ${t.api}</div><div class="bg-blue-50 border border-blue-100 p-4 rounded-xl mb-6"><p class="text-sm text-blue-800 leading-relaxed"><strong>💡 核心作用：</strong>${t.desc}</p></div><h4 class="font-bold text-slate-800 mb-2 flex items-center gap-2 mt-8 text-sm"><span class="w-2 h-2 bg-brand-blue rounded-full"></span>【输入参数】 Inputs</h4>${buildTable(t.inputs, true)}<h4 class="font-bold text-slate-800 mb-2 flex items-center gap-2 mt-8 text-sm"><span class="w-2 h-2 bg-slate-800 rounded-full"></span>【输出字段】 Outputs</h4>${buildTable(t.outputs, false)}</div>`;
+            };
+            showTool(1);
+        }
+
+        function renderMapping() {
+            document.getElementById('mapping-grid').innerHTML = mappingData.map((m, index) => `<div class="glass-card p-6 rounded-2xl border-t-4 border-t-brand-blue hover:shadow-lg transition-shadow bg-white flex flex-col h-full animate-fade-in" style="animation-delay: ${index * 0.1}s"><h3 class="font-bold text-slate-800 text-base mb-2">${m.title}</h3><p class="text-[11px] text-brand-blue italic mb-4 pb-4 border-b border-slate-100">"${m.question}"</p><div class="space-y-4 mb-6 flex-1 relative before:absolute before:inset-y-0 before:left-[11px] before:w-[2px] before:bg-slate-100 pl-8">${m.flow.map((f, i) => `<div class="relative"><div class="absolute -left-[27px] top-1.5 w-3 h-3 rounded-full ${i === m.flow.length - 1 ? 'bg-brand-blue shadow-[0_0_8px_rgba(8,145,178,0.5)]' : 'bg-slate-300'} border-[3px] border-white z-10"></div><div class="text-[11px] text-slate-500 font-medium mb-1">${f.step}</div><div class="text-xs font-mono text-slate-700 font-bold bg-slate-50 inline-block px-2 py-1 rounded border border-slate-200">${f.tool}</div></div>`).join('')}</div><div class="mt-auto pt-4 border-t border-slate-100 text-[11px] text-slate-600 leading-relaxed"><span class="font-bold text-slate-700 block mb-1">💡 引擎编排逻辑：</span>${m.logic}</div></div>`).join('');
+        }
+
+        document.addEventListener('DOMContentLoaded', () => {
+            renderTools();
+            renderMapping();
+        });
+    </script>
+</body>
+</html>

@@ -19,11 +19,16 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 @Service
+@Transactional(readOnly = true)
 public class DataQueryService {
+
+    private static final Logger log = LoggerFactory.getLogger(DataQueryService.class);
 
     private final DealerRepository dealerRepository;
     private final OpportunityRepository opportunityRepository;
@@ -48,7 +53,6 @@ public class DataQueryService {
         this.leadRepository = leadRepository;
     }
 
-    @Transactional(readOnly = true)
     public DataQueryResponse query(String dataset, Map<String, String> filters) {
         Map<String, String> normalizedFilters = Map.copyOf(filters);
 
@@ -66,7 +70,7 @@ public class DataQueryService {
     private DataQueryResponse queryDealers(Map<String, String> filters) {
         String keyword = normalize(filters.get("keyword"));
 
-        List<Map<String, Object>> items = dealerRepository.findAll().stream()
+        List<Map<String, Object>> items = loadDealers(filters).stream()
                 .filter(dealer -> keyword == null
                         || contains(dealer.getDealerCode(), keyword)
                         || contains(dealer.getDealerName(), keyword)
@@ -79,14 +83,14 @@ public class DataQueryService {
                 .map(this::toDealerMap)
                 .toList();
 
-        return new DataQueryResponse("dealers", filters, items.size(), items);
+        return response("dealers", filters, items, Map.of());
     }
 
     private DataQueryResponse queryOpportunities(Map<String, String> filters) {
-        LocalDate startDate = parseDate(filters.get("startDate"));
-        LocalDate endDate = parseDate(filters.get("endDate"));
+        LocalDate startDate = parseDate("startDate", filters.get("startDate"));
+        LocalDate endDate = parseDate("endDate", filters.get("endDate"));
 
-        List<Map<String, Object>> items = opportunityRepository.findAll().stream()
+        List<Map<String, Object>> items = loadOpportunities(filters, startDate, endDate).stream()
                 .filter(opportunity -> matchesExact(opportunity.getDealerCode(), filters.get("dealerCode")))
                 .filter(opportunity -> matchesExact(opportunity.getCity(), filters.get("city")))
                 .filter(opportunity -> matchesExact(opportunity.getDealerGroupName(), filters.get("dealerGroupName")))
@@ -99,14 +103,14 @@ public class DataQueryService {
                 .map(this::toOpportunityMap)
                 .toList();
 
-        return new DataQueryResponse("opportunities", filters, items.size(), items);
+        return response("opportunities", filters, items, Map.of("totalCount", items.size()));
     }
 
     private DataQueryResponse queryCampaigns(Map<String, String> filters) {
-        LocalDate startDate = parseDate(filters.get("startDate"));
-        LocalDate endDate = parseDate(filters.get("endDate"));
+        LocalDate startDate = parseDate("startDate", filters.get("startDate"));
+        LocalDate endDate = parseDate("endDate", filters.get("endDate"));
 
-        List<Map<String, Object>> items = campaignRepository.findAll().stream()
+        List<Map<String, Object>> items = loadCampaigns(filters, startDate, endDate).stream()
                 .filter(campaign -> matchesExact(campaign.getDealerCode(), filters.get("dealerCode")))
                 .filter(campaign -> matchesExact(campaign.getCity(), filters.get("city")))
                 .filter(campaign -> matchesExact(campaign.getDealerGroupName(), filters.get("dealerGroupName")))
@@ -118,14 +122,14 @@ public class DataQueryService {
                 .map(this::toCampaignMap)
                 .toList();
 
-        return new DataQueryResponse("campaigns", filters, items.size(), items);
+        return response("campaigns", filters, items, Map.of("campaignCount", items.size()));
     }
 
     private DataQueryResponse queryTasks(Map<String, String> filters) {
-        LocalDate startDate = parseDate(filters.get("startDate"));
-        LocalDate endDate = parseDate(filters.get("endDate"));
+        LocalDate startDate = parseDate("startDate", filters.get("startDate"));
+        LocalDate endDate = parseDate("endDate", filters.get("endDate"));
 
-        List<Map<String, Object>> items = taskRepository.findAll().stream()
+        List<Map<String, Object>> items = loadTasks(filters, startDate, endDate).stream()
                 .filter(task -> matchesExact(task.getDealerCode(), filters.get("dealerCode")))
                 .filter(task -> matchesExact(task.getCity(), filters.get("city")))
                 .filter(task -> matchesExact(task.getDealerGroupName(), filters.get("dealerGroupName")))
@@ -137,14 +141,14 @@ public class DataQueryService {
                 .map(this::toTaskMap)
                 .toList();
 
-        return new DataQueryResponse("tasks", filters, items.size(), items);
+        return response("tasks", filters, items, Map.of("totalTaskCount", items.size()));
     }
 
     private DataQueryResponse queryTargets(Map<String, String> filters) {
-        Integer targetYear = parseInteger(filters.get("targetYear"));
-        Integer targetMonth = parseInteger(filters.get("targetMonth"));
+        Integer targetYear = parseInteger("targetYear", filters.get("targetYear"));
+        Integer targetMonth = parseInteger("targetMonth", filters.get("targetMonth"));
 
-        List<Map<String, Object>> items = targetRepository.findAll().stream()
+        List<Map<String, Object>> items = loadTargets(filters, targetYear, targetMonth).stream()
                 .filter(target -> matchesExact(target.getDealerCode(), filters.get("dealerCode")))
                 .filter(target -> matchesExact(target.getCity(), filters.get("city")))
                 .filter(target -> matchesExact(target.getDealerGroupName(), filters.get("dealerGroupName")))
@@ -157,15 +161,15 @@ public class DataQueryService {
                 .map(this::toTargetMap)
                 .toList();
 
-        return new DataQueryResponse("targets", filters, items.size(), items);
+        return response("targets", filters, items, Map.of());
     }
 
     private DataQueryResponse queryLeads(Map<String, String> filters) {
-        LocalDate startDate = parseDate(filters.get("startDate"));
-        LocalDate endDate = parseDate(filters.get("endDate"));
+        LocalDate startDate = parseDate("startDate", filters.get("startDate"));
+        LocalDate endDate = parseDate("endDate", filters.get("endDate"));
         Boolean converted = parseBoolean(filters.get("isConverted"));
 
-        List<Map<String, Object>> items = leadRepository.findAll().stream()
+        List<Map<String, Object>> items = loadLeads(filters, startDate, endDate, converted).stream()
                 .filter(lead -> matchesExact(lead.getDealerCode(), filters.get("dealerCode")))
                 .filter(lead -> matchesExact(lead.getCity(), filters.get("city")))
                 .filter(lead -> matchesExact(lead.getDealerGroupName(), filters.get("dealerGroupName")))
@@ -179,7 +183,217 @@ public class DataQueryService {
                 .map(this::toLeadMap)
                 .toList();
 
-        return new DataQueryResponse("leads", filters, items.size(), items);
+        return response("leads", filters, items, Map.of("totalCount", items.size()));
+    }
+
+    private DataQueryResponse response(
+            String dataset,
+            Map<String, String> filters,
+            List<Map<String, Object>> items,
+            Map<String, Object> metadata
+    ) {
+        return new DataQueryResponse(dataset, filters, items.size(), items, metadata);
+    }
+
+    private List<Dealer> loadDealers(Map<String, String> filters) {
+        if (normalize(filters.get("keyword")) != null) {
+            return dealerRepository.findAll();
+        }
+
+        String dealerCode = filterValue(filters, "dealerCode");
+        if (dealerCode != null) {
+            return dealerRepository.findByDealerCodeIgnoreCase(dealerCode);
+        }
+
+        String city = filterValue(filters, "city");
+        if (city != null) {
+            return dealerRepository.findByCityIgnoreCase(city);
+        }
+
+        String dealerGroupName = filterValue(filters, "dealerGroupName");
+        if (dealerGroupName != null) {
+            return dealerRepository.findByDealerGroupNameIgnoreCase(dealerGroupName);
+        }
+
+        return dealerRepository.findAll();
+    }
+
+    private List<Opportunity> loadOpportunities(Map<String, String> filters, LocalDate startDate, LocalDate endDate) {
+        String dealerCode = filterValue(filters, "dealerCode");
+        if (dealerCode != null) {
+            return opportunityRepository.findByDealerCodeIgnoreCase(dealerCode);
+        }
+
+        String city = filterValue(filters, "city");
+        if (city != null) {
+            return opportunityRepository.findByCityIgnoreCase(city);
+        }
+
+        String dealerGroupName = filterValue(filters, "dealerGroupName");
+        if (dealerGroupName != null) {
+            return opportunityRepository.findByDealerGroupNameIgnoreCase(dealerGroupName);
+        }
+
+        String productModel = filterValue(filters, "productModel");
+        if (productModel != null) {
+            return opportunityRepository.findByProductModelIgnoreCase(productModel);
+        }
+
+        String stageName = filterValue(filters, "stageName");
+        if (stageName != null) {
+            return opportunityRepository.findByStageNameIgnoreCase(stageName);
+        }
+
+        String leadSource = filterValue(filters, "leadSource");
+        if (leadSource != null) {
+            return opportunityRepository.findByLeadSourceIgnoreCase(leadSource);
+        }
+
+        if (startDate != null && endDate != null) {
+            return opportunityRepository.findByCreatedDateBetween(startDate, endDate);
+        }
+
+        return opportunityRepository.findAll();
+    }
+
+    private List<Campaign> loadCampaigns(Map<String, String> filters, LocalDate startDate, LocalDate endDate) {
+        String dealerCode = filterValue(filters, "dealerCode");
+        if (dealerCode != null) {
+            return campaignRepository.findByDealerCodeIgnoreCase(dealerCode);
+        }
+
+        String campaignType = filterValue(filters, "campaignType");
+        if (campaignType != null) {
+            return campaignRepository.findByCampaignTypeIgnoreCase(campaignType);
+        }
+
+        String city = filterValue(filters, "city");
+        if (city != null) {
+            return campaignRepository.findByCityIgnoreCase(city);
+        }
+
+        String dealerGroupName = filterValue(filters, "dealerGroupName");
+        if (dealerGroupName != null) {
+            return campaignRepository.findByDealerGroupNameIgnoreCase(dealerGroupName);
+        }
+
+        String productModel = filterValue(filters, "productModel");
+        if (productModel != null) {
+            return campaignRepository.findByProductModelIgnoreCase(productModel);
+        }
+
+        if (startDate != null && endDate != null) {
+            return campaignRepository.findByCreatedDateBetween(startDate, endDate);
+        }
+
+        return campaignRepository.findAll();
+    }
+
+    private List<Task> loadTasks(Map<String, String> filters, LocalDate startDate, LocalDate endDate) {
+        String dealerCode = filterValue(filters, "dealerCode");
+        if (dealerCode != null) {
+            return taskRepository.findByDealerCodeIgnoreCase(dealerCode);
+        }
+
+        String city = filterValue(filters, "city");
+        if (city != null) {
+            return taskRepository.findByCityIgnoreCase(city);
+        }
+
+        String dealerGroupName = filterValue(filters, "dealerGroupName");
+        if (dealerGroupName != null) {
+            return taskRepository.findByDealerGroupNameIgnoreCase(dealerGroupName);
+        }
+
+        String opportunityId = filterValue(filters, "opportunityId");
+        if (opportunityId != null) {
+            return taskRepository.findByOpportunityIdIgnoreCase(opportunityId);
+        }
+
+        String status = filterValue(filters, "status");
+        if (status != null) {
+            return taskRepository.findByStatusIgnoreCase(status);
+        }
+
+        if (startDate != null && endDate != null) {
+            return taskRepository.findByCreatedDateBetween(startDate, endDate);
+        }
+
+        return taskRepository.findAll();
+    }
+
+    private List<Target> loadTargets(Map<String, String> filters, Integer targetYear, Integer targetMonth) {
+        String dealerCode = filterValue(filters, "dealerCode");
+        if (dealerCode != null) {
+            return targetRepository.findByDealerCodeIgnoreCase(dealerCode);
+        }
+
+        String city = filterValue(filters, "city");
+        if (city != null) {
+            return targetRepository.findByCityIgnoreCase(city);
+        }
+
+        String dealerGroupName = filterValue(filters, "dealerGroupName");
+        if (dealerGroupName != null) {
+            return targetRepository.findByDealerGroupNameIgnoreCase(dealerGroupName);
+        }
+
+        String productModel = filterValue(filters, "productModel");
+        if (productModel != null) {
+            return targetRepository.findByProductModelIgnoreCase(productModel);
+        }
+
+        if (targetYear != null && targetMonth != null) {
+            return targetRepository.findByTargetYearAndTargetMonth(targetYear, targetMonth);
+        }
+
+        if (targetYear != null) {
+            return targetRepository.findByTargetYear(targetYear);
+        }
+
+        return targetRepository.findAll();
+    }
+
+    private List<Lead> loadLeads(Map<String, String> filters, LocalDate startDate, LocalDate endDate, Boolean converted) {
+        String dealerCode = filterValue(filters, "dealerCode");
+        if (dealerCode != null) {
+            return leadRepository.findByDealerCodeIgnoreCase(dealerCode);
+        }
+
+        String leadSource = filterValue(filters, "leadSource");
+        if (leadSource != null) {
+            return leadRepository.findByLeadSourceIgnoreCase(leadSource);
+        }
+
+        String city = filterValue(filters, "city");
+        if (city != null) {
+            return leadRepository.findByCityIgnoreCase(city);
+        }
+
+        String dealerGroupName = filterValue(filters, "dealerGroupName");
+        if (dealerGroupName != null) {
+            return leadRepository.findByDealerGroupNameIgnoreCase(dealerGroupName);
+        }
+
+        String stageName = filterValue(filters, "stageName");
+        if (stageName != null) {
+            return leadRepository.findByStageNameIgnoreCase(stageName);
+        }
+
+        String productModel = filterValue(filters, "productModel");
+        if (productModel != null) {
+            return leadRepository.findByProductModelIgnoreCase(productModel);
+        }
+
+        if (converted != null) {
+            return leadRepository.findByConverted(converted);
+        }
+
+        if (startDate != null && endDate != null) {
+            return leadRepository.findByCreatedDateBetween(startDate, endDate);
+        }
+
+        return leadRepository.findAll();
     }
 
     private Map<String, Object> toDealerMap(Dealer dealer) {
@@ -275,6 +489,16 @@ public class DataQueryService {
         return normalizedActual != null && normalizedActual.contains(normalize(keyword));
     }
 
+    private String filterValue(Map<String, String> filters, String key) {
+        String value = filters.get(key);
+        if (value == null) {
+            return null;
+        }
+
+        String trimmed = value.trim();
+        return trimmed.isEmpty() ? null : trimmed;
+    }
+
     private String normalize(String value) {
         if (value == null) {
             return null;
@@ -289,18 +513,22 @@ public class DataQueryService {
                 && (endDate == null || !value.isAfter(endDate));
     }
 
-    private LocalDate parseDate(String value) {
+    private LocalDate parseDate(String fieldName, String value) {
         try {
             return normalize(value) == null ? null : LocalDate.parse(value.trim());
-        } catch (Exception ignored) {
+        } catch (Exception exception) {
+            log.debug("Failed to parse {} from value '{}' as date: {}", fieldName, value,
+                    exception.getClass().getSimpleName());
             return null;
         }
     }
 
-    private Integer parseInteger(String value) {
+    private Integer parseInteger(String fieldName, String value) {
         try {
             return normalize(value) == null ? null : Integer.parseInt(value.trim());
-        } catch (Exception ignored) {
+        } catch (Exception exception) {
+            log.debug("Failed to parse {} from value '{}' as integer: {}", fieldName, value,
+                    exception.getClass().getSimpleName());
             return null;
         }
     }

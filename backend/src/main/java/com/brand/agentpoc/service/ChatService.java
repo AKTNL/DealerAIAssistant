@@ -2,54 +2,84 @@ package com.brand.agentpoc.service;
 
 import com.brand.agentpoc.ai.LanguageDetector;
 import com.brand.agentpoc.ai.PromptFactory;
-import com.brand.agentpoc.config.OpenAiProperties;
 import com.brand.agentpoc.dto.request.ChatRequest;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import java.io.BufferedWriter;
 import java.io.IOException;
 import java.io.OutputStream;
 import java.io.OutputStreamWriter;
+import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import java.util.Map;
+import java.util.Set;
+import java.util.function.Consumer;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import org.springframework.ai.chat.client.ChatClient;
+import org.springframework.ai.chat.messages.SystemMessage;
+import org.springframework.ai.chat.messages.UserMessage;
 import org.springframework.ai.chat.model.ChatModel;
-import org.springframework.ai.tool.ToolCallbackProvider;
-import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Service;
+import org.springframework.ai.chat.model.ChatResponse;
+import org.springframework.ai.chat.prompt.Prompt;
 
 @Service
 public class ChatService {
 
-    private static final Logger log = LoggerFactory.getLogger(ChatService.class);
-    private static final int HISTORY_LIMIT = 8;
+    private static final int HISTORY_LIMIT = 20;
     private static final int HISTORY_ENTRY_LIMIT = 500;
+    static final int MAX_STREAMED_REPLY_CHARS = 32_000;
+    private static final String STREAMED_REPLY_LIMIT_MESSAGE =
+            "The streamed reply exceeded the allowed output limit.";
+    private static final Pattern THINK_TAG_PATTERN = Pattern.compile("<think>(.*?)</think>", Pattern.DOTALL);
+    private static final Pattern SECOND_LEVEL_HEADING_LINE_PATTERN = Pattern.compile("(?m)^##[^\\r\\n]*$");
+    private static final Pattern DATA_SUPPORT_HEADING_PATTERN = Pattern.compile(
+            "^##[\\s\\h]*(?:\\d+[\\s\\h\\.、]*)?(?:Data Support|数据支撑)[\\s\\h]*$",
+            Pattern.MULTILINE
+    );
+    private static final Pattern FORBIDDEN_SUMMARY_HEADING_PATTERN = Pattern.compile(
+            "^##[\\s\\h]*(?:\\d+[\\s\\h\\.、]*)?(?:数据汇总|Data Summary|数据总览|Data Overview|摘要段落|Summary)[\\s\\h]*$",
+            Pattern.MULTILINE | Pattern.CASE_INSENSITIVE
+    );
+
+    private static final Map<String, List<String>> METRIC_TERMS = Map.of(
+            "zh", List.of("达成率", "转化率", "商机", "线索", "任务", "活动", "ROI", "销量",
+                    "赢单", "流失", "漏斗", "目标", "活跃度", "参与度", "跟进", "时效", "逾期"),
+            "en", List.of("achievement", "conversion", "opportunity", "lead", "task", "campaign",
+                    "ROI", "sales", "win", "drop-off", "funnel", "target", "activity", "participation",
+                    "follow-up", "turnaround", "overdue")
+    );
+
+    private static final Map<String, List<String>> SCENARIO_TERMS = Map.of(
+            "zh", List.of("目标达成", "商机漏斗", "转化分析", "销售跟进", "活动效果", "市场活动",
+                    "经营对标", "对标分析", "线索来源", "自然流量", "经营活跃度", "门店活跃"),
+            "en", List.of("target achievement", "opportunity funnel", "conversion analysis",
+                    "sales follow-up", "campaign performance", "dealer benchmark", "lead source",
+                    "organic traffic", "business activity", "dealer activity")
+    );
 
     private final SessionMemoryService sessionMemoryService;
     private final LanguageDetector languageDetector;
     private final RuleBasedAnalyticsService analyticsService;
     private final PromptFactory promptFactory;
-    private final OpenAiProperties openAiProperties;
-    private final ObjectProvider<ChatModel> chatModelProvider;
-    private final ToolCallbackProvider aiToolCallbackProvider;
+    private final ModelConfigService modelConfigService;
 
     public ChatService(
             SessionMemoryService sessionMemoryService,
             LanguageDetector languageDetector,
             RuleBasedAnalyticsService analyticsService,
             PromptFactory promptFactory,
-            OpenAiProperties openAiProperties,
-            ObjectProvider<ChatModel> chatModelProvider,
-            ToolCallbackProvider aiToolCallbackProvider
+            ModelConfigService modelConfigService
     ) {
         this.sessionMemoryService = sessionMemoryService;
         this.languageDetector = languageDetector;
         this.analyticsService = analyticsService;
         this.promptFactory = promptFactory;
-        this.openAiProperties = openAiProperties;
-        this.chatModelProvider = chatModelProvider;
-        this.aiToolCallbackProvider = aiToolCallbackProvider;
+        this.modelConfigService = modelConfigService;
     }
 
     public String chat(ChatRequest request) {
@@ -60,63 +90,388 @@ public class ChatService {
     }
 
     public void streamChat(ChatRequest request, OutputStream outputStream) throws IOException {
-        GeneratedReply generatedReply = generateReply(request);
+        String language = languageDetector.detectLanguage(request.message());
+        boolean analyticsRequested = looksLikeAnalyticsRequest(request.message());
+        boolean configuredModel = hasConfiguredModelSettings(request);
+        String traceId = java.util.UUID.randomUUID().toString().replace("-", "").substring(0, 8);
         sessionMemoryService.addUserMessage(request.sessionId(), request.message());
 
         try (BufferedWriter writer = new BufferedWriter(new OutputStreamWriter(outputStream, StandardCharsets.UTF_8))) {
-            for (String progress : generatedReply.progressMessages()) {
-                writeEvent(writer, "progress", progress);
+            final Object writeLock = new Object();
+            Consumer<StepEvent> onStep = step -> {
+                synchronized (writeLock) {
+                    try {
+                        writeStepEvent(writer, step);
+                    } catch (IOException e) {
+                        throw new UncheckedIOException(e);
+                    }
+                }
+            };
+            try {
+                AnalyticsPlan analyticsPlan = analyticsRequested
+                        ? analyticsService.plan(request.message(), language, traceId, onStep)
+                        : null;
+                List<String> progressMessages = resolveStreamProgressMessages(
+                        language,
+                        analyticsRequested,
+                        configuredModel,
+                        analyticsPlan
+                );
+                if (!progressMessages.isEmpty()) {
+                    writeEvent(writer, "progress", progressMessages.getFirst());
+                }
+
+                if (!configuredModel) {
+                    GeneratedReply generatedReply = analyticsPlan != null
+                            ? new GeneratedReply(
+                                    analyticsPlan.fallbackReply().trim(),
+                                    analyticsPlan.progressMessages(),
+                                    analyticsPlan.visibleThinking()
+                            )
+                            : generateReply(request, language, false);
+                    writeChunkedEvent(writer, "message", generatedReply.reply());
+                    sessionMemoryService.addAssistantMessage(request.sessionId(), generatedReply.reply());
+                    writeEvent(writer, "done", "[DONE]");
+                    return;
+                }
+
+                streamConfiguredReply(writer, request, language, analyticsRequested, analyticsPlan);
+            } catch (Exception exception) {
+                writeEvent(writer, "error", describeStreamFailure(exception));
             }
-            writeEvent(writer, "message", "<think>" + generatedReply.visibleThinking() + "</think>");
-            writeEvent(writer, "message", generatedReply.reply());
-            writeEvent(writer, "done", "[DONE]");
-            sessionMemoryService.addAssistantMessage(request.sessionId(), generatedReply.reply());
         }
+    }
+
+    private void streamConfiguredReply(
+            BufferedWriter writer,
+            ChatRequest request,
+            String language,
+            boolean analyticsRequested,
+            AnalyticsPlan analyticsPlan
+    ) throws IOException {
+        ChatModel chatModel = modelConfigService.createChatModel(request);
+        Prompt prompt = buildStreamingPrompt(request, language, analyticsRequested, analyticsPlan);
+
+        if (analyticsRequested) {
+            streamConfiguredAnalyticsReply(writer, request, language, analyticsPlan, chatModel, prompt);
+            return;
+        }
+
+        streamConfiguredGeneralReply(writer, request, language, chatModel, prompt);
+    }
+
+    private void streamConfiguredGeneralReply(
+            BufferedWriter writer,
+            ChatRequest request,
+            String language,
+            ChatModel chatModel,
+            Prompt prompt
+    ) throws IOException {
+        StringBuilder streamedReply = new StringBuilder();
+
+        try {
+            chatModel.stream(prompt)
+                    .doOnNext(chunkResponse -> writeStreamChunk(writer, streamedReply, chunkResponse))
+                    .blockLast();
+        } catch (UncheckedIOException exception) {
+            throw exception.getCause();
+        }
+
+        String visibleReply = streamedReply.toString();
+        String normalizedReply = ensureFollowUpQuestions(visibleReply, language, false);
+        String trimmedVisibleReply = visibleReply.trim();
+        String finalReply = visibleReply;
+        String appendedTail = "";
+
+        if (!normalizedReply.equals(trimmedVisibleReply)) {
+            String canonicalTail = normalizedReply.substring(trimmedVisibleReply.length());
+            boolean repairingPartialBlock = trimmedVisibleReply.contains("FOLLOW_UP_QUESTIONS:");
+            appendedTail = repairingPartialBlock
+                    ? canonicalTail
+                    : alignStreamedFollowUpTail(visibleReply, canonicalTail);
+            StringBuilder persistedReply = new StringBuilder(repairingPartialBlock ? trimmedVisibleReply : visibleReply);
+            appendChunk(persistedReply, appendedTail);
+            finalReply = persistedReply.toString();
+        }
+
+        if (hasText(appendedTail)) {
+            writeChunkedEvent(writer, "message", appendedTail);
+        }
+
+        sessionMemoryService.addAssistantMessage(request.sessionId(), finalReply);
+        writeEvent(writer, "done", "[DONE]");
+    }
+
+    private void streamConfiguredAnalyticsReply(
+            BufferedWriter writer,
+            ChatRequest request,
+            String language,
+            AnalyticsPlan analyticsPlan,
+            ChatModel chatModel,
+            Prompt prompt
+    ) throws IOException {
+        StringBuilder streamedReply = new StringBuilder();
+        String finalReply;
+
+        try {
+            chatModel.stream(prompt)
+                    .doOnNext(chunkResponse -> {
+                        String reasoning = extractReasoningContent(chunkResponse);
+                        String text = extractChunkText(chunkResponse);
+                        if (hasText(reasoning)) {
+                            String wrapped = "<think>" + reasoning.trim() + "</think>";
+                            appendChunk(streamedReply, wrapped);
+                            try {
+                                writeChunkedEvent(writer, "message", wrapped);
+                            } catch (IOException e) {
+                                throw new UncheckedIOException(e);
+                            }
+                        }
+                        if (text != null && !text.isEmpty()) {
+                            appendChunk(streamedReply, text);
+                        }
+                    })
+                    .blockLast();
+
+            String rawReply = streamedReply.toString();
+            finalReply = finalizeAnalyticsStreamedReply(stripThinkTags(rawReply), language, analyticsPlan);
+        } catch (UncheckedIOException uncheckedIoException) {
+            throw uncheckedIoException.getCause();
+        } catch (Exception exception) {
+            if (isStreamLimitFailure(exception)) {
+                throw new IllegalStateException(STREAMED_REPLY_LIMIT_MESSAGE, exception);
+            }
+            finalReply = analyticsPlan.fallbackReply().trim();
+        }
+
+        if (finalReply.length() > MAX_STREAMED_REPLY_CHARS) {
+            throw new IllegalStateException(STREAMED_REPLY_LIMIT_MESSAGE);
+        }
+        writeChunkedEvent(writer, "message", finalReply);
+        sessionMemoryService.addAssistantMessage(request.sessionId(), finalReply);
+        writeEvent(writer, "done", "[DONE]");
+    }
+
+    private Prompt buildStreamingPrompt(
+            ChatRequest request,
+            String language,
+            boolean analyticsRequested,
+            AnalyticsPlan analyticsPlan
+    ) {
+        String sessionHistory = formatSessionHistory(request.sessionId(), language);
+        String userPrompt = analyticsRequested
+                ? promptFactory.buildGroundedModelPrompt(
+                        language,
+                        request.message(),
+                        sessionHistory,
+                        analyticsPlan.groundedReference()
+                )
+                : promptFactory.buildConversationModelPrompt(language, request.message(), sessionHistory);
+
+        return new Prompt(
+                new SystemMessage(promptFactory.buildSystemPrompt(language)),
+                new UserMessage(userPrompt)
+        );
+    }
+
+    private String extractChunkText(ChatResponse response) {
+        if (response == null || response.getResult() == null || response.getResult().getOutput() == null) {
+            return "";
+        }
+        return response.getResult().getOutput().getText();
+    }
+
+    private String extractReasoningContent(ChatResponse response) {
+        if (response == null || response.getResult() == null || response.getResult().getOutput() == null) {
+            return "";
+        }
+        try {
+            var output = response.getResult().getOutput();
+            var method = output.getClass().getMethod("getReasoningContent");
+            var result = method.invoke(output);
+            return result != null ? result.toString() : "";
+        } catch (Exception e) {
+            return "";
+        }
+    }
+
+    private void writeStreamChunk(BufferedWriter writer, StringBuilder accumulator, ChatResponse chunkResponse) {
+        String reasoning = extractReasoningContent(chunkResponse);
+        String text = extractChunkText(chunkResponse);
+
+        if (hasText(reasoning)) {
+            String wrapped = "<think>" + reasoning.trim() + "</think>";
+            appendChunk(accumulator, wrapped);
+            try {
+                writeChunkedEvent(writer, "message", wrapped);
+            } catch (IOException exception) {
+                throw new UncheckedIOException(exception);
+            }
+        }
+
+        if (text != null && !text.isEmpty()) {
+            appendChunk(accumulator, text);
+            try {
+                writeChunkedEvent(writer, "message", text);
+            } catch (IOException exception) {
+                throw new UncheckedIOException(exception);
+            }
+        }
+    }
+
+    private void appendChunk(StringBuilder accumulator, String chunk) {
+        if (accumulator.length() + chunk.length() > MAX_STREAMED_REPLY_CHARS) {
+            throw new IllegalStateException(STREAMED_REPLY_LIMIT_MESSAGE);
+        }
+        accumulator.append(chunk);
+    }
+
+    private String finalizeAnalyticsStreamedReply(String streamedReply, String language, AnalyticsPlan analyticsPlan) {
+        String normalizedReply = ensureFollowUpQuestions(streamedReply, language, true);
+        String finalReply = isValidAnalyticsReply(normalizedReply, analyticsPlan.fallbackReply())
+                ? normalizedReply
+                : analyticsPlan.fallbackReply().trim();
+
+        if (finalReply.length() > MAX_STREAMED_REPLY_CHARS) {
+            throw new IllegalStateException(STREAMED_REPLY_LIMIT_MESSAGE);
+        }
+
+        return finalReply;
+    }
+
+    private boolean isStreamLimitFailure(Throwable exception) {
+        Throwable current = exception;
+
+        while (current != null) {
+            if (STREAMED_REPLY_LIMIT_MESSAGE.equals(current.getMessage())) {
+                return true;
+            }
+            current = current.getCause();
+        }
+
+        return false;
+    }
+
+    private String alignStreamedFollowUpTail(String visibleReply, String canonicalTail) {
+        if (!hasText(canonicalTail)) {
+            return "";
+        }
+
+        String followUpBlock = canonicalTail.startsWith("\n\n")
+                ? canonicalTail.substring(2)
+                : canonicalTail;
+        return streamedFollowUpSeparator(visibleReply) + followUpBlock;
+    }
+
+    private String streamedFollowUpSeparator(String reply) {
+        String trailingWhitespace = reply.substring(reply.stripTrailing().length())
+                .replace("\r\n", "\n")
+                .replace('\r', '\n');
+        long trailingLineBreaks = trailingWhitespace.chars()
+                .filter(character -> character == '\n')
+                .count();
+
+        if (trailingLineBreaks >= 2) {
+            return "";
+        }
+        if (trailingLineBreaks == 1) {
+            return "\n";
+        }
+        return "\n\n";
     }
 
     private GeneratedReply generateReply(ChatRequest request) {
         String language = languageDetector.detectLanguage(request.message());
         boolean analyticsRequested = looksLikeAnalyticsRequest(request.message());
+        return generateReply(request, language, analyticsRequested);
+    }
 
-        ChatModel chatModel = isModelConfigured() ? chatModelProvider.getIfAvailable() : null;
-        if (chatModel != null) {
-            try {
-                String reply = callConfiguredModel(
-                        chatModel,
-                        request.sessionId(),
-                        request.message(),
-                        language
-                );
+    private GeneratedReply generateReply(ChatRequest request, String language, boolean analyticsRequested) {
+        if (!hasConfiguredModelSettings(request)) {
+            if (analyticsRequested) {
+                AnalyticsPlan plan = analyticsService.plan(request.message(), language);
                 return new GeneratedReply(
-                        ensureFollowUpQuestions(reply, language, analyticsRequested),
-                        buildModelProgressMessages(language, analyticsRequested),
-                        buildModelVisibleThinking(language, analyticsRequested)
-                );
-            } catch (Exception exception) {
-                log.warn(
-                        "Configured model call failed. Falling back to local response. model={}, baseUrl={}",
-                        openAiProperties.getModel(),
-                        openAiProperties.getBaseUrl(),
-                        exception
+                        plan.fallbackReply().trim(),
+                        plan.progressMessages(),
+                        plan.visibleThinking()
                 );
             }
-        }
 
-        if (analyticsRequested) {
-            RuleBasedAnalyticsService.AnalyticsResponse analyticsResponse =
-                    analyticsService.analyze(request.message(), language);
             return new GeneratedReply(
-                    analyticsResponse.reply(),
-                    analyticsResponse.progressMessages(),
-                    analyticsResponse.visibleThinking()
+                    buildModelNotConfiguredReply(language),
+                    buildConfigurationProgressMessages(language),
+                    buildConfigurationThinking(language)
             );
         }
 
-        return new GeneratedReply(
-                buildModelNotConfiguredReply(language),
-                buildConfigurationProgressMessages(language),
-                buildConfigurationThinking(language)
-        );
+        if (analyticsRequested) {
+            return generateAnalyticsReply(request, language);
+        }
+        return generateGeneralReply(request, language);
+    }
+
+    private GeneratedReply generateGeneralReply(ChatRequest request, String language) {
+        ChatModel chatModel = modelConfigService.createChatModel(request);
+
+        try {
+            String reply = callConfiguredModel(
+                    chatModel,
+                    request.sessionId(),
+                    request.message(),
+                    language
+            );
+            return new GeneratedReply(
+                    ensureFollowUpQuestions(reply, language, false),
+                    buildModelProgressMessages(language, false),
+                    buildModelVisibleThinking(language, false)
+            );
+        } catch (Exception exception) {
+            throw new IllegalStateException("Chat request failed with the provided model configuration.", exception);
+        }
+    }
+
+    private GeneratedReply generateAnalyticsReply(ChatRequest request, String language) {
+        AnalyticsPlan plan = analyticsService.plan(request.message(), language);
+        ChatModel chatModel = modelConfigService.createChatModel(request);
+
+        try {
+            String polishedReply = callGroundedAnalyticsModel(
+                    chatModel,
+                    request.sessionId(),
+                    request.message(),
+                    language,
+                    plan
+            );
+            String normalizedReply = ensureFollowUpQuestions(polishedReply, language, true);
+            if (!isValidAnalyticsReply(normalizedReply, plan.fallbackReply())) {
+                normalizedReply = plan.fallbackReply().trim();
+            }
+            return new GeneratedReply(normalizedReply, plan.progressMessages(), plan.visibleThinking());
+        } catch (Exception exception) {
+            return new GeneratedReply(
+                    plan.fallbackReply().trim(),
+                    plan.progressMessages(),
+                    plan.visibleThinking()
+            );
+        }
+    }
+
+    private String describeStreamFailure(Exception exception) {
+        Throwable current = exception;
+
+        while (current.getCause() != null && hasText(current.getCause().getMessage())) {
+            current = current.getCause();
+        }
+
+        if (hasText(current.getMessage())) {
+            return current.getMessage();
+        }
+
+        if (hasText(exception.getMessage())) {
+            return exception.getMessage();
+        }
+
+        return "Chat request failed with the provided model configuration.";
     }
 
     private String callConfiguredModel(
@@ -132,7 +487,6 @@ public class ChatService {
                 .prompt()
                 .system(promptFactory.buildSystemPrompt(language))
                 .user(userPrompt)
-                .toolCallbacks(aiToolCallbackProvider)
                 .call()
                 .content();
 
@@ -141,6 +495,180 @@ public class ChatService {
         }
 
         return reply.trim();
+    }
+
+    private String callGroundedAnalyticsModel(
+            ChatModel chatModel,
+            String sessionId,
+            String message,
+            String language,
+            AnalyticsPlan plan
+    ) {
+        String sessionHistory = formatSessionHistory(sessionId, language);
+        String userPrompt = promptFactory.buildGroundedModelPrompt(
+                language,
+                message,
+                sessionHistory,
+                plan.groundedReference()
+        );
+
+        String reply = ChatClient.create(chatModel)
+                .prompt()
+                .system(promptFactory.buildSystemPrompt(language))
+                .user(userPrompt)
+                .call()
+                .content();
+
+        if (reply == null || reply.isBlank()) {
+            throw new IllegalStateException("Configured model returned an empty response.");
+        }
+
+        return reply.trim();
+    }
+
+    private boolean isValidAnalyticsReply(String reply, String fallbackReply) {
+        String normalized = reply == null ? "" : reply.trim();
+        if (normalized.isBlank()) {
+            return false;
+        }
+
+        if (containsForbiddenSummarySection(normalized)) {
+            return false;
+        }
+
+        String language = languageDetector.detectLanguage(fallbackReply);
+        if (!matchesExpectedHeadingSequence(normalized, language)) {
+            return false;
+        }
+
+        String replyTable = extractDataSupportTable(normalized);
+        String fallbackTable = extractDataSupportTable(fallbackReply);
+        if (!hasText(replyTable) || !hasText(fallbackTable)) {
+            return false;
+        }
+
+        return normalizeBlock(replyTable).equals(normalizeBlock(fallbackTable))
+                && hasExactlyTwoFollowUpQuestions(normalized);
+    }
+
+    private boolean matchesExpectedHeadingSequence(String reply, String language) {
+        List<String> headings = extractSecondLevelHeadingLines(reply);
+        List<Pattern> expected = "zh".equals(language) ? zhHeadingPatterns() : enHeadingPatterns();
+        if (headings.size() != expected.size()) {
+            return false;
+        }
+        for (int index = 0; index < expected.size(); index++) {
+            if (!expected.get(index).matcher(headings.get(index)).matches()) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private List<String> extractSecondLevelHeadingLines(String reply) {
+        Matcher matcher = SECOND_LEVEL_HEADING_LINE_PATTERN.matcher(reply);
+        List<String> headings = new ArrayList<>();
+        while (matcher.find()) {
+            headings.add(matcher.group().trim());
+        }
+        return headings;
+    }
+
+    private List<Pattern> zhHeadingPatterns() {
+        return List.of(
+                headingPattern(1, "接口调用链"),
+                headingPattern(2, "核心结论"),
+                headingPattern(3, "数据支撑"),
+                headingPattern(4, "经营分析"),
+                headingPattern(5, "问题诊断与解决"),
+                headingPattern(6, "改进建议")
+        );
+    }
+
+    private List<Pattern> enHeadingPatterns() {
+        return List.of(
+                headingPattern(1, "Interface Call Chain"),
+                headingPattern(2, "Conclusion"),
+                headingPattern(3, "Data Support"),
+                headingPattern(4, "Short Analysis"),
+                headingPattern(5, "Problem Diagnosis & Solutions"),
+                headingPattern(6, "Improvement Suggestions")
+        );
+    }
+
+    private Pattern headingPattern(int optionalNumber, String headingText) {
+        return Pattern.compile(
+                "^##[\\s\\h]*(?:%d[\\s\\h\\.、]*)?%s[\\s\\h]*$"
+                        .formatted(optionalNumber, Pattern.quote(headingText)),
+                Pattern.MULTILINE
+        );
+    }
+
+    private boolean containsForbiddenSummarySection(String reply) {
+        return reply != null && FORBIDDEN_SUMMARY_HEADING_PATTERN.matcher(reply).find();
+    }
+
+    private String extractDataSupportTable(String reply) {
+        Matcher supportHeading = DATA_SUPPORT_HEADING_PATTERN.matcher(reply);
+        if (!supportHeading.find()) {
+            return null;
+        }
+
+        int start = supportHeading.end();
+        Matcher nextHeading = SECOND_LEVEL_HEADING_LINE_PATTERN.matcher(reply);
+        nextHeading.region(start, reply.length());
+        int end = nextHeading.find() ? nextHeading.start() : reply.length();
+        if (end <= start) {
+            return null;
+        }
+
+        String section = reply.substring(start, end);
+        Matcher matcher = Pattern.compile("(?is)<table\\b.*?</table>").matcher(section);
+        return matcher.find() ? matcher.group() : null;
+    }
+
+    private boolean hasExactlyTwoFollowUpQuestions(String reply) {
+        String[] markers = {"FOLLOW_UP_QUESTIONS:", "追问："};
+        int markerIndex = -1;
+        int markerLength = 0;
+        for (String marker : markers) {
+            int index = reply.indexOf(marker);
+            if (index >= 0 && (markerIndex < 0 || index < markerIndex)) {
+                markerIndex = index;
+                markerLength = marker.length();
+            }
+        }
+        if (markerIndex < 0) {
+            return false;
+        }
+
+        String followUpBlock = reply.substring(markerIndex + markerLength).trim();
+        List<String> lines = followUpBlock.lines()
+                .map(String::trim)
+                .filter(line -> !line.isBlank())
+                .toList();
+        return lines.size() == 2
+                && lines.getFirst().matches("1\\.\\s+.+")
+                && lines.getLast().matches("2\\.\\s+.+");
+    }
+
+    private String normalizeBlock(String value) {
+        return value == null ? "" : value.replaceAll("\\s+", " ").trim();
+    }
+
+    private List<String> resolveStreamProgressMessages(
+            String language,
+            boolean analyticsRequested,
+            boolean configuredModel,
+            AnalyticsPlan analyticsPlan
+    ) {
+        if (configuredModel) {
+            return buildModelProgressMessages(language, analyticsRequested);
+        }
+        if (analyticsPlan != null) {
+            return analyticsPlan.progressMessages();
+        }
+        return buildConfigurationProgressMessages(language);
     }
 
     private List<String> buildModelProgressMessages(String language, boolean analyticsRequested) {
@@ -194,16 +722,18 @@ public class ChatService {
     private String buildConversationThinking(String language) {
         if ("zh".equals(language)) {
             return """
-                    1. 读取当前问题和最近会话上下文
-                    2. 调用已配置的兼容模型生成回答
-                    3. 补齐追问并返回给前端
+                    1. 读取当前问题与最近会话上下文，确认用户真正想解决的事情
+                    2. 判断是否需要依赖已有事实、配置状态或历史对话继续回答
+                    3. 调用已配置模型生成初稿，并检查是否遗漏关键信息
+                    4. 补齐追问建议，整理成最终可读回复后返回前端
                     """;
         }
 
         return """
                 1. Read the current question and recent conversation context
-                2. Call the configured compatible model
-                3. Append follow-up questions and return the response
+                2. Confirm the key intent, constraints, and any useful prior facts
+                3. Call the configured compatible model to draft the reply
+                4. Check for missing context, add follow-up questions, and return the final response
                 """;
     }
 
@@ -212,15 +742,19 @@ public class ChatService {
             if ("zh".equals(language)) {
                 return """
                         1. 识别当前分析主题
-                        2. 调用相关数据工具获取事实
-                        3. 汇总结果并生成结构化回复
+                        2. 确认分析范围与关键指标口径
+                        3. 调用相关数据工具获取事实
+                        4. 提炼主要信号、差距与风险点
+                        5. 汇总结果并生成结构化回复
                         """;
             }
 
             return """
                     1. Identify the current analysis theme
-                    2. Gather facts with the relevant data tools
-                    3. Synthesize the results into a structured reply
+                    2. Confirm the working scope and KPI lens
+                    3. Gather facts with the relevant data tools
+                    4. Extract the strongest signal, gap, and risk points
+                    5. Synthesize the results into a structured reply
                     """;
         }
 
@@ -246,50 +780,20 @@ public class ChatService {
     private String buildModelNotConfiguredReply(String language) {
         if ("zh".equals(language)) {
             return """
-                    ## 当前状态
-                    当前聊天模型尚未配置完成，因此暂时不能执行通用模型对话。
-
-                    ## 至少需要配置
-                    - `SERVER_PORT`
-                    - `APP_ACCESS_KEY`
-                    - `APP_API_KEY`
-                    - `OPENAI_API_KEY`
-                    - `OPENAI_BASE_URL`
-                    - `OPENAI_MODEL`
-                    - `APP_EXCEL_PATH`
-
-                    ## 说明
-                    - 其中聊天真正依赖的是 `OPENAI_API_KEY`、`OPENAI_BASE_URL` 和 `OPENAI_MODEL`
-                    - `APP_EXCEL_PATH` 现在可以先保留默认值，等你拿到样例数据后再接
-                    - 如果你问的是经营分析类问题，当前系统仍会优先回退到内置样例数据分析
+                    你好，我现在还没连接外部模型。你可以先到 Settings 里填写 Base URL、API Key 和 Model；如果你想先看业务分析，我也可以基于内置样例数据继续回答。
 
                     FOLLOW_UP_QUESTIONS:
-                    1. 要不要我直接帮你整理一份可复制的 `application.yml` 配置模板？
-                    2. 还是先继续用当前内置样例数据验证分析类聊天接口？
+                    1. 先带我配置模型连接
+                    2. 直接问一个经营分析问题
                     """;
         }
 
         return """
-                ## Current Status
-                The chat model is not configured yet, so general model-based conversation is not available right now.
-
-                ## Required Configuration
-                - `SERVER_PORT`
-                - `APP_ACCESS_KEY`
-                - `APP_API_KEY`
-                - `OPENAI_API_KEY`
-                - `OPENAI_BASE_URL`
-                - `OPENAI_MODEL`
-                - `APP_EXCEL_PATH`
-
-                ## Notes
-                - The real chat capability depends on `OPENAI_API_KEY`, `OPENAI_BASE_URL`, and `OPENAI_MODEL`
-                - `APP_EXCEL_PATH` can stay on the default value until you get the sample workbook
-                - For analytics-style questions, the system can still fall back to the built-in sample dataset
+                Hi! No external model is configured yet. Open Settings and fill in Base URL, API Key, and Model. If you want business analysis first, I can still answer analytics questions with the built-in sample data.
 
                 FOLLOW_UP_QUESTIONS:
-                1. Do you want me to generate a copy-ready `application.yml` template next?
-                2. Or should we keep validating analytics questions with the built-in sample data first?
+                1. Help me configure the model connection
+                2. Let's start with a sample analytics question
                 """;
     }
 
@@ -299,21 +803,81 @@ public class ChatService {
             throw new IllegalStateException("Reply is blank after model generation.");
         }
 
-        if (trimmed.contains("FOLLOW_UP_QUESTIONS:")) {
-            return trimmed;
+        List<String> contextDefaults = buildContextualFollowUps(language, trimmed);
+
+        String repaired;
+        if (hasExactlyTwoFollowUpQuestions(trimmed)) {
+            repaired = trimmed;
+        } else if (trimmed.contains("FOLLOW_UP_QUESTIONS:") || trimmed.contains("追问：")) {
+            repaired = repairPartialFollowUpQuestions(trimmed, contextDefaults);
+        } else {
+            return """
+                    %s
+
+                    FOLLOW_UP_QUESTIONS:
+                    1. %s
+                    2. %s
+                    """.formatted(trimmed, contextDefaults.getFirst(), contextDefaults.getLast()).trim();
         }
 
-        List<String> defaults = analyticsRequested
-                ? defaultAnalyticsFollowUps(language)
-                : defaultGeneralFollowUps(language);
+        // Extract and validate follow-ups, then rebuild reply with validated follow-ups
+        List<String> extracted = extractFollowUpsFromReply(repaired);
+        if (extracted.size() == 2) {
+            List<String> validated = validateFollowUpRelevance(repaired, extracted, language, contextDefaults);
+            return rebuildReplyWithFollowUps(repaired, validated);
+        }
+
+        return repaired;
+    }
+
+    private String rebuildReplyWithFollowUps(String reply, List<String> followUps) {
+        String[] markers = {"FOLLOW_UP_QUESTIONS:", "追问："};
+        for (String marker : markers) {
+            int idx = reply.lastIndexOf(marker);
+            if (idx >= 0) {
+                return reply.substring(0, idx + marker.length())
+                        + "\n1. " + followUps.get(0)
+                        + "\n2. " + followUps.get(1);
+            }
+        }
+        return reply;
+    }
+
+    private String repairPartialFollowUpQuestions(String reply, List<String> defaults) {
+        int markerIndex = reply.indexOf("FOLLOW_UP_QUESTIONS:");
+        if (markerIndex < 0) {
+            return reply;
+        }
+
+        String marker = "FOLLOW_UP_QUESTIONS:";
+        String prefix = reply.substring(0, markerIndex + marker.length());
+        String followUpBlock = reply.substring(markerIndex + marker.length()).trim();
+        List<String> lines = followUpBlock.lines()
+                .map(String::trim)
+                .filter(line -> !line.isBlank())
+                .toList();
+
+        if (lines.isEmpty()) {
+            return """
+                    %s
+                    1. %s
+                    2. %s
+                    """.formatted(prefix, defaults.getFirst(), defaults.getLast()).trim();
+        }
+
+        if (lines.size() == 1 && lines.getFirst().matches("1\\.\\s+.+")) {
+            return """
+                    %s
+                    %s
+                    2. %s
+                    """.formatted(prefix, lines.getFirst(), defaults.getLast()).trim();
+        }
 
         return """
                 %s
-
-                FOLLOW_UP_QUESTIONS:
                 1. %s
                 2. %s
-                """.formatted(trimmed, defaults.getFirst(), defaults.getLast()).trim();
+                """.formatted(prefix, defaults.getFirst(), defaults.getLast()).trim();
     }
 
     private List<String> defaultAnalyticsFollowUps(String language) {
@@ -342,6 +906,117 @@ public class ChatService {
                 "Do you want to finish the model connection first or validate the current chat flow first?",
                 "Should I turn those seven configuration items into a copy-ready template?"
         );
+    }
+
+    List<String> buildContextualFollowUps(String language, String reply) {
+        if (reply == null || reply.isBlank()) {
+            return defaultGeneralFollowUps(language);
+        }
+        boolean isZh = "zh".equals(language);
+        String haystack = isZh ? reply : reply.toLowerCase();
+
+        // Match scenario presence to pick the most relevant template
+        if (haystack.contains("目标达成") || haystack.contains("达成率") || haystack.contains("target achievement")) {
+            return isZh
+                    ? List.of("达成短板主要在哪个车型？", "要不要对比同城市其他店的达成率？")
+                    : List.of("Which model drags down achievement the most?",
+                            "Compare achievement rates across other city dealers?");
+        }
+        if (haystack.contains("商机漏斗") || haystack.contains("商机转化") || haystack.contains("opportunity funnel")) {
+            return isZh
+                    ? List.of("哪个阶段的商机流失最严重？", "要不要按销售顾问拆分转化率？")
+                    : List.of("Which funnel stage has the highest drop-off?",
+                            "Break down conversion by sales consultant?");
+        }
+        if (haystack.contains("销售跟进") || haystack.contains("逾期") || haystack.contains("sales follow-up")) {
+            return isZh
+                    ? List.of("逾期任务集中在哪些门店？", "要不要查看任务完成率的月度趋势？")
+                    : List.of("Which dealers have the most overdue tasks?",
+                            "Check monthly task completion trends?");
+        }
+        if (haystack.contains("活动效果") || haystack.contains("市场活动") || haystack.contains("campaign")) {
+            return isZh
+                    ? List.of("本次活动ROI和去年同期比如何？", "要不要看各门店的活动参与度排名？")
+                    : List.of("How does this campaign ROI compare to last year?",
+                            "Rank dealers by campaign participation?");
+        }
+        if (haystack.contains("经营对标") || haystack.contains("门店对标") || haystack.contains("dealer benchmark")) {
+            return isZh
+                    ? List.of("要不要下钻到车型维度对比？", "这些门店的线索跟进时效如何？")
+                    : List.of("Drill down by model dimension?",
+                            "How is lead follow-up turnaround at these dealers?");
+        }
+        if (haystack.contains("线索来源") || haystack.contains("自然流量") || haystack.contains("lead source")) {
+            return isZh
+                    ? List.of("高意向线索主要来自哪个渠道？", "要不要对比各门店的线索跟进速度？")
+                    : List.of("Which channel generates the highest-intent leads?",
+                            "Compare lead follow-up speed across dealers?");
+        }
+        if (haystack.contains("经营活跃度") || haystack.contains("门店活跃") || haystack.contains("business activity")) {
+            return isZh
+                    ? List.of("活跃度最低的门店在哪个维度失分最多？", "要不要对比活跃度和目标达成率的关系？")
+                    : List.of("Which dimension drags down the lowest-activity dealers?",
+                            "Correlate activity score with target achievement?");
+        }
+
+        return defaultGeneralFollowUps(language);
+    }
+
+    List<String> validateFollowUpRelevance(String reply, List<String> followUps, String language, List<String> fallbackDefaults) {
+        List<String> topicKeywords = extractTopicKeywords(reply, language);
+
+        // If no keywords extracted (e.g., very short or generic reply), keep original follow-ups
+        if (topicKeywords.isEmpty()) {
+            return followUps;
+        }
+
+        List<String> validated = new ArrayList<>();
+        for (String followUp : followUps) {
+            if (isStronglyRelevant(followUp, topicKeywords)) {
+                validated.add(followUp);
+            }
+        }
+
+        if (validated.isEmpty()) {
+            return fallbackDefaults;
+        }
+
+        if (validated.size() == 1) {
+            for (String candidate : fallbackDefaults) {
+                if (validated.size() >= 2) break;
+                if (!validated.contains(candidate)) {
+                    validated.add(candidate);
+                }
+            }
+        }
+
+        return validated.subList(0, Math.min(validated.size(), 2));
+    }
+
+    List<String> extractFollowUpsFromReply(String reply) {
+        String normalized = reply == null ? "" : reply;
+        String[] markers = {"FOLLOW_UP_QUESTIONS:", "追问："};
+        int markerIndex = -1;
+        int markerLen = 0;
+
+        for (String marker : markers) {
+            int idx = normalized.indexOf(marker);
+            if (idx >= 0 && (markerIndex < 0 || idx < markerIndex)) {
+                markerIndex = idx;
+                markerLen = marker.length();
+            }
+        }
+
+        if (markerIndex < 0) {
+            return List.of();
+        }
+
+        return normalized.substring(markerIndex + markerLen).lines()
+                .map(line -> line.replaceFirst("^\\s*(?:\\d+\\.\\s*|[-*·•]\\s*)", "")
+                        .replaceAll("[*_~]+", "").trim())
+                .filter(line -> !line.isBlank())
+                .limit(2)
+                .toList();
     }
 
     private String formatSessionHistory(String sessionId, String language) {
@@ -380,15 +1055,25 @@ public class ChatService {
         return normalized.substring(0, HISTORY_ENTRY_LIMIT) + "...";
     }
 
-    private boolean isModelConfigured() {
-        return hasText(openAiProperties.getApiKey())
-                && hasText(openAiProperties.getBaseUrl())
-                && hasText(openAiProperties.getModel())
-                && !"changeme".equalsIgnoreCase(openAiProperties.getApiKey().trim());
+    private boolean hasConfiguredModelSettings(ChatRequest request) {
+        return request != null
+                && hasText(request.baseUrl())
+                && hasText(request.apiKey())
+                && hasText(request.model());
     }
 
     private boolean hasText(String value) {
         return value != null && !value.isBlank();
+    }
+
+    private String stripThinkTags(String text) {
+        if (text == null) {
+            return "";
+        }
+        String result = THINK_TAG_PATTERN.matcher(text).replaceAll("");
+        result = result.replace("<think>", "");
+        result = result.replace("</think>", "");
+        return result.trim();
     }
 
     private boolean looksLikeAnalyticsRequest(String message) {
@@ -420,6 +1105,23 @@ public class ChatService {
         return false;
     }
 
+    private static final com.fasterxml.jackson.databind.ObjectMapper STEP_EVENT_MAPPER =
+            new com.fasterxml.jackson.databind.ObjectMapper();
+
+    private void writeStepEvent(BufferedWriter writer, StepEvent step) throws IOException {
+        String json = STEP_EVENT_MAPPER.writeValueAsString(Map.of(
+                "trace_id", step.traceId(),
+                "seq", step.seq(),
+                "type", step.type().name(),
+                "ts", step.ts(),
+                "status", step.status(),
+                "label", step.label() != null ? step.label() : "",
+                "detail", step.detail() != null ? step.detail() : "",
+                "meta", step.meta() != null ? step.meta() : Map.of()
+        ));
+        writeEvent(writer, "step", json);
+    }
+
     private void writeEvent(BufferedWriter writer, String event, String data) throws IOException {
         writer.write("event: " + event);
         writer.newLine();
@@ -429,6 +1131,49 @@ public class ChatService {
         }
         writer.newLine();
         writer.flush();
+    }
+
+    private void writeChunkedEvent(BufferedWriter writer, String event, String chunk) throws IOException {
+        if (chunk == null || chunk.isEmpty()) {
+            return;
+        }
+        writeEvent(writer, event, chunk);
+    }
+
+    List<String> extractTopicKeywords(String reply, String language) {
+        Set<String> keywords = new LinkedHashSet<>();
+        String normalized = reply == null ? "" : reply;
+        boolean isZh = "zh".equals(language);
+
+        for (String term : METRIC_TERMS.getOrDefault(language, METRIC_TERMS.get("en"))) {
+            String haystack = isZh ? normalized : normalized.toLowerCase();
+            String needle = isZh ? term : term.toLowerCase();
+            if (haystack.contains(needle)) {
+                keywords.add(term);
+            }
+        }
+
+        for (String term : SCENARIO_TERMS.getOrDefault(language, SCENARIO_TERMS.get("en"))) {
+            String haystack = isZh ? normalized : normalized.toLowerCase();
+            String needle = isZh ? term : term.toLowerCase();
+            if (haystack.contains(needle)) {
+                keywords.add(term);
+            }
+        }
+
+        return List.copyOf(keywords);
+    }
+
+    boolean isStronglyRelevant(String followUp, List<String> topicKeywords) {
+        if (followUp == null || topicKeywords == null) {
+            return false;
+        }
+        for (String keyword : topicKeywords) {
+            if (followUp.contains(keyword)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private record GeneratedReply(String reply, List<String> progressMessages, String visibleThinking) {
