@@ -45,6 +45,29 @@ public class ChatService {
             "^##[\\s\\h]*(?:\\d+[\\s\\h\\.、]*)?(?:数据汇总|Data Summary|数据总览|Data Overview|摘要段落|Summary)[\\s\\h]*$",
             Pattern.MULTILINE | Pattern.CASE_INSENSITIVE
     );
+    private static final Pattern UNKNOWN_ZH_CUSTOMER_PATTERN = Pattern.compile(
+            "(?:客户|客戶|顾客|顧客)\\s*[A-Za-z0-9Ａ-Ｚａ-ｚ０-９][A-Za-z0-9Ａ-Ｚａ-ｚ０-９_-]{0,8}"
+    );
+    private static final Pattern UNKNOWN_EN_CUSTOMER_PATTERN = Pattern.compile(
+            "\\b(?:customer|client)\\s+[A-Za-z0-9][A-Za-z0-9_-]{0,8}\\b",
+            Pattern.CASE_INSENSITIVE
+    );
+    private static final List<String> BUSINESS_SCOPE_KEYWORDS = List.of(
+            "经销商", "门店", "店", "客户", "顾客", "经营", "业务", "销售", "销量",
+            "目标", "达成", "商机", "线索", "任务", "活动", "转化", "漏斗", "跟进", "客流",
+            "市场", "车型", "城市", "集团", "对标", "绩效", "kpi", "crm", "dealer", "dealers",
+            "dealership", "store", "stores", "customer", "client", "sales", "target",
+            "achievement", "opportunity", "opportunities", "lead", "leads", "task", "tasks",
+            "campaign", "campaigns", "conversion", "funnel", "follow-up", "follow up",
+            "benchmark", "performance", "business", "city", "model", "settings", "base url",
+            "api key", "model connection", "模型配置", "配置模型"
+    );
+    private static final List<String> NON_BUSINESS_KEYWORDS = List.of(
+            "快速排序", "排序算法", "算法", "数据结构", "leetcode", "编程题", "代码怎么写",
+            "java代码", "python", "javascript", "诗", "小说", "菜谱", "天气", "旅游",
+            "quick sort", "quicksort", "sorting algorithm", "algorithm", "data structure",
+            "programming", "recipe", "weather", "travel"
+    );
 
     private static final Map<String, List<String>> METRIC_TERMS = Map.of(
             "zh", List.of("达成率", "转化率", "商机", "线索", "任务", "活动", "ROI", "销量",
@@ -93,6 +116,14 @@ public class ChatService {
         String language = languageDetector.detectLanguage(request.message());
         boolean analyticsRequested = looksLikeAnalyticsRequest(request.message());
         String directReply = buildDirectCasualReply(request.message(), language, analyticsRequested);
+        if (directReply == null) {
+            if (mentionsUnknownDemoEntity(request.message())) {
+                String unknownEntity = extractUnknownDemoEntityName(request.message());
+                directReply = buildEntityNotFoundReply(language, unknownEntity);
+            } else if (isOutOfScopeQuestion(request.message(), analyticsRequested)) {
+                directReply = buildOutOfScopeReply(language);
+            }
+        }
         boolean configuredModel = hasConfiguredModelSettings(request);
         String traceId = java.util.UUID.randomUUID().toString().replace("-", "").substring(0, 8);
         sessionMemoryService.addUserMessage(request.sessionId(), request.message());
@@ -422,6 +453,13 @@ public class ChatService {
         String directReply = buildDirectCasualReply(request.message(), language, analyticsRequested);
         if (directReply != null) {
             return new GeneratedReply(directReply, List.of(), "");
+        }
+        if (mentionsUnknownDemoEntity(request.message())) {
+            String unknownEntity = extractUnknownDemoEntityName(request.message());
+            return new GeneratedReply(buildEntityNotFoundReply(language, unknownEntity), List.of(), "");
+        }
+        if (isOutOfScopeQuestion(request.message(), analyticsRequested)) {
+            return new GeneratedReply(buildOutOfScopeReply(language), List.of(), "");
         }
 
         if (!hasConfiguredModelSettings(request)) {
@@ -1164,6 +1202,89 @@ public class ChatService {
                 "whoareyou", "whatareyou", "introduceyourself",
                 "introducethesystem", "whatcanyoudo"
         ).contains(asciiOnly);
+    }
+
+    private boolean isOutOfScopeQuestion(String message, boolean analyticsRequested) {
+        String normalized = message == null ? "" : message.trim().toLowerCase(Locale.ROOT);
+        if (normalized.isBlank()) {
+            return true;
+        }
+        if (looksLikeCasualGreetingOrIntro(message)) {
+            return false;
+        }
+
+        boolean businessRelated = BUSINESS_SCOPE_KEYWORDS.stream().anyMatch(normalized::contains);
+        if (analyticsRequested && businessRelated) {
+            return false;
+        }
+        if (NON_BUSINESS_KEYWORDS.stream().anyMatch(normalized::contains) && !businessRelated) {
+            return true;
+        }
+
+        return !businessRelated;
+    }
+
+    private boolean mentionsUnknownDemoEntity(String message) {
+        return extractUnknownDemoEntityName(message) != null;
+    }
+
+    private String extractUnknownDemoEntityName(String message) {
+        if (!hasText(message)) {
+            return null;
+        }
+
+        Matcher zhMatcher = UNKNOWN_ZH_CUSTOMER_PATTERN.matcher(message);
+        if (zhMatcher.find()) {
+            return zhMatcher.group().replaceAll("\\s+", "");
+        }
+
+        Matcher enMatcher = UNKNOWN_EN_CUSTOMER_PATTERN.matcher(message);
+        if (enMatcher.find()) {
+            return enMatcher.group().trim().replaceAll("\\s+", " ");
+        }
+
+        return null;
+    }
+
+    private String buildOutOfScopeReply(String language) {
+        if ("zh".equals(language)) {
+            return """
+                    这个问题超出经销商 AI 分析助手的业务范围。我只能回答经销商经营分析、系统介绍和问候类问题，不回答算法、通用知识或其他非业务问题。
+
+                    FOLLOW_UP_QUESTIONS:
+                    1. 哪些门店目标达成率最低？
+                    2. 分析一下各门店的商机漏斗转化情况
+                    """.trim();
+        }
+
+        return """
+                This question is outside the dealer AI analytics assistant's business scope. I can answer dealer operations analysis, system introduction, and greeting questions, but not algorithms, general knowledge, or other non-business topics.
+
+                FOLLOW_UP_QUESTIONS:
+                1. Which dealers have the lowest target achievement rate?
+                2. Analyze opportunity funnel conversion by dealer
+                """.trim();
+    }
+
+    private String buildEntityNotFoundReply(String language, String entityName) {
+        String displayName = hasText(entityName) ? entityName.trim() : ("zh".equals(language) ? "该实体" : "that entity");
+        if ("zh".equals(language)) {
+            return """
+                    未找到“%s”。当前演示数据中没有这个实体，所以我不会继续生成经营分析或补充其他经营数据。
+
+                    FOLLOW_UP_QUESTIONS:
+                    1. 换一个已导入的经销商或门店再查
+                    2. 查看当前样例数据的门店目标达成情况
+                    """.formatted(displayName).trim();
+        }
+
+        return """
+                I couldn't find "%s" in the current demo data, so I won't generate an operations analysis or return other business data for it.
+
+                FOLLOW_UP_QUESTIONS:
+                1. Try an imported dealer or store name
+                2. Show target achievement for the current sample dealers
+                """.formatted(displayName).trim();
     }
 
     private String stripThinkTags(String text) {
