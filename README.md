@@ -256,6 +256,19 @@ mvn -Dfrontend.skip=true test
 mvn -Dfrontend.skip=true clean install
 ```
 
+### 准确率题库回归
+
+题库文件位于 `mockservice/DealerAIAssistant_准确率测试题库.xlsx`，样板数据位于 `mockservice/SampleData/Sample Data - 星曜汽车.xlsx`。题库用于覆盖目标达成、商机漏斗、线索分析、边界问题和数据概况等自然语言查询，重点验证规则引擎在未配置外部模型时的可复现回答。
+
+回归时建议先跑后端规则引擎相关测试：
+
+```bash
+cd backend
+mvn -Dfrontend.skip=true -Dtest=RuleBasedAnalyticsServiceTest,ChatServiceTest test
+```
+
+如需人工抽查，可启动前后端后按题库逐条提问；未保存模型配置时，系统会走内置规则引擎 fallback 路径，适合验证题库准确率。
+
 ### 后端打包时构建前端
 
 ```bash

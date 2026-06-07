@@ -26,6 +26,7 @@ public record AnalyticsPlan(
         CAMPAIGN_PERFORMANCE,
         DEALER_BENCHMARK,
         LEAD_SOURCE,
-        DEALER_BUSINESS_ACTIVITY
+        DEALER_BUSINESS_ACTIVITY,
+        DATA_OVERVIEW
     }
 }

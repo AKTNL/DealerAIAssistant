@@ -273,6 +273,8 @@ public class ExcelImportService implements ApplicationRunner {
             String dealerName = getString(row, headerInfo.headers(), "dealername", "经销商名称", "门店名称",
                     "salesretailerr.name", "retailerr.name");
             String productModel = getString(row, headerInfo.headers(), "productmodel", "车型", "产品型号", "model");
+            String purchaseHorizon = getString(row, headerInfo.headers(), "purchasehorizon", "purchasehorizonc",
+                    "purchasehorizon__c", "purchase_horizon__c", "购买周期");
             String stageName = getString(row, headerInfo.headers(), "stagename", "阶段", "阶段名称", "商机阶段");
             String leadSource = getString(row, headerInfo.headers(), "leadsource", "线索来源", "来源");
             LocalDate createdDate = getDate("createdDate", row, headerInfo.headers(), "createddate", "创建日期", "创建时间", "日期");
@@ -294,6 +296,9 @@ public class ExcelImportService implements ApplicationRunner {
             if (productModel == null) {
                 productModel = "未知";
             }
+            if (purchaseHorizon == null) {
+                purchaseHorizon = "未知";
+            }
             if (leadSource == null) {
                 leadSource = "未知";
             }
@@ -307,6 +312,7 @@ public class ExcelImportService implements ApplicationRunner {
                     city,
                     dealerGroupName,
                     productModel,
+                    purchaseHorizon,
                     stageName,
                     leadSource,
                     createdDate,
@@ -336,22 +342,44 @@ public class ExcelImportService implements ApplicationRunner {
             }
             campaignRowsProcessedCount.incrementAndGet();
 
-            String campaignId = getString(row, headerInfo.headers(), "campaignid", "id", "活动id", "活动编号");
+            String campaignId = getString(row, headerInfo.headers(), "campaignid", "campaignidc", "campaignid__c",
+                    "id", "活动id", "活动编号");
+            String campaignName = getString(row, headerInfo.headers(), "name", "活动名称", "campaignname");
             String dealerCode = getString(row, headerInfo.headers(), "dealercode", "经销商代码", "门店代码",
                     "retailerc");
             String dealerName = getString(row, headerInfo.headers(), "dealername", "经销商名称", "门店名称",
                     "salesretailerr.name", "retailerr.name");
             String productModel = getString(row, headerInfo.headers(), "productmodel", "车型", "产品型号", "model",
-                    "productmodelc");
-            String campaignType = getString(row, headerInfo.headers(), "campaigntype", "活动类型", "type",
-                    "campaigntypec");
+                    "productmodelc", "product_model__c");
+            String eventType = getString(row, headerInfo.headers(), "type", "活动大类", "活动类型");
+            String campaignType = getString(row, headerInfo.headers(), "campaigntypec", "campaigntype__c",
+                    "campaigntype", "活动子类型");
             LocalDate createdDate = getDate("createdDate", row, headerInfo.headers(), "createddate", "创建日期", "创建时间", "日期");
+            Integer targetOpportunityAmount = getInteger("targetOpportunityAmount", row, headerInfo.headers(),
+                    "targetopportunityamountc", "target_opportunity_amount__c", "目标商机数", "目标商机");
             Integer actualOpportunityCount = getInteger("actualOpportunityCount", row, headerInfo.headers(),
                     "actualopportunitycount", "实际商机数", "商机数", "实际新增商机数", "numberofopportunities");
+            Integer targetOrderAmount = getInteger("targetOrderAmount", row, headerInfo.headers(),
+                    "targetorderamountc", "target_order_amount__c", "目标订单数", "目标订单");
+            Integer wonOpportunityCount = getInteger("wonOpportunityCount", row, headerInfo.headers(),
+                    "numberofwonopportunities", "wonopportunitycount", "赢单数", "订单数");
+            Integer leadCount = getInteger("leadCount", row, headerInfo.headers(),
+                    "numberofleads", "leadcount", "线索数");
             Integer totalNewCustomerTarget = getInteger("totalNewCustomerTarget", row, headerInfo.headers(),
-                    "totalnewcustomertarget", "新增客户目标", "新客户目标", "新客目标", "newcustomercountc");
+                    "targetopportunityamountc", "target_opportunity_amount__c", "totalnewcustomertarget",
+                    "新增客户目标", "新客户目标", "新客目标", "newcustomercountc");
 
             boolean normalized = false;
+            if (campaignName == null) {
+                campaignName = campaignId;
+                normalized = true;
+                log.debug("[Import-Normalization] Row {}: campaignName is blank, defaulting to campaignId", rowIndex + 1);
+            }
+            if (eventType == null) {
+                eventType = "0";
+                normalized = true;
+                log.debug("[Import-Normalization] Row {}: eventType is blank, defaulting to '0'", rowIndex + 1);
+            }
             if (campaignType == null) {
                 campaignType = "0";
                 normalized = true;
@@ -372,10 +400,30 @@ public class ExcelImportService implements ApplicationRunner {
                 normalized = true;
                 log.debug("[Import-Normalization] Row {}: actualOpportunityCount is blank, defaulting to 0", rowIndex + 1);
             }
-            if (totalNewCustomerTarget == null) {
-                totalNewCustomerTarget = 0;
+            if (targetOpportunityAmount == null) {
+                targetOpportunityAmount = totalNewCustomerTarget != null ? totalNewCustomerTarget : 0;
                 normalized = true;
-                log.debug("[Import-Normalization] Row {}: totalNewCustomerTarget is blank, defaulting to 0", rowIndex + 1);
+                log.debug("[Import-Normalization] Row {}: targetOpportunityAmount is blank, defaulting to {}", rowIndex + 1, targetOpportunityAmount);
+            }
+            if (targetOrderAmount == null) {
+                targetOrderAmount = 0;
+                normalized = true;
+                log.debug("[Import-Normalization] Row {}: targetOrderAmount is blank, defaulting to 0", rowIndex + 1);
+            }
+            if (wonOpportunityCount == null) {
+                wonOpportunityCount = 0;
+                normalized = true;
+                log.debug("[Import-Normalization] Row {}: wonOpportunityCount is blank, defaulting to 0", rowIndex + 1);
+            }
+            if (leadCount == null) {
+                leadCount = 0;
+                normalized = true;
+                log.debug("[Import-Normalization] Row {}: leadCount is blank, defaulting to 0", rowIndex + 1);
+            }
+            if (totalNewCustomerTarget == null) {
+                totalNewCustomerTarget = targetOpportunityAmount;
+                normalized = true;
+                log.debug("[Import-Normalization] Row {}: totalNewCustomerTarget is blank, defaulting to targetOpportunityAmount", rowIndex + 1);
             }
             if (productModel == null) {
                 productModel = "未知";
@@ -395,14 +443,20 @@ public class ExcelImportService implements ApplicationRunner {
 
             items.add(new Campaign(
                     campaignId,
+                    campaignName,
                     dealerCode,
                     dealerName,
                     city,
                     dealerGroupName,
                     productModel,
+                    eventType,
                     campaignType,
                     createdDate,
+                    targetOpportunityAmount,
                     actualOpportunityCount,
+                    targetOrderAmount,
+                    wonOpportunityCount,
+                    leadCount,
                     totalNewCustomerTarget
             ));
         }
@@ -430,6 +484,7 @@ public class ExcelImportService implements ApplicationRunner {
 
             String taskId = getString(row, headerInfo.headers(), "taskid", "id", "任务id", "任务编号");
             String opportunityId = getString(row, headerInfo.headers(), "opportunityid", "商机id", "商机编号");
+            String subject = getString(row, headerInfo.headers(), "subject", "任务类型", "主题");
             String status = getString(row, headerInfo.headers(), "status", "任务状态", "状态");
             LocalDate createdDate = getDate("createdDate", row, headerInfo.headers(), "createddate", "创建日期", "创建时间", "日期");
 
@@ -452,6 +507,9 @@ public class ExcelImportService implements ApplicationRunner {
                 log.debug("Skipping task row {} due to missing required values.", rowIndex + 1);
                 continue;
             }
+            if (subject == null) {
+                subject = "未知";
+            }
 
             items.add(new Task(
                     taskId,
@@ -460,6 +518,7 @@ public class ExcelImportService implements ApplicationRunner {
                     city,
                     dealerGroupName,
                     opportunityId,
+                    subject,
                     status,
                     createdDate
             ));
@@ -569,7 +628,6 @@ public class ExcelImportService implements ApplicationRunner {
             Boolean converted = getBoolean(row, headerInfo.headers(), "isconverted", "converted", "是否转化", "已转化");
 
             if (hasBlank(leadId, stageName)
-                    || createdDate == null
                     || converted == null) {
                 log.debug("Skipping lead row {} due to missing required values.", rowIndex + 1);
                 continue;

@@ -40,7 +40,7 @@ public class Lead {
     @Column(nullable = false, length = 64)
     private String productModel;
 
-    @Column(nullable = false)
+    @Column
     private LocalDate createdDate;
 
     @Column(nullable = false)

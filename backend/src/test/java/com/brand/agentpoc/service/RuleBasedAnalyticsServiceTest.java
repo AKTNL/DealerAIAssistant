@@ -108,6 +108,20 @@ class RuleBasedAnalyticsServiceTest {
     }
 
     @Test
+    void multiEntityCountQuestionRoutesToDataOverviewBeforeCampaign() {
+        AnalyticsPlan plan = service.plan(
+                "\u6837\u672c\u6570\u636e\u91cc\u4e00\u5171\u6709\u591a\u5c11\u6761\u5546\u673a\u3001\u7ebf\u7d22\u3001\u4efb\u52a1\u548c\u5e02\u573a\u6d3b\u52a8\uff1f",
+                "zh"
+        );
+
+        assertThat(plan.scenario()).isEqualTo(AnalyticsPlan.Scenario.DATA_OVERVIEW);
+        assertThat(plan.fallbackReply()).contains("\u5546\u673a");
+        assertThat(plan.fallbackReply()).contains("\u7ebf\u7d22");
+        assertThat(plan.fallbackReply()).contains("\u4efb\u52a1");
+        assertThat(plan.fallbackReply()).contains("\u5e02\u573a\u6d3b\u52a8");
+    }
+
+    @Test
     void planExposesScenarioWorkflowMetadataForTargetAchievement() {
         AnalyticsPlan plan = service.plan("Which dealers have the lowest target achievement this month?", "en");
 
@@ -423,6 +437,143 @@ class RuleBasedAnalyticsServiceTest {
         assertThat(qualityDetail).contains("活动达成率均为 0");
         assertThat(qualityDetail).doesNotContain("有效可比单元", "可参与对比的对象", "指标分子", "指标分母",
                 "PrimaryNumerator", "PrimaryDenominator", "Campaign attainment");
+    }
+
+    @Test
+    void campaignDirectDealerQuestionMatchesByDealerNameWhenCampaignCodeUsesExternalId() {
+        String dealerName = "\u7ecf\u9500\u5546C(\u6df1\u5733\u5357\u5c71)";
+        when(dealerRepository.findAll()).thenReturn(List.of(
+                new Dealer("7003", dealerName, "\u6df1\u5733\u5357\u5c71", "\u7ecf\u9500\u5546\u96c6\u56e2E")
+        ));
+        when(campaignRepository.findAll()).thenReturn(List.of(
+                new Campaign(
+                        "RT-EV-26-AM-7003-001",
+                        "\u7ecf\u9500\u5546C\u6d3b\u52a8",
+                        "001XYA000000000003",
+                        dealerName,
+                        "\u6df1\u5733\u5357\u5c71",
+                        "",
+                        "Aurora S",
+                        "Event",
+                        "EV",
+                        LocalDate.of(2026, 5, 1),
+                        259,
+                        939,
+                        18,
+                        177,
+                        0,
+                        259
+                )
+        ));
+
+        AnalyticsPlan plan = service.plan(
+                "\u7ecf\u9500\u5546C(\u6df1\u5733\u5357\u5c71)\u6d3b\u52a8\u6548\u679c\u600e\u4e48\u6837\uff1f",
+                "zh"
+        );
+
+        assertThat(plan.fallbackReply()).contains(dealerName);
+        assertThat(plan.fallbackReply()).contains("259");
+        assertThat(plan.fallbackReply()).contains("939");
+        assertThat(plan.fallbackReply()).contains("362.5%");
+        assertThat(plan.fallbackReply()).contains("177");
+        assertThat(plan.fallbackReply()).doesNotContain("0 matching rows");
+    }
+
+    @Test
+    void directTargetQuestionsHandleSalesAndCompletionParaphrases() {
+        when(targetRepository.findAll()).thenReturn(List.of(
+                new Target("D001", "经销商A", "上海", "集团1", "Aurora S", 2026, 5, 100, 30, 40),
+                new Target("D002", "经销商B", "上海", "集团1", "Nova X", 2026, 5, 50, 45, 55),
+                new Target("D003", "经销商C", "上海", "集团1", "Aurora S", 2026, 5, 20, 5, 10)
+        ));
+
+        AnalyticsPlan modelPlan = service.plan("全国范围内哪款车卖得最好？", "zh");
+        AnalyticsPlan dealerPlan = service.plan("目标完成率最高的是谁？", "zh");
+
+        assertThat(modelPlan.scenario()).isEqualTo(AnalyticsPlan.Scenario.TARGET_ACHIEVEMENT);
+        assertThat(modelPlan.fallbackReply()).contains("车型赢单最多");
+        assertThat(modelPlan.fallbackReply()).contains("Nova X");
+        assertThat(dealerPlan.scenario()).isEqualTo(AnalyticsPlan.Scenario.TARGET_ACHIEVEMENT);
+        assertThat(dealerPlan.fallbackReply()).contains("经销商目标达成率最高");
+        assertThat(dealerPlan.fallbackReply()).contains("经销商B");
+        assertThat(dealerPlan.fallbackReply()).contains("90.0%");
+    }
+
+    @Test
+    void directOpportunityQuestionHandlesStageDistributionParaphrase() {
+        when(opportunityRepository.findAll()).thenReturn(List.of(
+                new Opportunity("O1", "D001", "经销商A", "上海", "集团1", "Aurora S",
+                        "Negotiation", "Website", LocalDate.of(2026, 5, 1), LocalDate.of(2026, 5, 20), 80),
+                new Opportunity("O2", "D002", "经销商B", "上海", "集团1", "Nova X",
+                        "Negotiation", "Retail", LocalDate.of(2026, 5, 2), LocalDate.of(2026, 5, 21), 70),
+                new Opportunity("O3", "D003", "经销商C", "上海", "集团1", "Aurora S",
+                        "Won", "Website", LocalDate.of(2026, 5, 3), LocalDate.of(2026, 5, 22), 100)
+        ));
+
+        AnalyticsPlan plan = service.plan("商机按阶段怎么分布？", "zh");
+
+        assertThat(plan.scenario()).isEqualTo(AnalyticsPlan.Scenario.OPPORTUNITY_FUNNEL);
+        assertThat(plan.fallbackReply()).contains("阶段分布");
+        assertThat(plan.fallbackReply()).contains("Negotiation 2");
+        assertThat(plan.fallbackReply()).contains("Won 1");
+    }
+
+    @Test
+    void directOpportunityQuestionHandlesClosedDealVolumeParaphrase() {
+        when(opportunityRepository.findAll()).thenReturn(List.of(
+                new Opportunity("O1", "D001", "经销商A", "上海", "集团1", "Aurora S",
+                        "Closed Won", "Website", LocalDate.of(2026, 5, 1), LocalDate.of(2026, 5, 20), 100),
+                new Opportunity("O2", "D001", "经销商A", "上海", "集团1", "Nova X",
+                        "Closed Won", "Retail", LocalDate.of(2026, 5, 2), LocalDate.of(2026, 5, 21), 100),
+                new Opportunity("O3", "D002", "经销商B", "上海", "集团1", "Aurora S",
+                        "Closed Won", "Website", LocalDate.of(2026, 5, 3), LocalDate.of(2026, 5, 22), 100),
+                new Opportunity("O4", "D002", "经销商B", "上海", "集团1", "Nova X",
+                        "Qualification & Discovery", "Retail", LocalDate.of(2026, 5, 4), LocalDate.of(2026, 5, 23), 40)
+        ));
+
+        AnalyticsPlan plan = service.plan("哪个经销商的成交商机最多？", "zh");
+
+        assertThat(plan.scenario()).isEqualTo(AnalyticsPlan.Scenario.OPPORTUNITY_FUNNEL);
+        assertThat(plan.fallbackReply()).contains("赢单商机最多的经销商");
+        assertThat(plan.fallbackReply()).contains("经销商A");
+        assertThat(plan.fallbackReply()).contains("共 2 条");
+    }
+
+    @Test
+    void directTaskQuestionHandlesTaskTypeTopThreeParaphrase() {
+        when(taskRepository.findAll()).thenReturn(List.of(
+                new Task("T1", "D001", "经销商A", "上海", "集团1", "O1", "Call", "Completed", LocalDate.of(2026, 5, 1)),
+                new Task("T2", "D001", "经销商A", "上海", "集团1", "O2", "Call", "Completed", LocalDate.of(2026, 5, 2)),
+                new Task("T3", "D002", "经销商B", "上海", "集团1", "O3", "Call", "Open", LocalDate.of(2026, 5, 3)),
+                new Task("T4", "D002", "经销商B", "上海", "集团1", "O4", "Visit", "Open", LocalDate.of(2026, 5, 4)),
+                new Task("T5", "D003", "经销商C", "上海", "集团1", "O5", "Visit", "Completed", LocalDate.of(2026, 5, 5)),
+                new Task("T6", "D003", "经销商C", "上海", "集团1", "O6", "Email", "Completed", LocalDate.of(2026, 5, 6)),
+                new Task("T7", "D003", "经销商C", "上海", "集团1", "O7", "Other", "Completed", LocalDate.of(2026, 5, 7))
+        ));
+
+        AnalyticsPlan plan = service.plan("任务类型前三是什么？", "zh");
+
+        assertThat(plan.scenario()).isEqualTo(AnalyticsPlan.Scenario.SALES_FOLLOW_UP);
+        assertThat(plan.fallbackReply()).contains("任务 Subject 中最多的是 Call 3，Visit 2，Email 1");
+        assertThat(plan.fallbackReply()).doesNotContain("Other 1");
+    }
+
+    @Test
+    void directLeadQuestionHandlesStatusBreakdownParaphrase() {
+        when(leadRepository.findAll()).thenReturn(List.of(
+                new Lead("L1", "D001", "经销商A", "上海", "集团1", "Website", "New",
+                        "Aurora S", LocalDate.of(2026, 5, 1), false),
+                new Lead("L2", "D002", "经销商B", "上海", "集团1", "Retail", "New",
+                        "Nova X", LocalDate.of(2026, 5, 2), true),
+                new Lead("L3", "D003", "经销商C", "上海", "集团1", "Website", "Qualified",
+                        "Aurora S", null, false)
+        ));
+
+        AnalyticsPlan plan = service.plan("线索状态分别多少？", "zh");
+
+        assertThat(plan.scenario()).isEqualTo(AnalyticsPlan.Scenario.LEAD_SOURCE);
+        assertThat(plan.fallbackReply()).contains("New 2");
+        assertThat(plan.fallbackReply()).contains("Qualified 1");
     }
 
     @Test

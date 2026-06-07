@@ -519,7 +519,7 @@ public class AnalyticsApiService {
         Comparator<Lead> cmp = switch (sortBy != null ? sortBy : "createdDate") {
             case "leadSource" -> Comparator.comparing(Lead::getLeadSource);
             case "dealerCode" -> Comparator.comparing(Lead::getDealerCode);
-            default -> Comparator.comparing(Lead::getCreatedDate);
+            default -> Comparator.comparing(Lead::getCreatedDate, Comparator.nullsFirst(Comparator.naturalOrder()));
         };
         if (!"asc".equalsIgnoreCase(sortOrder)) cmp = cmp.reversed();
         return list.stream().sorted(cmp).toList();
@@ -562,7 +562,7 @@ public class AnalyticsApiService {
     private LeadDetail toLeadDetail(Lead l) {
         return new LeadDetail(l.getLeadId(), l.getDealerCode(), l.getDealerName(), l.getCity(),
                 l.getDealerGroupName(), l.getLeadSource(), l.getStageName(), l.getProductModel(),
-                l.getCreatedDate().toString(), l.getConverted());
+                formatDate(l.getCreatedDate()), l.getConverted());
     }
 
     private TaskDetail toTaskDetail(Task t) {
@@ -574,5 +574,9 @@ public class AnalyticsApiService {
         return new CampaignDetail(c.getCampaignId(), c.getDealerCode(), c.getDealerName(), c.getCity(),
                 c.getDealerGroupName(), c.getProductModel(), c.getCampaignType(),
                 c.getCreatedDate().toString(), c.getActualOpportunityCount(), c.getTotalNewCustomerTarget());
+    }
+
+    private String formatDate(LocalDate value) {
+        return value != null ? value.toString() : null;
     }
 }

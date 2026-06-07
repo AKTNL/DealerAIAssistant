@@ -1,2 +1,0 @@
-mvn -Dfrontend.skip=true spring-boot:run
-npm run dev

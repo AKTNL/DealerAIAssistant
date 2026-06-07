@@ -11,11 +11,20 @@ target/
 *.jar
 *.war
 backend/src/main/resources/static/assets/
+frontend/.vite/
+frontend/.vitest/
+frontend/playwright-report/
+frontend/test-results/
+backend/target/
 
-# Claude/Agent
+# Local AI workflow
 .agent/
+.agents/
 .claude/
+.codex/
+.trellis/
 .worktrees/
+AGENTS.md
 
 # IDE
 .idea/
@@ -36,11 +45,17 @@ $RECYCLE.BIN/
 # Logs
 *.log
 logs/
+test-results/
+test_output*.txt
+surefire-reports/
 
 # Environment
 .env
 .env.local
 .env.*.local
+*.local
+application-local.yml
+application-*.local.yml
 
 # Temp
 *.tmp
@@ -49,10 +64,13 @@ logs/
 *.swo
 *~
 .ftp/
+.cache/
+.temp/
 
 # Test
 coverage/
 .nyc_output/
+.coverage/
 
 # Maven local repo
 backend/.m2/
@@ -60,6 +78,8 @@ backend/.m2/
 # Frontend cache
 frontend/.npm-cache/
 frontend/.tmp/
+.turbo/
+.eslintcache
 
 # Process
 *.pid

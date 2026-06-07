@@ -52,10 +52,21 @@ public class ChatService {
             "\\b(?:customer|client)\\s+[A-Za-z0-9][A-Za-z0-9_-]{0,8}\\b",
             Pattern.CASE_INSENSITIVE
     );
+    private static final Pattern UNKNOWN_ZH_DEALER_SUFFIX_PATTERN = Pattern.compile(
+            "经销商(?:不存在|没有|找不到|未知|无此|没有这个)[A-Za-z0-9_-]+"
+    );
+    private static final Pattern UNKNOWN_ZH_DEALER_PATTERN = Pattern.compile(
+            "经销商[^\\s，。,.]{0,20}?(?:不存在|没有|找不到|未知|无此|没有这个)"
+    );
+    private static final Pattern UNKNOWN_EN_DEALER_PATTERN = Pattern.compile(
+            "\\bdealer\\s+[A-Za-z0-9][A-Za-z0-9_-]{0,8}\\s+(?:does not exist|not found|doesn't exist|unknown|nonexistent)",
+            Pattern.CASE_INSENSITIVE
+    );
     private static final List<String> BUSINESS_SCOPE_KEYWORDS = List.of(
             "经销商", "门店", "店", "客户", "顾客", "经营", "业务", "销售", "销量",
             "目标", "达成", "商机", "线索", "任务", "活动", "转化", "漏斗", "跟进", "客流",
-            "市场", "车型", "城市", "集团", "对标", "绩效", "kpi", "crm", "dealer", "dealers",
+            "购买周期", "购车周期",
+            "市场", "车型", "车款", "哪款车", "哪种车", "卖得", "畅销", "成交", "城市", "集团", "对标", "绩效", "kpi", "crm", "dealer", "dealers",
             "dealership", "store", "stores", "customer", "client", "sales", "target",
             "achievement", "opportunity", "opportunities", "lead", "leads", "task", "tasks",
             "campaign", "campaigns", "conversion", "funnel", "follow-up", "follow up",
@@ -71,7 +82,8 @@ public class ChatService {
 
     private static final Map<String, List<String>> METRIC_TERMS = Map.of(
             "zh", List.of("达成率", "转化率", "商机", "线索", "任务", "活动", "ROI", "销量",
-                    "赢单", "流失", "漏斗", "目标", "活跃度", "参与度", "跟进", "时效", "逾期"),
+                    "赢单", "成交", "畅销", "流失", "漏斗", "目标", "活跃度", "参与度", "跟进", "时效", "逾期",
+                    "购买周期", "购车周期"),
             "en", List.of("achievement", "conversion", "opportunity", "lead", "task", "campaign",
                     "ROI", "sales", "win", "drop-off", "funnel", "target", "activity", "participation",
                     "follow-up", "turnaround", "overdue")
@@ -1197,6 +1209,13 @@ public class ChatService {
         }
 
         String asciiOnly = compact.replaceAll("[^a-z]", "");
+        if ((asciiOnly.startsWith("hello") || asciiOnly.startsWith("hi") || asciiOnly.startsWith("hey"))
+                && (asciiOnly.contains("whoareyou")
+                        || asciiOnly.contains("whatareyou")
+                        || asciiOnly.contains("whatcanyoudo")
+                        || asciiOnly.contains("introduceyourself"))) {
+            return true;
+        }
         return List.of(
                 "hello", "hi", "hey", "hithere", "hellothere",
                 "whoareyou", "whatareyou", "introduceyourself",
@@ -1241,6 +1260,21 @@ public class ChatService {
         Matcher enMatcher = UNKNOWN_EN_CUSTOMER_PATTERN.matcher(message);
         if (enMatcher.find()) {
             return enMatcher.group().trim().replaceAll("\\s+", " ");
+        }
+
+        Matcher zhDealerSuffixMatcher = UNKNOWN_ZH_DEALER_SUFFIX_PATTERN.matcher(message);
+        if (zhDealerSuffixMatcher.find()) {
+            return zhDealerSuffixMatcher.group().replaceAll("\\s+", "");
+        }
+
+        Matcher zhDealerMatcher = UNKNOWN_ZH_DEALER_PATTERN.matcher(message);
+        if (zhDealerMatcher.find()) {
+            return zhDealerMatcher.group().replaceAll("\\s+", "");
+        }
+
+        Matcher enDealerMatcher = UNKNOWN_EN_DEALER_PATTERN.matcher(message);
+        if (enDealerMatcher.find()) {
+            return enDealerMatcher.group().trim().replaceAll("\\s+", " ");
         }
 
         return null;
@@ -1309,8 +1343,9 @@ public class ChatService {
 
         return containsAny(
                 normalized,
-                "经销商", "门店", "目标", "达成", "销量", "商机", "线索", "任务", "活动", "转化",
+                "经销商", "门店", "目标", "达成", "销量", "销售", "卖得", "畅销", "成交", "商机", "线索", "任务", "活动", "转化",
                 "分析", "复盘", "对比", "表现", "趋势", "集团", "城市", "车型", "最低", "最高",
+                "车款", "哪款车", "哪种车", "购买周期", "购车周期",
                 "dealer", "dealers", "target", "achievement", "sales", "opportunity", "opportunities",
                 "lead", "leads", "task", "tasks", "campaign", "campaigns", "benchmark", "funnel",
                 "conversion", "city", "model", "performance", "trend", "lowest", "highest", "compare"

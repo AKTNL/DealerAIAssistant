@@ -178,7 +178,9 @@ public class DataQueryService {
                 .filter(lead -> matchesExact(lead.getProductModel(), filters.get("productModel")))
                 .filter(lead -> converted == null || Objects.equals(lead.getConverted(), converted))
                 .filter(lead -> withinDateRange(lead.getCreatedDate(), startDate, endDate))
-                .sorted(Comparator.comparing(Lead::getCreatedDate).reversed()
+                .sorted(Comparator.comparing(
+                                Lead::getCreatedDate,
+                                Comparator.nullsLast(Comparator.reverseOrder()))
                         .thenComparing(Lead::getLeadId))
                 .map(this::toLeadMap)
                 .toList();
@@ -413,6 +415,7 @@ public class DataQueryService {
         item.put("city", opportunity.getCity());
         item.put("dealerGroupName", opportunity.getDealerGroupName());
         item.put("productModel", opportunity.getProductModel());
+        item.put("purchaseHorizon", opportunity.getPurchaseHorizon());
         item.put("stageName", opportunity.getStageName());
         item.put("leadSource", opportunity.getLeadSource());
         item.put("createdDate", opportunity.getCreatedDate().toString());
@@ -424,14 +427,20 @@ public class DataQueryService {
     private Map<String, Object> toCampaignMap(Campaign campaign) {
         Map<String, Object> item = new LinkedHashMap<>();
         item.put("campaignId", campaign.getCampaignId());
+        item.put("campaignName", campaign.getCampaignName());
         item.put("dealerCode", campaign.getDealerCode());
         item.put("dealerName", campaign.getDealerName());
         item.put("city", campaign.getCity());
         item.put("dealerGroupName", campaign.getDealerGroupName());
         item.put("productModel", campaign.getProductModel());
+        item.put("eventType", campaign.getEventType());
         item.put("campaignType", campaign.getCampaignType());
         item.put("createdDate", campaign.getCreatedDate().toString());
+        item.put("targetOpportunityAmount", campaign.getTargetOpportunityAmount());
         item.put("actualOpportunityCount", campaign.getActualOpportunityCount());
+        item.put("targetOrderAmount", campaign.getTargetOrderAmount());
+        item.put("wonOpportunityCount", campaign.getWonOpportunityCount());
+        item.put("leadCount", campaign.getLeadCount());
         item.put("totalNewCustomerTarget", campaign.getTotalNewCustomerTarget());
         return item;
     }
@@ -444,6 +453,7 @@ public class DataQueryService {
         item.put("city", task.getCity());
         item.put("dealerGroupName", task.getDealerGroupName());
         item.put("opportunityId", task.getOpportunityId());
+        item.put("subject", task.getSubject());
         item.put("status", task.getStatus());
         item.put("createdDate", task.getCreatedDate().toString());
         return item;
@@ -473,7 +483,7 @@ public class DataQueryService {
         item.put("leadSource", lead.getLeadSource());
         item.put("stageName", lead.getStageName());
         item.put("productModel", lead.getProductModel());
-        item.put("createdDate", lead.getCreatedDate().toString());
+        item.put("createdDate", formatDate(lead.getCreatedDate()));
         item.put("isConverted", lead.getConverted());
         return item;
     }
@@ -509,8 +519,15 @@ public class DataQueryService {
     }
 
     private boolean withinDateRange(LocalDate value, LocalDate startDate, LocalDate endDate) {
+        if (value == null) {
+            return startDate == null && endDate == null;
+        }
         return (startDate == null || !value.isBefore(startDate))
                 && (endDate == null || !value.isAfter(endDate));
+    }
+
+    private String formatDate(LocalDate value) {
+        return value != null ? value.toString() : null;
     }
 
     private LocalDate parseDate(String fieldName, String value) {

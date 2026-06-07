@@ -130,6 +130,20 @@ public final class AnalyticsScenarioCatalog {
                     List.of("getCurrentDate()", "searchDealers()", "queryTargets()"),
                     "按最近12个业务月逐月判定有目标/有商机/有成交/有数据四个维度，汇总0-48分评出门店经营活跃度五级。",
                     "Score each dealer 0-48 across 4 dimensions (target/opportunity create/won/data presence) over the last 12 business months, classified into 5 activity tiers."
+            ),
+            new ScenarioWorkflow(
+                    AnalyticsPlan.Scenario.DATA_OVERVIEW,
+                    "数据概况",
+                    "Data Overview",
+                    List.of(
+                            "当前系统一共有多少个经销商/客户/门店/市场活动？"
+                    ),
+                    List.of(
+                            "How many dealers/customers/stores/campaigns are there in the system?"
+                    ),
+                    List.of("queryOpportunities()", "queryLeads()", "queryTasks()", "queryCampaigns()"),
+                    "加载所有实体表，分别统计商机、线索、任务、活动总量。",
+                    "Load all entity tables and count total opportunities, leads, tasks, and campaigns."
             )
     );
 

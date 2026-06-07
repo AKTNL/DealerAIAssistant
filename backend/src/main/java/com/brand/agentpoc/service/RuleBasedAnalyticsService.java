@@ -33,6 +33,7 @@ import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Consumer;
+import java.util.function.Function;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import org.slf4j.Logger;
@@ -133,13 +134,14 @@ public class RuleBasedAnalyticsService {
             String scopeSummary = scope.summary(language);
             List<String> progressMessages = buildProgressMessages(language, scenarioWorkflow);
             ScenarioResult result = switch (topic) {
-                case TARGET_ACHIEVEMENT -> analyzeTargetAchievement(scope, language);
-                case OPPORTUNITY_FUNNEL -> analyzeOpportunityFunnel(scope, language);
-                case SALES_FOLLOW_UP -> analyzeSalesFollowUp(scope, language, detectSalesFollowUpFocus(message));
-                case CAMPAIGN_PERFORMANCE -> analyzeCampaignPerformance(scope, language);
-                case LEAD_SOURCE -> analyzeLeadSource(scope, language);
+                case TARGET_ACHIEVEMENT -> analyzeTargetAchievement(scope, language, message);
+                case OPPORTUNITY_FUNNEL -> analyzeOpportunityFunnel(scope, language, message);
+                case SALES_FOLLOW_UP -> analyzeSalesFollowUp(scope, language, detectSalesFollowUpFocus(message), message);
+                case CAMPAIGN_PERFORMANCE -> analyzeCampaignPerformance(scope, language, message);
+                case LEAD_SOURCE -> analyzeLeadSource(scope, language, message);
                 case DEALER_BUSINESS_ACTIVITY -> analyzeDealerBusinessActivity(scope, language, message);
                 case DEALER_BENCHMARK -> analyzeDealerBenchmark(scope, language);
+                case DATA_OVERVIEW -> analyzeDataOverview(scope, language);
             };
             String callChain = buildInterfaceCallChain(language, topic, scenarioWorkflow, scope);
             ScenarioResult resultWithCallChain = result.withReply(
@@ -187,13 +189,14 @@ public class RuleBasedAnalyticsService {
             String scopeSummary = scope.summary(language);
             List<String> progressMessages = buildProgressMessages(language, scenarioWorkflow);
             ScenarioResult result = switch (topic) {
-                case TARGET_ACHIEVEMENT -> analyzeTargetAchievement(scope, language, traceId, seq, onStep);
-                case OPPORTUNITY_FUNNEL -> analyzeOpportunityFunnel(scope, language, traceId, seq, onStep);
-                case SALES_FOLLOW_UP -> analyzeSalesFollowUp(scope, language, detectSalesFollowUpFocus(message), traceId, seq, onStep);
-                case CAMPAIGN_PERFORMANCE -> analyzeCampaignPerformance(scope, language, traceId, seq, onStep);
-                case LEAD_SOURCE -> analyzeLeadSource(scope, language, traceId, seq, onStep);
+                case TARGET_ACHIEVEMENT -> analyzeTargetAchievement(scope, language, message, traceId, seq, onStep);
+                case OPPORTUNITY_FUNNEL -> analyzeOpportunityFunnel(scope, language, message, traceId, seq, onStep);
+                case SALES_FOLLOW_UP -> analyzeSalesFollowUp(scope, language, detectSalesFollowUpFocus(message), message, traceId, seq, onStep);
+                case CAMPAIGN_PERFORMANCE -> analyzeCampaignPerformance(scope, language, message, traceId, seq, onStep);
+                case LEAD_SOURCE -> analyzeLeadSource(scope, language, message, traceId, seq, onStep);
                 case DEALER_BUSINESS_ACTIVITY -> analyzeDealerBusinessActivity(scope, language, message, traceId, seq, onStep);
                 case DEALER_BENCHMARK -> analyzeDealerBenchmark(scope, language, traceId, seq, onStep);
+                case DATA_OVERVIEW -> analyzeDataOverview(scope, language, traceId, seq, onStep);
             };
 
             // Emit insight step based on the last CalcStep in the result
@@ -313,6 +316,7 @@ public class RuleBasedAnalyticsService {
             case LEAD_SOURCE -> "Lead";
             case DEALER_BUSINESS_ACTIVITY -> "Target, Opportunity";
             case DEALER_BENCHMARK -> "Dealer, Target, Opportunity";
+            case DATA_OVERVIEW -> "Opportunity, Lead, Task, Campaign";
         };
     }
 
@@ -340,6 +344,9 @@ public class RuleBasedAnalyticsService {
             case DEALER_BENCHMARK -> isZh
                     ? "组合多门店目标与商机指标，构建跨门店经营对比矩阵。"
                     : "combine target and opportunity metrics into a cross-dealer benchmark matrix.";
+            case DATA_OVERVIEW -> isZh
+                    ? "加载全部实体表，分别统计商机、线索、任务和活动总量。"
+                    : "load all entity tables and count total opportunities, leads, tasks, and campaigns.";
         };
     }
 
@@ -347,6 +354,12 @@ public class RuleBasedAnalyticsService {
     private AnalysisTopic detectTopic(String message) {
         String normalized = normalize(message);
 
+        if (containsAny(normalized, "\u6570\u636e\u6982\u51b5")
+                || (containsAny(normalized, "\u5f53\u524d\u7cfb\u7edf") && containsAny(normalized, "\u4e00\u5171\u6709\u591a\u5c11"))
+                || (containsAny(normalized, "\u4e00\u5171\u6709\u591a\u5c11", "\u591a\u5c11\u6761")
+                        && countMentionedOverviewEntities(normalized) >= 2)) {
+            return AnalysisTopic.DATA_OVERVIEW;
+        }
         if (containsAny(normalized, "\u6d3b\u52a8", "campaign", "marketing", "event")) {
             return AnalysisTopic.CAMPAIGN_PERFORMANCE;
         }
@@ -358,16 +371,28 @@ public class RuleBasedAnalyticsService {
         if (containsAny(normalized, "\u8ddf\u8fdb", "\u4efb\u52a1", "\u6d3b\u8dc3\u5ea6", "task", "follow-up", "follow up")) {
             return AnalysisTopic.SALES_FOLLOW_UP;
         }
+        if (containsAny(normalized, "\u5546\u673a", "opportunity")
+                && containsAny(normalized, "\u6765\u6e90", "\u8d62\u5355\u7387", "\u8d62\u5355", "\u6210\u4ea4\u7387", "\u6210\u4ea4", "\u6f0f\u6597", "\u8f6c\u5316", "\u5e74\u9f84", "\u8d2d\u8f66\u5468\u671f", "\u533a\u95f4", "\u9636\u6bb5")) {
+            return AnalysisTopic.OPPORTUNITY_FUNNEL;
+        }
         if (containsAny(normalized, "\u7ebf\u7d22", "\u6765\u6e90", "\u6d41\u91cf", "lead", "source", "organic", "trend")) {
             return AnalysisTopic.LEAD_SOURCE;
+        }
+        if (asksTopSalesVolume(normalized)
+                && (mentionsProductDimension(normalized) || mentionsDealerDimension(normalized)
+                        || containsAny(normalized, "\u8c01", "\u54ea\u4e2a", "\u54ea\u5bb6"))) {
+            return AnalysisTopic.TARGET_ACHIEVEMENT;
         }
         if (containsAny(normalized, "\u5bf9\u6807", "\u6bd4\u8f83", "\u8868\u73b0\u6700\u597d", "outperform", "benchmark", "compare", "best")) {
             return AnalysisTopic.DEALER_BENCHMARK;
         }
+        if (containsAny(normalized, "\u8d62\u5355\u6570\u91cf", "\u8d62\u5355\u6700\u591a", "\u8d62\u5355\u6570")) {
+            return AnalysisTopic.TARGET_ACHIEVEMENT;
+        }
         if (containsAny(normalized, "\u76ee\u6807", "\u8fbe\u6210", "\u5b8c\u6210\u7387", "achievement", "target")) {
             return AnalysisTopic.TARGET_ACHIEVEMENT;
         }
-        if (containsAny(normalized, "\u6f0f\u6597", "\u5546\u673a", "\u8f6c\u5316", "opportunity", "funnel", "conversion", "stage")) {
+        if (containsAny(normalized, "\u6f0f\u6597", "\u5546\u673a", "\u8f6c\u5316", "\u8d62\u5355\u7387", "\u6210\u4ea4\u7387", "\u8d2d\u8f66\u5468\u671f", "\u5e74\u9f84", "\u533a\u95f4", "opportunity", "funnel", "conversion", "stage")) {
             return AnalysisTopic.OPPORTUNITY_FUNNEL;
         }
         return AnalysisTopic.DEALER_BENCHMARK;
@@ -467,7 +492,18 @@ public class RuleBasedAnalyticsService {
                 .findFirst()
                 .orElse(null);
 
-        return new AnalysisScope(timeRange, city, dealerCode, dealerName, dealerGroupName, productModel);
+        String leadSource = Stream.concat(
+                        cachedLeads().stream().map(Lead::getLeadSource),
+                        cachedOpportunities().stream().map(Opportunity::getLeadSource))
+                .filter(Objects::nonNull)
+                .filter(source -> !source.isBlank())
+                .distinct()
+                .sorted(Comparator.comparingInt(String::length).reversed())
+                .filter(source -> contains(normalizedMessage, source))
+                .findFirst()
+                .orElse(null);
+
+        return new AnalysisScope(timeRange, city, dealerCode, dealerName, dealerGroupName, productModel, leadSource);
     }
 
     private int dealerReferenceMatchScore(String normalizedMessage, Dealer dealer) {
@@ -548,10 +584,19 @@ public class RuleBasedAnalyticsService {
     }
 
     private ScenarioResult analyzeTargetAchievement(AnalysisScope scope, String language) {
-        return analyzeTargetAchievement(scope, language, "legacy", new AtomicInteger(1), null);
+        return analyzeTargetAchievement(scope, language, null, "legacy", new AtomicInteger(1), null);
+    }
+
+    private ScenarioResult analyzeTargetAchievement(AnalysisScope scope, String language, String message) {
+        return analyzeTargetAchievement(scope, language, message, "legacy", new AtomicInteger(1), null);
     }
 
     private ScenarioResult analyzeTargetAchievement(AnalysisScope scope, String language,
+            String traceId, AtomicInteger seq, Consumer<StepEvent> onStep) {
+        return analyzeTargetAchievement(scope, language, null, traceId, seq, onStep);
+    }
+
+    private ScenarioResult analyzeTargetAchievement(AnalysisScope scope, String language, String message,
             String traceId, AtomicInteger seq, Consumer<StepEvent> onStep) {
         List<Target> allTargets = cachedTargets();
         List<CalcStep> traceSteps = new ArrayList<>();
@@ -589,6 +634,11 @@ public class RuleBasedAnalyticsService {
                     isZh(language) ? "过滤后无匹配记录" : "No matching records after filtering",
                     Map.of("recordCount", 0)));
             return noDataResult(language, scope, "target achievement");
+        }
+
+        ScenarioResult directResult = tryAnswerTargetQuestion(filtered, scope, language, message, traceSteps);
+        if (directResult != null) {
+            return directResult;
         }
 
         List<DealerTargetMetric> allMetrics = buildDealerTargetMetrics(filtered);
@@ -838,11 +888,25 @@ public class RuleBasedAnalyticsService {
     }
 
     private ScenarioResult analyzeOpportunityFunnel(AnalysisScope scope, String language) {
-        return analyzeOpportunityFunnel(scope, language, "legacy", new AtomicInteger(1), null);
+        return analyzeOpportunityFunnel(scope, language, null, "legacy", new AtomicInteger(1), null);
+    }
+
+    private ScenarioResult analyzeOpportunityFunnel(AnalysisScope scope, String language, String message) {
+        return analyzeOpportunityFunnel(scope, language, message, "legacy", new AtomicInteger(1), null);
     }
 
     private ScenarioResult analyzeOpportunityFunnel(AnalysisScope scope, String language,
             String traceId, AtomicInteger seq, Consumer<StepEvent> onStep) {
+        return analyzeOpportunityFunnel(scope, language, null, traceId, seq, onStep);
+    }
+
+    private ScenarioResult analyzeOpportunityFunnel(AnalysisScope scope, String language, String message,
+            String traceId, AtomicInteger seq, Consumer<StepEvent> onStep) {
+        ScenarioResult directResult = tryAnswerOpportunityQuestion(scope, language, message);
+        if (directResult != null) {
+            return directResult;
+        }
+
         DataQueryResponse response = dataQueryService.query("opportunities", buildQueryFilters(scope, true));
         if (!response.items().isEmpty()) {
             return analyzeOpportunityFunnelFromQuery(response, scope, language);
@@ -1083,11 +1147,26 @@ public class RuleBasedAnalyticsService {
     }
 
     private ScenarioResult analyzeSalesFollowUp(AnalysisScope scope, String language, SalesFollowUpFocus focus) {
-        return analyzeSalesFollowUp(scope, language, focus, "legacy", new AtomicInteger(1), null);
+        return analyzeSalesFollowUp(scope, language, focus, null, "legacy", new AtomicInteger(1), null);
+    }
+
+    private ScenarioResult analyzeSalesFollowUp(AnalysisScope scope, String language, SalesFollowUpFocus focus,
+            String message) {
+        return analyzeSalesFollowUp(scope, language, focus, message, "legacy", new AtomicInteger(1), null);
     }
 
     private ScenarioResult analyzeSalesFollowUp(AnalysisScope scope, String language, SalesFollowUpFocus focus,
             String traceId, AtomicInteger seq, Consumer<StepEvent> onStep) {
+        return analyzeSalesFollowUp(scope, language, focus, null, traceId, seq, onStep);
+    }
+
+    private ScenarioResult analyzeSalesFollowUp(AnalysisScope scope, String language, SalesFollowUpFocus focus,
+            String message, String traceId, AtomicInteger seq, Consumer<StepEvent> onStep) {
+        ScenarioResult directResult = tryAnswerSalesFollowUpQuestion(scope, language, message);
+        if (directResult != null) {
+            return directResult;
+        }
+
         DataQueryResponse response = dataQueryService.query("tasks", buildQueryFilters(scope, false));
         if (!response.items().isEmpty()) {
             return analyzeSalesFollowUpFromQuery(response, scope, language, focus);
@@ -1591,11 +1670,25 @@ public class RuleBasedAnalyticsService {
     }
 
     private ScenarioResult analyzeCampaignPerformance(AnalysisScope scope, String language) {
-        return analyzeCampaignPerformance(scope, language, "legacy", new AtomicInteger(1), null);
+        return analyzeCampaignPerformance(scope, language, null, "legacy", new AtomicInteger(1), null);
+    }
+
+    private ScenarioResult analyzeCampaignPerformance(AnalysisScope scope, String language, String message) {
+        return analyzeCampaignPerformance(scope, language, message, "legacy", new AtomicInteger(1), null);
     }
 
     private ScenarioResult analyzeCampaignPerformance(AnalysisScope scope, String language,
             String traceId, AtomicInteger seq, Consumer<StepEvent> onStep) {
+        return analyzeCampaignPerformance(scope, language, null, traceId, seq, onStep);
+    }
+
+    private ScenarioResult analyzeCampaignPerformance(AnalysisScope scope, String language, String message,
+            String traceId, AtomicInteger seq, Consumer<StepEvent> onStep) {
+        ScenarioResult directResult = tryAnswerCampaignQuestion(scope, language, message);
+        if (directResult != null) {
+            return directResult;
+        }
+
         DataQueryResponse response = dataQueryService.query("campaigns", buildQueryFilters(scope, true));
         if (!response.items().isEmpty()) {
             return analyzeCampaignPerformanceFromQuery(response, scope, language, traceId, seq, onStep);
@@ -1819,11 +1912,25 @@ public class RuleBasedAnalyticsService {
     }
 
     private ScenarioResult analyzeLeadSource(AnalysisScope scope, String language) {
-        return analyzeLeadSource(scope, language, "legacy", new AtomicInteger(1), null);
+        return analyzeLeadSource(scope, language, null, "legacy", new AtomicInteger(1), null);
+    }
+
+    private ScenarioResult analyzeLeadSource(AnalysisScope scope, String language, String message) {
+        return analyzeLeadSource(scope, language, message, "legacy", new AtomicInteger(1), null);
     }
 
     private ScenarioResult analyzeLeadSource(AnalysisScope scope, String language,
             String traceId, AtomicInteger seq, Consumer<StepEvent> onStep) {
+        return analyzeLeadSource(scope, language, null, traceId, seq, onStep);
+    }
+
+    private ScenarioResult analyzeLeadSource(AnalysisScope scope, String language, String message,
+            String traceId, AtomicInteger seq, Consumer<StepEvent> onStep) {
+        ScenarioResult directResult = tryAnswerLeadQuestion(scope, language, message);
+        if (directResult != null) {
+            return directResult;
+        }
+
         DataQueryResponse response = dataQueryService.query("leads", buildQueryFilters(scope, true));
         if (!response.items().isEmpty()) {
             return analyzeLeadSourceFromQuery(response, scope, language, traceId, seq, onStep);
@@ -1839,6 +1946,8 @@ public class RuleBasedAnalyticsService {
                 .filter(lead -> matchesScope(lead.getDealerCode(), lead.getDealerName(), lead.getCity(),
                         lead.getDealerGroupName(), lead.getProductModel(), scope))
                 .filter(lead -> scope.timeRange().matchesDate(lead.getCreatedDate()))
+                .filter(lead -> scope.leadSource() == null
+                        || scope.leadSource().equalsIgnoreCase(lead.getLeadSource()))
                 .toList();
 
         emitStep(onStep, StepEvent.success(traceId, seq.getAndIncrement(), StepType.filter,
@@ -1879,6 +1988,41 @@ public class RuleBasedAnalyticsService {
                         "sampleRows", leadSourceMetricRows(sourceMetrics, 5)
                 )));
 
+        Map<String, Long> statusCounts = filtered.stream()
+                .collect(Collectors.groupingBy(lead -> {
+                    String stage = lead.getStageName();
+                    return stage != null && !stage.isBlank() ? stage : "Unknown";
+                }, LinkedHashMap::new, Collectors.counting()));
+        long newCount = statusCounts.getOrDefault("New", 0L);
+        long qualifiedCount = statusCounts.getOrDefault("Qualified", 0L);
+
+        Map<String, Long> modelCounts = filtered.stream()
+                .collect(Collectors.groupingBy(lead -> {
+                    String model = lead.getProductModel();
+                    return model != null && !model.isBlank() ? model : "Unknown";
+                }, LinkedHashMap::new, Collectors.counting()));
+        String topLeadModel = modelCounts.entrySet().stream()
+                .max(Map.Entry.comparingByValue())
+                .map(Map.Entry::getKey)
+                .orElse("-");
+
+        Map<String, List<Lead>> dealerLeads = filtered.stream()
+                .filter(lead -> lead.getDealerName() != null && !lead.getDealerName().isBlank())
+                .collect(Collectors.groupingBy(Lead::getDealerName));
+        record DealerLeadMetric(String name, int total, int converted, double rate) {}
+        List<DealerLeadMetric> dealerMetrics = dealerLeads.entrySet().stream()
+                .map(e -> {
+                    int total = e.getValue().size();
+                    int converted = (int) e.getValue().stream().filter(Lead::getConverted).count();
+                    return new DealerLeadMetric(e.getKey(), total, converted, percentage(converted, total));
+                })
+                .sorted(Comparator.comparingInt(DealerLeadMetric::total).reversed())
+                .toList();
+        DealerLeadMetric topDealerByVolume = dealerMetrics.isEmpty() ? null : dealerMetrics.getFirst();
+        DealerLeadMetric topDealerByConversion = dealerMetrics.stream()
+                .max(Comparator.comparingDouble(DealerLeadMetric::rate))
+                .orElse(null);
+
         DataQualityContext quality = classifyCountQuality(
                 "lead source analysis",
                 "Lead conversion",
@@ -1903,22 +2047,48 @@ public class RuleBasedAnalyticsService {
                 .orElse(topVolume);
 
                 if ("zh".equals(language)) {
-            String conclusion = String.format(
-                    "- **%s** \u662f\u5f53\u524d\u7ebf\u7d22\u91cf\u6700\u5927\u7684\u6765\u6e90\uff08%d \u6761\uff0c\u5360 %s\uff09\uff0c\u4f46\u8f6c\u5316\u7387\u4ec5 **%s**\n"
-                    + "- **%s** \u8f6c\u5316\u7387\u6700\u9ad8\uff08**%s**\uff09\uff0c\u867d\u7136\u7ebf\u7d22\u91cf\u4ec5 %d \u6761\uff0c\u4f46\u8d28\u91cf\u8fdc\u8d85\u5176\u4ed6\u6765\u6e90\n"
-                    + "- \u91cf\u5927\u4f46\u8f6c\u5316\u4f4e vs \u91cf\u5c0f\u4f46\u8f6c\u5316\u9ad8\uff0c\u9700\u8981\u5728\u6295\u653e\u7b56\u7565\u4e0a\u5e73\u8861\u89c4\u6a21\u548c\u6548\u7387",
+            String conclusion;
+            StringBuilder zhConclusion = new StringBuilder();
+            zhConclusion.append(String.format(
+                    "- **%s** \u662f\u5f53\u524d\u7ebf\u7d22\u91cf\u6700\u5927\u7684\u6765\u6e90\uff08%d \u6761\uff0c\u5360 %s\uff09\uff0c\u4f46\u8f6c\u5316\u7387\u4ec5 **%s**\n",
                     topVolume.source(), topVolume.leadCount(),
                     formatPercent(percentage(topVolume.leadCount(), filtered.size())),
-                    formatPercent(topVolume.conversionRate()),
+                    formatPercent(topVolume.conversionRate())));
+            zhConclusion.append(String.format(
+                    "- **%s** \u8f6c\u5316\u7387\u6700\u9ad8\uff08**%s**\uff09\uff0c\u867d\u7136\u7ebf\u7d22\u91cf\u4ec5 %d \u6761\uff0c\u4f46\u8d28\u91cf\u8fdc\u8d85\u5176\u4ed6\u6765\u6e90\n",
                     topConversion.source(), formatPercent(topConversion.conversionRate()),
-                    topConversion.leadCount()
-            );
+                    topConversion.leadCount()));
+            zhConclusion.append(String.format(
+                    "- \u7ebf\u7d22\u72b6\u6001\u5206\u5e03\uff1aNew %d \u6761\uff0cQualified %d \u6761\n",
+                    newCount, qualifiedCount));
+            zhConclusion.append(String.format(
+                    "- \u7ebf\u7d22\u6700\u591a\u7684\u610f\u5411\u8f66\u578b\uff1a**%s**\uff08%d \u6761\uff09\n",
+                    topLeadModel, modelCounts.getOrDefault(topLeadModel, 0L)));
+            if (topDealerByVolume != null) {
+                zhConclusion.append(String.format(
+                        "- \u7ebf\u7d22\u6700\u591a\u7684\u7ecf\u9500\u5546\uff1a**%s**\uff08%d \u6761\uff09\n",
+                        topDealerByVolume.name(), topDealerByVolume.total()));
+            }
+            if (topDealerByConversion != null) {
+                zhConclusion.append(String.format(
+                        "- \u8f6c\u5316\u7387\u6700\u9ad8\u7684\u7ecf\u9500\u5546\uff1a**%s**\uff08%s\uff09",
+                        topDealerByConversion.name(), formatPercent(topDealerByConversion.rate())));
+            }
+            conclusion = zhConclusion.toString();
 
             List<String[]> dataRows = new ArrayList<>();
             dataRows.add(new String[]{"Total leads", String.valueOf(filtered.size())});
-            dataRows.add(new String[]{"Highest-volume source", "%s (%d leads, conversion %s)".formatted(topVolume.source(), topVolume.leadCount(), formatPercent(topVolume.conversionRate()))});
-            dataRows.add(new String[]{"Best conversion source", "%s (conversion rate %s, %d leads)".formatted(topConversion.source(), formatPercent(topConversion.conversionRate()), topConversion.leadCount())});
-            dataRows.add(new String[]{"Unique sources", String.valueOf(sourceMetrics.size())});
+            dataRows.add(new String[]{"New leads", String.valueOf(newCount)});
+            dataRows.add(new String[]{"Qualified leads", String.valueOf(qualifiedCount)});
+            dataRows.add(new String[]{"Top lead source by volume", "%s (%d leads)".formatted(topVolume.source(), topVolume.leadCount())});
+            dataRows.add(new String[]{"Top lead source by conversion", "%s (%s)".formatted(topConversion.source(), formatPercent(topConversion.conversionRate()))});
+            dataRows.add(new String[]{"Top lead model", "%s (%d leads)".formatted(topLeadModel, modelCounts.getOrDefault(topLeadModel, 0L))});
+            if (topDealerByVolume != null) {
+                dataRows.add(new String[]{"Top dealer by leads", "%s (%d leads)".formatted(topDealerByVolume.name(), topDealerByVolume.total())});
+            }
+            if (topDealerByConversion != null) {
+                dataRows.add(new String[]{"Top dealer by conversion", "%s (%s)".formatted(topDealerByConversion.name(), formatPercent(topDealerByConversion.rate()))});
+            }
 
             Map<String, Double> pieData = new LinkedHashMap<>();
             for (LeadSourceMetric metric : sourceMetrics) {
@@ -1955,22 +2125,47 @@ public class RuleBasedAnalyticsService {
             return normalResult(buildEnrichedReply(language, conclusion, dataRows, null, mermaid, fallback, attributions, recommendations, followUps),
                     "lead source analysis", "Lead conversion", new ArrayList<>());
         }
-        String conclusion = String.format(
-                "- **%s** delivers the most leads (%d, %s of total), but converts at only **%s**.\n"
-                + "- **%s** has the best conversion rate at **%s** \u2014 only %d leads, but far higher quality.\n"
-                + "- The volume-vs-quality tradeoff calls for a balanced investment strategy.",
+        StringBuilder enConclusion = new StringBuilder();
+        enConclusion.append(String.format(
+                "- **%s** delivers the most leads (%d, %s of total), but converts at only **%s**.\n",
                 topVolume.source(), topVolume.leadCount(),
                 formatPercent(percentage(topVolume.leadCount(), filtered.size())),
-                formatPercent(topVolume.conversionRate()),
+                formatPercent(topVolume.conversionRate())));
+        enConclusion.append(String.format(
+                "- **%s** has the best conversion rate at **%s** \u2014 only %d leads, but far higher quality.\n",
                 topConversion.source(), formatPercent(topConversion.conversionRate()),
-                topConversion.leadCount()
-        );
+                topConversion.leadCount()));
+        enConclusion.append(String.format(
+                "- Status distribution: New %d, Qualified %d\n",
+                newCount, qualifiedCount));
+        enConclusion.append(String.format(
+                "- Most leads by model: **%s** (%d leads)\n",
+                topLeadModel, modelCounts.getOrDefault(topLeadModel, 0L)));
+        if (topDealerByVolume != null) {
+            enConclusion.append(String.format(
+                    "- Most leads by dealer: **%s** (%d leads)\n",
+                    topDealerByVolume.name(), topDealerByVolume.total()));
+        }
+        if (topDealerByConversion != null) {
+            enConclusion.append(String.format(
+                    "- Best conversion by dealer: **%s** (%s)",
+                    topDealerByConversion.name(), formatPercent(topDealerByConversion.rate())));
+        }
+        String conclusion = enConclusion.toString();
 
         List<String[]> dataRows = new ArrayList<>();
         dataRows.add(new String[]{"Total leads", String.valueOf(filtered.size())});
-        dataRows.add(new String[]{"Highest-volume source", "%s (%d leads, conversion %s)".formatted(topVolume.source(), topVolume.leadCount(), formatPercent(topVolume.conversionRate()))});
-        dataRows.add(new String[]{"Best conversion source", "%s (conversion rate %s, %d leads)".formatted(topConversion.source(), formatPercent(topConversion.conversionRate()), topConversion.leadCount())});
-        dataRows.add(new String[]{"Unique sources", String.valueOf(sourceMetrics.size())});
+        dataRows.add(new String[]{"New leads", String.valueOf(newCount)});
+        dataRows.add(new String[]{"Qualified leads", String.valueOf(qualifiedCount)});
+        dataRows.add(new String[]{"Top lead source by volume", "%s (%d leads)".formatted(topVolume.source(), topVolume.leadCount())});
+        dataRows.add(new String[]{"Top lead source by conversion", "%s (%s)".formatted(topConversion.source(), formatPercent(topConversion.conversionRate()))});
+        dataRows.add(new String[]{"Top lead model", "%s (%d leads)".formatted(topLeadModel, modelCounts.getOrDefault(topLeadModel, 0L))});
+        if (topDealerByVolume != null) {
+            dataRows.add(new String[]{"Top dealer by leads", "%s (%d leads)".formatted(topDealerByVolume.name(), topDealerByVolume.total())});
+        }
+        if (topDealerByConversion != null) {
+            dataRows.add(new String[]{"Top dealer by conversion", "%s (%s)".formatted(topDealerByConversion.name(), formatPercent(topDealerByConversion.rate()))});
+        }
 
         Map<String, Double> pieData = new LinkedHashMap<>();
         for (LeadSourceMetric metric : sourceMetrics) {
@@ -2743,6 +2938,765 @@ public class RuleBasedAnalyticsService {
                 "lead source analysis", "Lead conversion", new ArrayList<>());
     }
 
+    private ScenarioResult tryAnswerTargetQuestion(
+            List<Target> filtered,
+            AnalysisScope scope,
+            String language,
+            String message,
+            List<CalcStep> traceSteps
+    ) {
+        String normalized = normalize(message);
+        if (normalized == null) {
+            return null;
+        }
+        if (!"zh".equals(language) || !isDirectTargetQuestion(normalized)) {
+            return null;
+        }
+
+        boolean asksModel = mentionsProductDimension(normalized);
+        boolean asksMostWon = asksTopSalesVolume(normalized);
+        boolean asksHighestRate = asksHighestRate(normalized);
+        boolean asksLowestRate = asksLowestRate(normalized);
+        boolean asksDealer = mentionsDealerDimension(normalized)
+                || (!asksModel && (asksMostWon || asksHighestRate || asksLowestRate));
+
+        if (asksModel && asksMostWon) {
+            List<TargetAggregateMetric> metrics = aggregateTargets(filtered, Target::getProductModel);
+            TargetAggregateMetric top = metrics.stream()
+                    .max(Comparator.comparingInt(TargetAggregateMetric::wonCount)
+                            .thenComparing(TargetAggregateMetric::label))
+                    .orElse(null);
+            return top == null ? null : targetRankingAnswer(language, scope, "车型赢单最多", top,
+                    metrics.stream().sorted(targetWonDescending()).limit(5).toList(), traceSteps);
+        }
+
+        if (asksModel && asksHighestRate) {
+            List<TargetAggregateMetric> metrics = aggregateTargets(filtered, Target::getProductModel).stream()
+                    .filter(metric -> metric.targetValue() > 0)
+                    .toList();
+            TargetAggregateMetric top = metrics.stream()
+                    .max(Comparator.comparingDouble(TargetAggregateMetric::achievementRate)
+                            .thenComparingInt(TargetAggregateMetric::wonCount))
+                    .orElse(null);
+            return top == null ? null : targetRankingAnswer(language, scope, "车型目标达成率最高", top,
+                    metrics.stream().sorted(targetRateDescending()).limit(5).toList(), traceSteps);
+        }
+
+        if (asksDealer && asksMostWon) {
+            List<TargetAggregateMetric> metrics = aggregateTargets(filtered, Target::getDealerName);
+            TargetAggregateMetric top = metrics.stream()
+                    .max(Comparator.comparingInt(TargetAggregateMetric::wonCount)
+                            .thenComparing(TargetAggregateMetric::label))
+                    .orElse(null);
+            return top == null ? null : targetRankingAnswer(language, scope, "经销商赢单数最多", top,
+                    metrics.stream().sorted(targetWonDescending()).limit(5).toList(), traceSteps);
+        }
+
+        if (asksDealer && (asksHighestRate || asksLowestRate)) {
+            List<TargetAggregateMetric> metrics = aggregateTargets(filtered, Target::getDealerName).stream()
+                    .filter(metric -> metric.targetValue() > 0)
+                    .toList();
+            List<TargetAggregateMetric> sorted = metrics.stream()
+                    .sorted(asksLowestRate ? targetRateAscending() : targetRateDescending())
+                    .limit(containsAny(normalized, "哪些", "较低") ? 5 : 3)
+                    .toList();
+            TargetAggregateMetric focus = sorted.isEmpty() ? null : sorted.getFirst();
+            String title = asksLowestRate ? "经销商目标达成率最低" : "经销商目标达成率最高";
+            return focus == null ? null : targetRankingAnswer(language, scope, title, focus, sorted, traceSteps);
+        }
+
+        if (containsAny(normalized, "目标达成", "完成情况", "整体", "全量") || scope.dealerCode() != null) {
+            TargetAggregateMetric overall = aggregateTarget(filtered, scope.dealerName() != null ? scope.dealerName() : scope.summary(language));
+            String conclusion = "zh".equals(language)
+                    ? "%s目标 %d，商机创建 %d，赢单 %d，目标达成率 %s。".formatted(
+                            scope.timeRange().hasValue() ? scope.timeRange().label(language) + " " : "",
+                            overall.targetValue(), overall.createCount(), overall.wonCount(), formatPercent(overall.achievementRate()))
+                    : "%s target %d, opportunity creates %d, won %d, achievement rate %s.".formatted(
+                            scope.summary(language), overall.targetValue(), overall.createCount(), overall.wonCount(),
+                            formatPercent(overall.achievementRate()));
+            return directAnswer(language, conclusion, targetRows(List.of(overall)),
+                    "target achievement", "Achievement rate", traceSteps);
+        }
+
+        return null;
+    }
+
+    private ScenarioResult targetRankingAnswer(
+            String language,
+            AnalysisScope scope,
+            String title,
+            TargetAggregateMetric focus,
+            List<TargetAggregateMetric> rows,
+            List<CalcStep> traceSteps
+    ) {
+        String conclusion;
+        if ("zh".equals(language)) {
+            conclusion = "%s：**%s**，目标 %d，赢单 %d，商机创建 %d，达成率 %s。".formatted(
+                    title, focus.label(), focus.targetValue(), focus.wonCount(), focus.createCount(),
+                    formatPercent(focus.achievementRate()));
+        } else {
+            conclusion = "%s: **%s**, target %d, won %d, created %d, achievement %s.".formatted(
+                    title, focus.label(), focus.targetValue(), focus.wonCount(), focus.createCount(),
+                    formatPercent(focus.achievementRate()));
+        }
+        return directAnswer(language, conclusion, targetRows(rows),
+                "target achievement", "Achievement rate", traceSteps);
+    }
+
+    private ScenarioResult tryAnswerOpportunityQuestion(AnalysisScope scope, String language, String message) {
+        String normalized = normalize(message);
+        if (normalized == null) {
+            return null;
+        }
+        if (!"zh".equals(language) || !isDirectOpportunityQuestion(normalized)) {
+            return null;
+        }
+        List<Opportunity> filtered = cachedOpportunities().stream()
+                .filter(opportunity -> matchesScope(opportunity.getDealerCode(), opportunity.getDealerName(), opportunity.getCity(),
+                        opportunity.getDealerGroupName(), opportunity.getProductModel(), scope))
+                .filter(opportunity -> matchesField(opportunity.getLeadSource(), scope.leadSource()))
+                .filter(opportunity -> scope.timeRange().matchesDate(opportunity.getCreatedDate()))
+                .toList();
+        if (filtered.isEmpty()) {
+            return null;
+        }
+
+        if (containsAny(normalized, "购买周期", "购车周期")) {
+            List<CountMetric> metrics = countBy(filtered, Opportunity::getPurchaseHorizon).stream()
+                    .sorted(countDescending())
+                    .toList();
+            CountMetric top = metrics.getFirst();
+            String conclusion = "zh".equals(language)
+                    ? "购买周期最多集中在 **%s**，共 %d 条；其次是 %s，共 %d 条。".formatted(
+                            top.label(), top.count(), secondLabel(metrics), secondCount(metrics))
+                    : "Purchase horizon concentrates most in **%s** with %d opportunities; next is %s with %d.".formatted(
+                            top.label(), top.count(), secondLabel(metrics), secondCount(metrics));
+            return directAnswer(language, conclusion, countRows("Purchase horizon", metrics, 5),
+                    "opportunity funnel", "Opportunity count", List.of());
+        }
+
+        if (asksOpportunityStageBreakdown(normalized) || containsAny(normalized, "各阶段", "阶段分别", "商机漏斗")) {
+            List<CountMetric> metrics = countBy(filtered, Opportunity::getStageName).stream()
+                    .sorted(countDescending())
+                    .toList();
+            String conclusion = "zh".equals(language)
+                    ? "商机共 %d 条。阶段分布：%s。".formatted(filtered.size(), joinCountMetrics(metrics, 6))
+                    : "%d opportunities. Stage distribution: %s.".formatted(filtered.size(), joinCountMetrics(metrics, 6));
+            return directAnswer(language, conclusion, countRows("Stage", metrics, 6),
+                    "opportunity funnel", "Opportunity count", List.of());
+        }
+
+        if (containsAny(normalized, "高概率")) {
+            List<Opportunity> highProbability = filtered.stream()
+                    .filter(opportunity -> opportunity.getProbability() != null && opportunity.getProbability() >= 70)
+                    .toList();
+            List<CountMetric> metrics = countBy(highProbability, Opportunity::getDealerName).stream()
+                    .sorted(countDescending())
+                    .toList();
+            if (metrics.isEmpty()) {
+                return null;
+            }
+            String conclusion = "zh".equals(language)
+                    ? "按 Probability>=70 统计，高概率商机最多的是 %s。".formatted(joinCountMetrics(metrics, 3))
+                    : "Using Probability>=70, high-probability opportunities concentrate in %s.".formatted(joinCountMetrics(metrics, 3));
+            return directAnswer(language, conclusion, countRows("Dealer", metrics, 5),
+                    "opportunity funnel", "Opportunity count", List.of());
+        }
+
+        if (containsAny(normalized, "线索来源", "来源", "渠道", "source")) {
+            if (asksWinRate(normalized)) {
+                List<RateMetric> metrics = rateBy(filtered, Opportunity::getLeadSource, this::isWonOpportunity).stream()
+                        .filter(metric -> metric.total() >= 30 && isKnown(metric.label()))
+                        .sorted(rateDescending())
+                        .toList();
+                if (metrics.isEmpty()) {
+                    return null;
+                }
+                RateMetric top = metrics.getFirst();
+                String conclusion = "zh".equals(language)
+                        ? "在主要来源中，**%s** 商机赢单率最高：%d 条商机中 %d 条赢单，赢单率约 %s。".formatted(
+                                top.label(), top.total(), top.positive(), formatPercent(top.rate()))
+                        : "Among major sources, **%s** has the highest opportunity win rate: %d won out of %d, about %s.".formatted(
+                                top.label(), top.positive(), top.total(), formatPercent(top.rate()));
+                return directAnswer(language, conclusion, rateRows("Lead source", metrics, 5),
+                        "opportunity funnel", "Opportunity count", List.of());
+            }
+            List<CountMetric> metrics = countBy(filtered, Opportunity::getLeadSource).stream()
+                    .filter(metric -> isKnown(metric.label()))
+                    .sorted(countDescending())
+                    .toList();
+            String conclusion = "zh".equals(language)
+                    ? "商机来源最多的是 %s。".formatted(joinCountMetrics(metrics, 5))
+                    : "Top opportunity sources are %s.".formatted(joinCountMetrics(metrics, 5));
+            return directAnswer(language, conclusion, countRows("Lead source", metrics, 5),
+                    "opportunity funnel", "Opportunity count", List.of());
+        }
+
+        if (mentionsProductDimension(normalized)) {
+            if (asksWinRate(normalized)) {
+                List<RateMetric> metrics = rateBy(filtered, Opportunity::getProductModel, this::isWonOpportunity).stream()
+                        .filter(metric -> metric.total() >= 30 && isKnown(metric.label()))
+                        .sorted(rateDescending())
+                        .toList();
+                if (metrics.isEmpty()) {
+                    return null;
+                }
+                RateMetric top = metrics.getFirst();
+                String conclusion = "zh".equals(language)
+                        ? "不考虑空车型时，**%s** 赢单率最高：%d 条商机中 %d 条赢单，赢单率约 %s。".formatted(
+                                top.label(), top.total(), top.positive(), formatPercent(top.rate()))
+                        : "Excluding blank models, **%s** has the highest win rate: %d won out of %d, about %s.".formatted(
+                                top.label(), top.positive(), top.total(), formatPercent(top.rate()));
+                return directAnswer(language, conclusion, rateRows("Model", metrics, 5),
+                        "opportunity funnel", "Opportunity count", List.of());
+            }
+            List<CountMetric> metrics = countBy(filtered, Opportunity::getProductModel).stream()
+                    .filter(metric -> isKnown(metric.label()))
+                    .sorted(countDescending())
+                    .toList();
+            CountMetric top = metrics.isEmpty() ? null : metrics.getFirst();
+            if (top == null) {
+                return null;
+            }
+            String conclusion = "zh".equals(language)
+                    ? "**%s** 商机数量最多，共 %d 条；其次 %s。".formatted(top.label(), top.count(), joinCountMetrics(metrics.stream().skip(1).toList(), 3))
+                    : "**%s** has the most opportunities: %d; next %s.".formatted(top.label(), top.count(), joinCountMetrics(metrics.stream().skip(1).toList(), 3));
+            return directAnswer(language, conclusion, countRows("Model", metrics, 5),
+                    "opportunity funnel", "Opportunity count", List.of());
+        }
+
+        if (containsAny(normalized, "赢单商机最多", "成交商机最多")
+                || (containsAny(normalized, "商机") && asksTopSalesVolume(normalized))) {
+            List<CountMetric> metrics = countBy(filtered.stream().filter(this::isWonOpportunity).toList(), Opportunity::getDealerName).stream()
+                    .sorted(countDescending())
+                    .toList();
+            return opportunityCountAnswer(language, "赢单商机最多的经销商", metrics);
+        }
+        if (containsAny(normalized, "战败商机最多", "丢单最多")) {
+            List<CountMetric> metrics = countBy(filtered.stream().filter(this::isLostOpportunity).toList(), Opportunity::getDealerName).stream()
+                    .sorted(countDescending())
+                    .toList();
+            return opportunityCountAnswer(language, "战败商机最多的经销商", metrics);
+        }
+        if (containsAny(normalized, "商机最多的经销商")) {
+            List<CountMetric> metrics = countBy(filtered, Opportunity::getDealerName).stream()
+                    .sorted(countDescending())
+                    .toList();
+            return opportunityCountAnswer(language, "商机最多的经销商", metrics);
+        }
+
+        return null;
+    }
+
+    private ScenarioResult opportunityCountAnswer(String language, String title, List<CountMetric> metrics) {
+        if (metrics.isEmpty()) {
+            return null;
+        }
+        CountMetric top = metrics.getFirst();
+        String conclusion = "zh".equals(language)
+                ? "%s是 **%s**，共 %d 条；其次 %s。".formatted(title, top.label(), top.count(), joinCountMetrics(metrics.stream().skip(1).toList(), 3))
+                : "%s is **%s** with %d; next %s.".formatted(title, top.label(), top.count(), joinCountMetrics(metrics.stream().skip(1).toList(), 3));
+        return directAnswer(language, conclusion, countRows("Dealer", metrics, 5),
+                "opportunity funnel", "Opportunity count", List.of());
+    }
+
+    private ScenarioResult tryAnswerLeadQuestion(AnalysisScope scope, String language, String message) {
+        String normalized = normalize(message);
+        if (normalized == null) {
+            return null;
+        }
+        if (!"zh".equals(language) || !isDirectLeadQuestion(normalized)) {
+            return null;
+        }
+        List<Lead> filtered = cachedLeads().stream()
+                .filter(lead -> matchesScope(lead.getDealerCode(), lead.getDealerName(), lead.getCity(),
+                        lead.getDealerGroupName(), lead.getProductModel(), scope))
+                .filter(lead -> matchesField(lead.getLeadSource(), scope.leadSource()))
+                .filter(lead -> scope.timeRange().matchesDate(lead.getCreatedDate()))
+                .toList();
+        if (filtered.isEmpty()) {
+            return null;
+        }
+
+        if (asksStatusBreakdown(normalized) || containsAny(normalized, "状态分布", "一共有多少")) {
+            List<CountMetric> metrics = countBy(filtered, Lead::getStageName).stream().sorted(countDescending()).toList();
+            String conclusion = "zh".equals(language)
+                    ? "线索共 %d 条，其中 %s。".formatted(filtered.size(), joinCountMetrics(metrics, 5))
+                    : "%d leads, with status distribution %s.".formatted(filtered.size(), joinCountMetrics(metrics, 5));
+            return directAnswer(language, conclusion, countRows("Status", metrics, 5),
+                    "lead source analysis", "Lead conversion", List.of());
+        }
+
+        if (containsAny(normalized, "意向车型")) {
+            long unknownCount = filtered.stream().filter(lead -> !isKnown(lead.getProductModel())).count();
+            List<CountMetric> metrics = countBy(filtered, Lead::getProductModel).stream()
+                    .filter(metric -> isKnown(metric.label()))
+                    .sorted(countDescending())
+                    .toList();
+            CountMetric top = metrics.isEmpty() ? null : metrics.getFirst();
+            if (top == null) {
+                return null;
+            }
+            String conclusion = "zh".equals(language)
+                    ? "线索中有 %d 条未填写意向车型；已填写车型里 **%s** 最多，共 %d 条。".formatted(
+                            unknownCount, top.label(), top.count())
+                    : "%d leads have blank intended model; among filled models, **%s** leads with %d.".formatted(
+                            unknownCount, top.label(), top.count());
+            List<String[]> rows = new ArrayList<>();
+            rows.add(new String[]{"Blank model leads", String.valueOf(unknownCount)});
+            rows.addAll(countRows("Model", metrics, 5));
+            return directAnswer(language, conclusion, rows,
+                    "lead source analysis", "Lead conversion", List.of());
+        }
+
+        if (containsAny(normalized, "分配最多")) {
+            List<CountMetric> metrics = countBy(filtered.stream().filter(lead -> isKnown(lead.getDealerName())
+                            && !"未分配".equals(lead.getDealerName())).toList(), Lead::getDealerName)
+                    .stream().sorted(countDescending()).toList();
+            return leadDealerAnswer(language, "线索分配最多的经销商", metrics);
+        }
+
+        if (containsAny(normalized, "转化线索最多")) {
+            List<CountMetric> metrics = countBy(filtered.stream().filter(lead -> Boolean.TRUE.equals(lead.getConverted()))
+                            .filter(lead -> isKnown(lead.getDealerName()) && !"未分配".equals(lead.getDealerName())).toList(), Lead::getDealerName)
+                    .stream().sorted(countDescending()).toList();
+            return leadDealerAnswer(language, "转化线索最多的经销商", metrics);
+        }
+
+        if (scope.leadSource() != null || containsAny(normalized, "转化情况")) {
+            String source = scope.leadSource();
+            if (source == null) {
+                source = detectLeadSourceFromMessage(normalized);
+            }
+            if (source != null) {
+                String finalSource = source;
+                List<Lead> sourceLeads = filtered.stream()
+                        .filter(lead -> matchesField(lead.getLeadSource(), finalSource))
+                        .toList();
+                if (!sourceLeads.isEmpty()) {
+                    long converted = sourceLeads.stream().filter(lead -> Boolean.TRUE.equals(lead.getConverted())).count();
+                    List<CountMetric> statusCounts = countBy(sourceLeads, Lead::getStageName).stream().sorted(countDescending()).toList();
+                    String conclusion = "zh".equals(language)
+                            ? "%s 线索共 %d 条，已转化 %d 条，转化率约 %s；其中 %s。".formatted(
+                                    finalSource, sourceLeads.size(), converted, formatPercent(percentage((int) converted, sourceLeads.size())),
+                                    joinCountMetrics(statusCounts, 5))
+                            : "%s has %d leads, %d converted, conversion rate about %s; status %s.".formatted(
+                                    finalSource, sourceLeads.size(), converted, formatPercent(percentage((int) converted, sourceLeads.size())),
+                                    joinCountMetrics(statusCounts, 5));
+                    List<String[]> rows = new ArrayList<>();
+                    rows.add(new String[]{"Lead source", finalSource});
+                    rows.add(new String[]{"Total leads", String.valueOf(sourceLeads.size())});
+                    rows.add(new String[]{"Converted leads", String.valueOf(converted)});
+                    rows.add(new String[]{"Conversion rate", formatPercent(percentage((int) converted, sourceLeads.size()))});
+                    rows.addAll(countRows("Status", statusCounts, 5));
+                    return directAnswer(language, conclusion, rows,
+                            "lead source analysis", "Lead conversion", List.of());
+                }
+            }
+        }
+
+        if (containsAny(normalized, "转化率最高")) {
+            List<RateMetric> allMetrics = rateBy(filtered, Lead::getLeadSource, lead -> Boolean.TRUE.equals(lead.getConverted()))
+                    .stream().sorted(rateDescending()).toList();
+            List<RateMetric> knownMetrics = allMetrics.stream()
+                    .filter(metric -> isKnown(metric.label()))
+                    .sorted(rateDescending())
+                    .toList();
+            RateMetric blankTop = allMetrics.stream().filter(metric -> !isKnown(metric.label())).findFirst().orElse(null);
+            RateMetric knownTop = knownMetrics.isEmpty() ? null : knownMetrics.getFirst();
+            if (knownTop == null) {
+                return null;
+            }
+            String blankPart = blankTop == null ? "" : "空来源 %d 条中 %d 条转化，转化率 %s；".formatted(
+                    blankTop.total(), blankTop.positive(), formatPercent(blankTop.rate()));
+            String conclusion = "zh".equals(language)
+                    ? "%s在明确来源中，**%s** 转化率最高，%d 条中 %d 条转化，约 %s。".formatted(
+                            blankPart, knownTop.label(), knownTop.total(), knownTop.positive(), formatPercent(knownTop.rate()))
+                    : "%s Among explicit sources, **%s** converts best: %d of %d, about %s.".formatted(
+                            blankPart, knownTop.label(), knownTop.positive(), knownTop.total(), formatPercent(knownTop.rate()));
+            return directAnswer(language, conclusion, rateRows("Lead source", allMetrics, 6),
+                    "lead source analysis", "Lead conversion", List.of());
+        }
+
+        if (containsAny(normalized, "来源最多", "哪个渠道")) {
+            List<CountMetric> metrics = countBy(filtered, Lead::getLeadSource).stream()
+                    .filter(metric -> isKnown(metric.label()))
+                    .sorted(countDescending())
+                    .toList();
+            CountMetric top = metrics.isEmpty() ? null : metrics.getFirst();
+            if (top == null) {
+                return null;
+            }
+            String conclusion = "zh".equals(language)
+                    ? "Lead 表中线索来源最多的是 **%s**，共 %d 条；其次 %s。".formatted(
+                            top.label(), top.count(), joinCountMetrics(metrics.stream().skip(1).toList(), 3))
+                    : "Top lead source is **%s** with %d; next %s.".formatted(
+                            top.label(), top.count(), joinCountMetrics(metrics.stream().skip(1).toList(), 3));
+            return directAnswer(language, conclusion, countRows("Lead source", metrics, 5),
+                    "lead source analysis", "Lead conversion", List.of());
+        }
+
+        return null;
+    }
+
+    private ScenarioResult leadDealerAnswer(String language, String title, List<CountMetric> metrics) {
+        if (metrics.isEmpty()) {
+            return null;
+        }
+        CountMetric top = metrics.getFirst();
+        String conclusion = "zh".equals(language)
+                ? "%s是 **%s**，共 %d 条；其次 %s。".formatted(title, top.label(), top.count(), joinCountMetrics(metrics.stream().skip(1).toList(), 3))
+                : "%s is **%s** with %d; next %s.".formatted(title, top.label(), top.count(), joinCountMetrics(metrics.stream().skip(1).toList(), 3));
+        return directAnswer(language, conclusion, countRows("Dealer", metrics, 5),
+                "lead source analysis", "Lead conversion", List.of());
+    }
+
+    private ScenarioResult tryAnswerSalesFollowUpQuestion(AnalysisScope scope, String language, String message) {
+        String normalized = normalize(message);
+        if (normalized == null) {
+            return null;
+        }
+        if (!"zh".equals(language) || !isDirectTaskQuestion(normalized)) {
+            return null;
+        }
+        List<Task> filtered = cachedTasks().stream()
+                .filter(task -> matchesScope(task.getDealerCode(), task.getDealerName(), task.getCity(),
+                        task.getDealerGroupName(), null, scope))
+                .filter(task -> scope.timeRange().matchesDate(task.getCreatedDate()))
+                .toList();
+        if (filtered.isEmpty()) {
+            return null;
+        }
+
+        if (asksTaskSubjectBreakdown(normalized)) {
+            List<CountMetric> metrics = countBy(filtered, Task::getSubject).stream().sorted(countDescending()).toList();
+            int limit = requestedTopLimit(normalized, 5);
+            String conclusion = "zh".equals(language)
+                    ? "任务 Subject 中最多的是 %s。".formatted(joinCountMetrics(metrics, limit))
+                    : "Top task subjects are %s.".formatted(joinCountMetrics(metrics, limit));
+            return directAnswer(language, conclusion, countRows("Task subject", metrics, limit),
+                    "sales follow-up", "Task backlog", List.of());
+        }
+
+        if (containsAny(normalized, "计划中任务最多", "planned")) {
+            List<CountMetric> metrics = countBy(filtered.stream()
+                            .filter(task -> "Planned".equalsIgnoreCase(task.getStatus()))
+                            .filter(task -> isKnown(task.getDealerName()) && !"未分配".equals(task.getDealerName()))
+                            .toList(), Task::getDealerName)
+                    .stream().sorted(countDescending()).toList();
+            return taskDealerAnswer(language, "Planned 任务最多的经销商", metrics);
+        }
+
+        if (containsAny(normalized, "任务完成率最低")) {
+            List<RateMetric> metrics = rateBy(filtered.stream()
+                            .filter(task -> isKnown(task.getDealerName()) && !"未分配".equals(task.getDealerName()))
+                            .toList(), Task::getDealerName, task -> "Completed".equalsIgnoreCase(task.getStatus()))
+                    .stream()
+                    .filter(metric -> metric.total() > 100)
+                    .sorted(rateAscending())
+                    .toList();
+            if (metrics.isEmpty()) {
+                return null;
+            }
+            RateMetric lowest = metrics.getFirst();
+            String conclusion = "zh".equals(language)
+                    ? "在任务数超过100的经销商中，**%s** 完成率最低：任务 %d 条，完成 %d 条，完成率约 %s。".formatted(
+                            lowest.label(), lowest.total(), lowest.positive(), formatPercent(lowest.rate()))
+                    : "Among dealers with more than 100 tasks, **%s** has the lowest completion rate: %d completed out of %d, about %s.".formatted(
+                            lowest.label(), lowest.positive(), lowest.total(), formatPercent(lowest.rate()));
+            return directAnswer(language, conclusion, rateRows("Dealer", metrics, 5),
+                    "sales follow-up", "Task backlog", List.of());
+        }
+
+        if (scope.dealerCode() != null || containsAny(normalized, "任务完成情况")) {
+            long completed = filtered.stream().filter(task -> "Completed".equalsIgnoreCase(task.getStatus())).count();
+            List<CountMetric> statusCounts = countBy(filtered, Task::getStatus).stream().sorted(countDescending()).toList();
+            String subject = scope.dealerName() != null ? scope.dealerName() : scope.summary(language);
+            String conclusion = "zh".equals(language)
+                    ? "%s关联任务 %d 条，完成 %d 条，%s，完成率约 %s。".formatted(
+                            subject, filtered.size(), completed, joinCountMetrics(statusCounts, 5),
+                            formatPercent(percentage((int) completed, filtered.size())))
+                    : "%s has %d linked tasks, %d completed, %s, completion rate about %s.".formatted(
+                            subject, filtered.size(), completed, joinCountMetrics(statusCounts, 5),
+                            formatPercent(percentage((int) completed, filtered.size())));
+            List<String[]> rows = new ArrayList<>();
+            rows.add(new String[]{"Total tasks", String.valueOf(filtered.size())});
+            rows.add(new String[]{"Completed tasks", String.valueOf(completed)});
+            rows.add(new String[]{"Completion rate", formatPercent(percentage((int) completed, filtered.size()))});
+            rows.addAll(countRows("Status", statusCounts, 5));
+            return directAnswer(language, conclusion, rows,
+                    "sales follow-up", "Task backlog", List.of());
+        }
+
+        if (containsAny(normalized, "关联任务最多", "任务最多")) {
+            List<RateMetric> metrics = rateBy(filtered.stream()
+                            .filter(task -> isKnown(task.getDealerName()) && !"未分配".equals(task.getDealerName()))
+                            .toList(), Task::getDealerName, task -> "Completed".equalsIgnoreCase(task.getStatus()))
+                    .stream()
+                    .sorted(Comparator.comparingInt(RateMetric::total).reversed())
+                    .toList();
+            if (metrics.isEmpty()) {
+                return null;
+            }
+            RateMetric top = metrics.getFirst();
+            String conclusion = "zh".equals(language)
+                    ? "排除未匹配商机后，关联任务最多的是 **%s**，共 %d 条，完成 %d 条，完成率约 %s。".formatted(
+                            top.label(), top.total(), top.positive(), formatPercent(top.rate()))
+                    : "Excluding unmatched opportunities, **%s** has the most linked tasks: %d, completed %d, completion %s.".formatted(
+                            top.label(), top.total(), top.positive(), formatPercent(top.rate()));
+            return directAnswer(language, conclusion, rateRows("Dealer", metrics, 5),
+                    "sales follow-up", "Task backlog", List.of());
+        }
+
+        if (containsAny(normalized, "总体完成情况", "任务总体")) {
+            long completed = filtered.stream().filter(task -> "Completed".equalsIgnoreCase(task.getStatus())).count();
+            List<CountMetric> statusCounts = countBy(filtered, Task::getStatus).stream().sorted(countDescending()).toList();
+            String conclusion = "zh".equals(language)
+                    ? "任务共 %d 条，其中 %s，整体完成率约 %s。".formatted(
+                            filtered.size(), joinCountMetrics(statusCounts, 5),
+                            formatPercent(percentage((int) completed, filtered.size())))
+                    : "%d tasks total, %s, overall completion rate about %s.".formatted(
+                            filtered.size(), joinCountMetrics(statusCounts, 5),
+                            formatPercent(percentage((int) completed, filtered.size())));
+            List<String[]> rows = new ArrayList<>();
+            rows.add(new String[]{"Total tasks", String.valueOf(filtered.size())});
+            rows.add(new String[]{"Completion rate", formatPercent(percentage((int) completed, filtered.size()))});
+            rows.addAll(countRows("Status", statusCounts, 5));
+            return directAnswer(language, conclusion, rows,
+                    "sales follow-up", "Task backlog", List.of());
+        }
+
+        return null;
+    }
+
+    private ScenarioResult taskDealerAnswer(String language, String title, List<CountMetric> metrics) {
+        if (metrics.isEmpty()) {
+            return null;
+        }
+        CountMetric top = metrics.getFirst();
+        String conclusion = "zh".equals(language)
+                ? "%s是 **%s**，共 %d 条；其次 %s。".formatted(title, top.label(), top.count(), joinCountMetrics(metrics.stream().skip(1).toList(), 3))
+                : "%s is **%s** with %d; next %s.".formatted(title, top.label(), top.count(), joinCountMetrics(metrics.stream().skip(1).toList(), 3));
+        return directAnswer(language, conclusion, countRows("Dealer", metrics, 5),
+                "sales follow-up", "Task backlog", List.of());
+    }
+
+    private ScenarioResult tryAnswerCampaignQuestion(AnalysisScope scope, String language, String message) {
+        String normalized = normalize(message);
+        if (normalized == null) {
+            return null;
+        }
+        if (!"zh".equals(language) || !isDirectCampaignQuestion(normalized)) {
+            return null;
+        }
+        List<Campaign> filtered = cachedCampaigns().stream()
+                .filter(campaign -> matchesScope(campaign.getDealerCode(), campaign.getDealerName(), campaign.getCity(),
+                        campaign.getDealerGroupName(), campaign.getProductModel(), scope))
+                .filter(campaign -> scope.timeRange().matchesDate(campaign.getCreatedDate()))
+                .toList();
+        if (filtered.isEmpty()) {
+            return null;
+        }
+
+        if (containsAny(normalized, "完成率为0", "为0")) {
+            List<Campaign> zeroCampaigns = filtered.stream()
+                    .filter(campaign -> campaign.getTargetOpportunityAmount() > 0 && campaign.getActualOpportunityCount() == 0)
+                    .sorted(Comparator.comparing((Campaign campaign) -> dealerCodeSortKey(campaign.getDealerName()))
+                            .thenComparing(Campaign::getDealerName)
+                            .thenComparing(Comparator.comparingInt(Campaign::getTargetOpportunityAmount).reversed())
+                            .thenComparing(Campaign::getCampaignName))
+                    .toList();
+            List<Campaign> sampleCampaigns = representativeCampaignsByDealer(zeroCampaigns, 30);
+            String dealerSummary = zeroCampaigns.stream()
+                    .map(Campaign::getDealerName)
+                    .filter(this::isKnown)
+                    .distinct()
+                    .sorted(Comparator.comparing(this::dealerCodeSortKey))
+                    .limit(30)
+                    .collect(Collectors.joining("、"));
+            String conclusion = "zh".equals(language)
+                    ? "目标商机完成率为0的活动样例：%s。涉及经销商包括：%s。".formatted(sampleCampaigns.stream()
+                            .limit(5)
+                            .map(campaign -> "%s（目标%d、实际%d）".formatted(campaign.getCampaignName(),
+                                    campaign.getTargetOpportunityAmount(), campaign.getActualOpportunityCount()))
+                            .collect(Collectors.joining("；")), dealerSummary)
+                    : "Campaigns with zero opportunity attainment include %s. Affected dealers include: %s.".formatted(sampleCampaigns.stream()
+                            .limit(5)
+                            .map(campaign -> "%s (target %d, actual %d)".formatted(campaign.getCampaignName(),
+                                    campaign.getTargetOpportunityAmount(), campaign.getActualOpportunityCount()))
+                            .collect(Collectors.joining("; ")), dealerSummary);
+            return directAnswer(language, conclusion, campaignRows(sampleCampaigns),
+                    "campaign performance", "Campaign attainment", List.of());
+        }
+
+        if (containsAny(normalized, "单个活动", "产生商机最多")) {
+            Campaign top = filtered.stream()
+                    .max(Comparator.comparingInt(Campaign::getActualOpportunityCount))
+                    .orElse(null);
+            if (top == null) {
+                return null;
+            }
+            String conclusion = "zh".equals(language)
+                    ? "单个活动中，**%s** 产生商机最多，NumberOfOpportunities 为 %d，NumberOfWonOpportunities 为 %d。".formatted(
+                            top.getCampaignName(), top.getActualOpportunityCount(), top.getWonOpportunityCount())
+                    : "Single campaign **%s** generated the most opportunities: %d, with %d won opportunities.".formatted(
+                            top.getCampaignName(), top.getActualOpportunityCount(), top.getWonOpportunityCount());
+            return directAnswer(language, conclusion, campaignRows(List.of(top)),
+                    "campaign performance", "Campaign attainment", List.of());
+        }
+
+        if (containsAny(normalized, "商机产出最多")) {
+            List<CampaignDealerMetric> metrics = aggregateCampaignsByDealer(filtered).stream()
+                    .sorted(Comparator.comparingInt(CampaignDealerMetric::actualOpportunityCount).reversed())
+                    .toList();
+            return campaignDealerAnswer(language, "活动商机产出最多的经销商", metrics);
+        }
+
+        if (scope.dealerCode() != null || containsAny(normalized, "活动效果怎么样")) {
+            CampaignDealerMetric metric = aggregateCampaigns(filtered, scope.dealerName() != null ? scope.dealerName() : scope.summary(language));
+            String conclusion = "zh".equals(language)
+                    ? "%s共有 %d 个活动，目标商机 %d，实际商机 %d，活动商机完成率约 %s；目标订单 %d，赢单 %d。".formatted(
+                            metric.dealerName(), metric.campaignCount(), metric.targetOpportunityAmount(),
+                            metric.actualOpportunityCount(), formatPercent(metric.opportunityAttainmentRate()),
+                            metric.targetOrderAmount(), metric.wonOpportunityCount())
+                    : "%s has %d campaigns, target opportunities %d, actual opportunities %d, attainment %s; target orders %d, won %d.".formatted(
+                            metric.dealerName(), metric.campaignCount(), metric.targetOpportunityAmount(),
+                            metric.actualOpportunityCount(), formatPercent(metric.opportunityAttainmentRate()),
+                            metric.targetOrderAmount(), metric.wonOpportunityCount());
+            return directAnswer(language, conclusion, campaignDealerRows(List.of(metric)),
+                    "campaign performance", "Campaign attainment", List.of());
+        }
+
+        if (containsAny(normalized, "活动最多的经销商")) {
+            List<CampaignDealerMetric> metrics = aggregateCampaignsByDealer(filtered).stream()
+                    .sorted(Comparator.comparingInt(CampaignDealerMetric::campaignCount).reversed())
+                    .toList();
+            return campaignDealerAnswer(language, "活动数量最多的经销商", metrics);
+        }
+
+        if (containsAny(normalized, "总体商机目标", "目标完成情况")) {
+            CampaignDealerMetric metric = aggregateCampaigns(filtered, "Campaign 全量汇总");
+            String conclusion = "zh".equals(language)
+                    ? "Campaign 全量汇总：目标商机 %d，实际活动商机 %d，活动商机目标完成率约 %s；目标订单 %d，赢单 %d，订单目标完成率约 %s。".formatted(
+                            metric.targetOpportunityAmount(), metric.actualOpportunityCount(),
+                            formatPercent(metric.opportunityAttainmentRate()), metric.targetOrderAmount(),
+                            metric.wonOpportunityCount(), formatPercent(metric.orderAttainmentRate()))
+                    : "Campaign total: target opportunities %d, actual opportunities %d, opportunity attainment %s; target orders %d, won %d, order attainment %s.".formatted(
+                            metric.targetOpportunityAmount(), metric.actualOpportunityCount(),
+                            formatPercent(metric.opportunityAttainmentRate()), metric.targetOrderAmount(),
+                            metric.wonOpportunityCount(), formatPercent(metric.orderAttainmentRate()));
+            return directAnswer(language, conclusion, campaignDealerRows(List.of(metric)),
+                    "campaign performance", "Campaign attainment", List.of());
+        }
+
+        if (containsAny(normalized, "一共有多少", "活动类型")) {
+            List<CountMetric> eventTypes = countBy(filtered, Campaign::getEventType).stream().sorted(countDescending()).toList();
+            List<CountMetric> campaignTypes = countBy(filtered, Campaign::getCampaignType).stream().sorted(countDescending()).toList();
+            String conclusion = "zh".equals(language)
+                    ? "Campaign 表共有 %d 个活动，Type 分布：%s；CampaignType 主要是 %s。".formatted(
+                            filtered.size(), joinCountMetrics(eventTypes, 3), joinCountMetrics(campaignTypes, 5))
+                    : "Campaign table has %d campaigns. Type distribution: %s; CampaignType: %s.".formatted(
+                            filtered.size(), joinCountMetrics(eventTypes, 3), joinCountMetrics(campaignTypes, 5));
+            List<String[]> rows = new ArrayList<>();
+            rows.add(new String[]{"Campaign count", String.valueOf(filtered.size())});
+            rows.addAll(countRows("Type", eventTypes, 3));
+            rows.addAll(countRows("CampaignType", campaignTypes, 5));
+            return directAnswer(language, conclusion, rows,
+                    "campaign performance", "Campaign attainment", List.of());
+        }
+
+        return null;
+    }
+
+    private ScenarioResult campaignDealerAnswer(String language, String title, List<CampaignDealerMetric> metrics) {
+        if (metrics.isEmpty()) {
+            return null;
+        }
+        CampaignDealerMetric top = metrics.getFirst();
+        String conclusion = "zh".equals(language)
+                ? "%s是 **%s**：%d 个活动，目标商机 %d，实际商机 %d，完成率约 %s。".formatted(
+                        title, top.dealerName(), top.campaignCount(), top.targetOpportunityAmount(),
+                        top.actualOpportunityCount(), formatPercent(top.opportunityAttainmentRate()))
+                : "%s is **%s**: %d campaigns, target opportunities %d, actual opportunities %d, attainment %s.".formatted(
+                        title, top.dealerName(), top.campaignCount(), top.targetOpportunityAmount(),
+                        top.actualOpportunityCount(), formatPercent(top.opportunityAttainmentRate()));
+        return directAnswer(language, conclusion, campaignDealerRows(metrics.stream().limit(5).toList()),
+                "campaign performance", "Campaign attainment", List.of());
+    }
+
+    private ScenarioResult analyzeDataOverview(AnalysisScope scope, String language) {
+        return analyzeDataOverview(scope, language, "legacy", new AtomicInteger(1), null);
+    }
+
+    private ScenarioResult analyzeDataOverview(AnalysisScope scope, String language,
+            String traceId, AtomicInteger seq, Consumer<StepEvent> onStep) {
+        int opportunityCount = cachedOpportunities().size();
+        int leadCount = cachedLeads().size();
+        int taskCount = cachedTasks().size();
+        int campaignCount = cachedCampaigns().size();
+
+        List<CalcStep> traceSteps = new ArrayList<>();
+        traceSteps.add(new CalcStep(
+                "加载全部实体表统计数据总量",
+                "Load all entity tables and count totals",
+                "商机 " + opportunityCount + " | 线索 " + leadCount + " | 任务 " + taskCount + " | 活动 " + campaignCount,
+                "Opportunities " + opportunityCount + " | Leads " + leadCount + " | Tasks " + taskCount + " | Campaigns " + campaignCount
+        ));
+        emitStep(onStep, StepEvent.success(traceId, seq.getAndIncrement(), StepType.data_load,
+                isZh(language) ? "加载全部实体表统计数据总量" : "Load all entity tables and count totals",
+                isZh(language)
+                        ? "商机 " + opportunityCount + ", 线索 " + leadCount + ", 任务 " + taskCount + ", 活动 " + campaignCount
+                        : "Opps " + opportunityCount + ", Leads " + leadCount + ", Tasks " + taskCount + ", Campaigns " + campaignCount,
+                Map.of("opportunityCount", opportunityCount, "leadCount", leadCount,
+                        "taskCount", taskCount, "campaignCount", campaignCount)));
+
+        if ("zh".equals(language)) {
+            String conclusion = String.format(
+                    "- 当前系统**商机** %d 条\n- **线索** %d 条\n- **销售任务** %d 条\n- **市场活动** %d 个",
+                    opportunityCount, leadCount, taskCount, campaignCount);
+
+            List<String[]> dataRows = new ArrayList<>();
+            dataRows.add(new String[]{"商机", String.valueOf(opportunityCount)});
+            dataRows.add(new String[]{"线索", String.valueOf(leadCount)});
+            dataRows.add(new String[]{"销售任务", String.valueOf(taskCount)});
+            dataRows.add(new String[]{"市场活动", String.valueOf(campaignCount)});
+
+            List<String> followUps = List.of(
+                    "各经销商的门店目标达成率如何？",
+                    "商机漏斗各阶段的转化率怎么样？"
+            );
+
+            return normalResult(buildEnrichedReply(language, conclusion, dataRows,
+                    new SummaryContext("数据概况", 0, "实体总量",
+                            String.valueOf(opportunityCount + leadCount + taskCount + campaignCount), "—",
+                            null, null, null, null),
+                    null, null, List.of(), List.of(), followUps),
+                    "data overview", "Entity count", traceSteps);
+        }
+
+        String conclusion = String.format(
+                "- System has **%d** opportunities\n- **%d** leads\n- **%d** sales tasks\n- **%d** campaigns",
+                opportunityCount, leadCount, taskCount, campaignCount);
+
+        List<String[]> dataRows = new ArrayList<>();
+        dataRows.add(new String[]{"Opportunities", String.valueOf(opportunityCount)});
+        dataRows.add(new String[]{"Leads", String.valueOf(leadCount)});
+        dataRows.add(new String[]{"Sales Tasks", String.valueOf(taskCount)});
+        dataRows.add(new String[]{"Campaigns", String.valueOf(campaignCount)});
+
+        List<String> followUps = List.of(
+                "What is the target achievement rate by dealer?",
+                "How does the opportunity funnel conversion look?"
+        );
+
+        return normalResult(buildEnrichedReply(language, conclusion, dataRows,
+                new SummaryContext("Data Overview", 0, "Total Entities",
+                        String.valueOf(opportunityCount + leadCount + taskCount + campaignCount), "—",
+                        null, null, null, null),
+                null, null, List.of(), List.of(), followUps),
+                "data overview", "Entity count", traceSteps);
+    }
+
     private ScenarioResult analyzeDealerBenchmark(AnalysisScope scope, String language) {
         return analyzeDealerBenchmark(scope, language, "legacy", new AtomicInteger(1), null);
     }
@@ -3125,6 +4079,7 @@ public class RuleBasedAnalyticsService {
             case LEAD_SOURCE -> AnalyticsPlan.Scenario.LEAD_SOURCE;
             case DEALER_BUSINESS_ACTIVITY -> AnalyticsPlan.Scenario.DEALER_BUSINESS_ACTIVITY;
             case DEALER_BENCHMARK -> AnalyticsPlan.Scenario.DEALER_BENCHMARK;
+            case DATA_OVERVIEW -> AnalyticsPlan.Scenario.DATA_OVERVIEW;
         };
     }
 
@@ -3586,6 +4541,467 @@ public class RuleBasedAnalyticsService {
         return reportRenderer.fallbackSummaryTable(rows, language);
     }
 
+    private ScenarioResult directAnswer(
+            String language,
+            String conclusion,
+            List<String[]> rows,
+            String scenarioLabel,
+            String primaryMetricLabel,
+            List<CalcStep> traceSteps
+    ) {
+        String reply = buildDirectReply(language, conclusion, rows, defaultFollowUps(language));
+        return normalResult(reply, scenarioLabel, primaryMetricLabel, traceSteps);
+    }
+
+    private String buildDirectReply(String language, String conclusion, List<String[]> rows, List<String> followUps) {
+        boolean isZh = "zh".equals(language);
+        StringBuilder body = new StringBuilder();
+        body.append(isZh ? "## 核心结论\n\n" : "## Conclusion\n\n");
+        body.append(escapeHtml(conclusion)).append("\n\n");
+        body.append(isZh ? "## 数据支撑\n\n" : "## Data Support\n\n");
+        body.append(buildHtmlTable(rows, language)).append("\n\n");
+        body.append(isZh ? "追问：\n\n" : "FOLLOW_UP_QUESTIONS:\n\n");
+        for (int i = 0; i < followUps.size(); i++) {
+            body.append(i + 1).append(". ").append(escapeHtml(followUps.get(i))).append("\n");
+        }
+        return body.toString();
+    }
+
+    private List<String> defaultFollowUps(String language) {
+        if ("zh".equals(language)) {
+            return List.of("是否需要按经销商继续拆分？", "是否需要查看相关明细数据？");
+        }
+        return List.of("Should I break this down by dealer?", "Would you like the related detail rows?");
+    }
+
+    private boolean isDirectTargetQuestion(String normalized) {
+        return containsAny(normalized,
+                "整体新车目标达成",
+                "全量目标达成情况",
+                "全量数据中赢单数最多",
+                "全量数据中目标达成率最高",
+                "全量数据中目标达成率最低",
+                "全量数据中哪个车型",
+                "目标达成率较低的经销商",
+                "目标达成率最低的经销商有哪些",
+                "目标达成率最高的经销商是谁")
+                || asksTopSalesVolume(normalized)
+                || asksHighestRate(normalized)
+                || asksLowestRate(normalized)
+                || (containsAny(normalized, "2026年") && containsAny(normalized, "整体目标达成", "目标达成率最高", "目标完成率最高", "目标达成率最低", "目标完成率最低"));
+    }
+
+    private boolean isDirectOpportunityQuestion(String normalized) {
+        return containsAny(normalized,
+                "当前商机一共有多少",
+                "阶段分别有多少",
+                "商机最多的经销商",
+                "赢单商机最多",
+                "战败商机最多",
+                "高概率商机主要集中",
+                "商机主要来自哪些线索来源",
+                "线索来源的商机赢单率最高",
+                "哪个车型商机数量最多",
+                "哪个车型赢单率最高",
+                "的商机漏斗如何",
+                "购买周期最多集中")
+                || asksOpportunityStageBreakdown(normalized)
+                || asksOpportunitySourceBreakdown(normalized)
+                || (mentionsProductDimension(normalized) && (asksWinRate(normalized) || asksBreakdown(normalized)))
+                || (containsAny(normalized, "商机") && asksTopSalesVolume(normalized));
+    }
+
+    private boolean isDirectLeadQuestion(String normalized) {
+        return containsAny(normalized,
+                "线索一共有多少",
+                "状态分布如何",
+                "线索来源最多的是哪个渠道",
+                "哪个线索来源转化率最高",
+                "线索的转化情况怎么样",
+                "线索意向车型最多",
+                "线索分配最多",
+                "转化线索最多")
+                || (containsAny(normalized, "线索") && (asksStatusBreakdown(normalized) || asksBreakdown(normalized)));
+    }
+
+    private boolean isDirectTaskQuestion(String normalized) {
+        return containsAny(normalized,
+                "任务总体完成情况",
+                "任务类型最多",
+                "哪个经销商关联任务最多",
+                "哪个经销商计划中任务最多",
+                "任务完成率最低",
+                "任务完成情况怎么样")
+                || asksTaskSubjectBreakdown(normalized);
+    }
+
+    private boolean isDirectCampaignQuestion(String normalized) {
+        return containsAny(normalized,
+                "市场活动一共有多少个",
+                "活动最多的经销商",
+                "市场活动总体商机目标完成情况",
+                "活动产生商机最多的单个活动",
+                "哪个经销商活动商机产出最多",
+                "活动效果怎么样",
+                "活动目标商机完成率为0");
+    }
+
+    private boolean asksTopSalesVolume(String normalized) {
+        return containsAny(normalized,
+                "赢单数最多",
+                "赢单数量最多",
+                "赢单商机最多",
+                "赢单最多",
+                "成交商机最多",
+                "成交最多",
+                "成交量最多",
+                "成交数量最多",
+                "卖得最好",
+                "卖得最多",
+                "销量最高",
+                "销量最好",
+                "销量最多",
+                "销售最好",
+                "销售最多",
+                "售出最多",
+                "最畅销",
+                "畅销",
+                "won most",
+                "most won",
+                "best-selling",
+                "best selling",
+                "most sold");
+    }
+
+    private boolean asksHighestRate(String normalized) {
+        return containsAny(normalized,
+                "达成率最高",
+                "完成率最高",
+                "目标达成率最高",
+                "目标完成率最高",
+                "最高达成率",
+                "最高完成率",
+                "achievement rate highest",
+                "highest achievement",
+                "highest completion");
+    }
+
+    private boolean asksLowestRate(String normalized) {
+        return containsAny(normalized,
+                "达成率最低",
+                "完成率最低",
+                "目标达成率最低",
+                "目标完成率最低",
+                "较低",
+                "最低",
+                "lowest achievement",
+                "lowest completion");
+    }
+
+    private boolean asksWinRate(String normalized) {
+        return containsAny(normalized,
+                "赢单率",
+                "成交率",
+                "成交转化率",
+                "win rate",
+                "conversion rate");
+    }
+
+    private boolean mentionsProductDimension(String normalized) {
+        return containsAny(normalized,
+                "车型",
+                "车款",
+                "哪款车",
+                "哪种车",
+                "product model",
+                "model");
+    }
+
+    private boolean mentionsDealerDimension(String normalized) {
+        return containsAny(normalized,
+                "经销商",
+                "门店",
+                "店",
+                "dealer",
+                "store");
+    }
+
+    private boolean asksBreakdown(String normalized) {
+        return containsAny(normalized,
+                "分布",
+                "分别",
+                "分别多少",
+                "分别有多少",
+                "多少",
+                "怎么分",
+                "按",
+                "占比",
+                "结构",
+                "构成",
+                "breakdown",
+                "distribution");
+    }
+
+    private boolean asksStatusBreakdown(String normalized) {
+        return containsAny(normalized, "状态", "status") && asksBreakdown(normalized);
+    }
+
+    private boolean asksOpportunityStageBreakdown(String normalized) {
+        return containsAny(normalized, "阶段", "stage") && asksBreakdown(normalized);
+    }
+
+    private boolean asksOpportunitySourceBreakdown(String normalized) {
+        return containsAny(normalized, "来源", "渠道", "source")
+                && (containsAny(normalized, "商机", "opportunity") || asksBreakdown(normalized) || asksWinRate(normalized));
+    }
+
+    private boolean asksTaskSubjectBreakdown(String normalized) {
+        return containsAny(normalized, "任务类型", "任务类别", "subject")
+                || (containsAny(normalized, "任务", "task") && containsAny(normalized, "类型", "类别"));
+    }
+
+    private int requestedTopLimit(String normalized, int defaultLimit) {
+        if (containsAny(normalized, "前三", "top3", "top 3")) {
+            return 3;
+        }
+        if (containsAny(normalized, "前五", "top5", "top 5")) {
+            return 5;
+        }
+        return defaultLimit;
+    }
+
+    private TargetAggregateMetric aggregateTarget(List<Target> targets, String label) {
+        int targetValue = targets.stream().mapToInt(Target::getAsKTarget).sum();
+        int createCount = targets.stream().mapToInt(Target::getOpportunityCreateCount).sum();
+        int wonCount = targets.stream().mapToInt(Target::getOpportunityWonCount).sum();
+        return new TargetAggregateMetric(label, targetValue, createCount, wonCount, percentage(wonCount, targetValue));
+    }
+
+    private List<TargetAggregateMetric> aggregateTargets(List<Target> targets, Function<Target, String> classifier) {
+        return targets.stream()
+                .collect(Collectors.groupingBy(target -> knownOrUnknown(classifier.apply(target)), LinkedHashMap::new, Collectors.toList()))
+                .entrySet().stream()
+                .map(entry -> aggregateTarget(entry.getValue(), entry.getKey()))
+                .toList();
+    }
+
+    private List<String[]> targetRows(List<TargetAggregateMetric> metrics) {
+        List<String[]> rows = new ArrayList<>();
+        for (TargetAggregateMetric metric : metrics) {
+            rows.add(new String[]{
+                    metric.label(),
+                    "目标 %d，商机创建 %d，赢单 %d，达成率 %s".formatted(
+                            metric.targetValue(), metric.createCount(), metric.wonCount(),
+                            formatPercent(metric.achievementRate()))
+            });
+        }
+        return rows;
+    }
+
+    private Comparator<TargetAggregateMetric> targetWonDescending() {
+        return Comparator.comparingInt(TargetAggregateMetric::wonCount).reversed()
+                .thenComparing(TargetAggregateMetric::label);
+    }
+
+    private Comparator<TargetAggregateMetric> targetRateDescending() {
+        return Comparator.comparingDouble(TargetAggregateMetric::achievementRate).reversed()
+                .thenComparing(Comparator.comparingInt(TargetAggregateMetric::wonCount).reversed())
+                .thenComparing(TargetAggregateMetric::label);
+    }
+
+    private Comparator<TargetAggregateMetric> targetRateAscending() {
+        return Comparator.comparingDouble(TargetAggregateMetric::achievementRate)
+                .thenComparing(TargetAggregateMetric::label);
+    }
+
+    private <T> List<CountMetric> countBy(List<T> items, Function<T, String> classifier) {
+        return items.stream()
+                .collect(Collectors.groupingBy(item -> knownOrUnknown(classifier.apply(item)), LinkedHashMap::new, Collectors.counting()))
+                .entrySet().stream()
+                .map(entry -> new CountMetric(entry.getKey(), entry.getValue()))
+                .toList();
+    }
+
+    private <T> List<RateMetric> rateBy(List<T> items, Function<T, String> classifier, java.util.function.Predicate<T> positivePredicate) {
+        return items.stream()
+                .collect(Collectors.groupingBy(item -> knownOrUnknown(classifier.apply(item)), LinkedHashMap::new, Collectors.toList()))
+                .entrySet().stream()
+                .map(entry -> {
+                    List<T> groupItems = entry.getValue();
+                    long positive = groupItems.stream().filter(positivePredicate).count();
+                    return new RateMetric(entry.getKey(), groupItems.size(), positive, percentage((int) positive, groupItems.size()));
+                })
+                .toList();
+    }
+
+    private Comparator<CountMetric> countDescending() {
+        return Comparator.comparingLong(CountMetric::count).reversed()
+                .thenComparing(CountMetric::label);
+    }
+
+    private Comparator<RateMetric> rateDescending() {
+        return Comparator.comparingDouble(RateMetric::rate).reversed()
+                .thenComparing(Comparator.comparingLong(RateMetric::positive).reversed())
+                .thenComparing(Comparator.comparingInt(RateMetric::total).reversed())
+                .thenComparing(RateMetric::label);
+    }
+
+    private Comparator<RateMetric> rateAscending() {
+        return Comparator.comparingDouble(RateMetric::rate)
+                .thenComparing(RateMetric::label);
+    }
+
+    private List<String[]> countRows(String labelPrefix, List<CountMetric> metrics, int limit) {
+        return metrics.stream()
+                .limit(limit)
+                .map(metric -> new String[]{labelPrefix + ": " + metric.label(), String.valueOf(metric.count())})
+                .toList();
+    }
+
+    private List<String[]> rateRows(String labelPrefix, List<RateMetric> metrics, int limit) {
+        return metrics.stream()
+                .limit(limit)
+                .map(metric -> new String[]{
+                        labelPrefix + ": " + metric.label(),
+                        "%d / %d (%s)".formatted(metric.positive(), metric.total(), formatPercent(metric.rate()))
+                })
+                .toList();
+    }
+
+    private String joinCountMetrics(List<CountMetric> metrics, int limit) {
+        return metrics.stream()
+                .limit(limit)
+                .map(metric -> metric.label() + " " + metric.count())
+                .collect(Collectors.joining("，"));
+    }
+
+    private String secondLabel(List<CountMetric> metrics) {
+        return metrics.size() > 1 ? metrics.get(1).label() : "-";
+    }
+
+    private long secondCount(List<CountMetric> metrics) {
+        return metrics.size() > 1 ? metrics.get(1).count() : 0;
+    }
+
+    private boolean isWonOpportunity(Opportunity opportunity) {
+        String stage = normalize(opportunity.getStageName());
+        return stage != null && stage.contains("won");
+    }
+
+    private boolean isLostOpportunity(Opportunity opportunity) {
+        String stage = normalize(opportunity.getStageName());
+        return stage != null && stage.contains("lost");
+    }
+
+    private String detectLeadSourceFromMessage(String normalizedMessage) {
+        return Stream.concat(cachedLeads().stream().map(Lead::getLeadSource), cachedOpportunities().stream().map(Opportunity::getLeadSource))
+                .filter(Objects::nonNull)
+                .filter(source -> !source.isBlank())
+                .distinct()
+                .sorted(Comparator.comparingInt(String::length).reversed())
+                .filter(source -> contains(normalizedMessage, source))
+                .findFirst()
+                .orElse(null);
+    }
+
+    private String knownOrUnknown(String value) {
+        return isKnown(value) ? value : "未知";
+    }
+
+    private boolean isKnown(String value) {
+        return value != null && !value.isBlank()
+                && !"未知".equals(value)
+                && !"unknown".equalsIgnoreCase(value);
+    }
+
+    private CampaignDealerMetric aggregateCampaigns(List<Campaign> campaigns, String dealerName) {
+        int targetOpportunityAmount = campaigns.stream().mapToInt(Campaign::getTargetOpportunityAmount).sum();
+        int actualOpportunityCount = campaigns.stream().mapToInt(Campaign::getActualOpportunityCount).sum();
+        int targetOrderAmount = campaigns.stream().mapToInt(Campaign::getTargetOrderAmount).sum();
+        int wonOpportunityCount = campaigns.stream().mapToInt(Campaign::getWonOpportunityCount).sum();
+        int leadCount = campaigns.stream().mapToInt(Campaign::getLeadCount).sum();
+        return new CampaignDealerMetric(
+                dealerName,
+                campaigns.size(),
+                targetOpportunityAmount,
+                actualOpportunityCount,
+                percentage(actualOpportunityCount, targetOpportunityAmount),
+                targetOrderAmount,
+                wonOpportunityCount,
+                percentage(wonOpportunityCount, targetOrderAmount),
+                leadCount
+        );
+    }
+
+    private List<CampaignDealerMetric> aggregateCampaignsByDealer(List<Campaign> campaigns) {
+        return campaigns.stream()
+                .filter(campaign -> isKnown(campaign.getDealerName()) && !"未分配".equals(campaign.getDealerName()))
+                .collect(Collectors.groupingBy(Campaign::getDealerName, LinkedHashMap::new, Collectors.toList()))
+                .entrySet().stream()
+                .map(entry -> aggregateCampaigns(entry.getValue(), entry.getKey()))
+                .toList();
+    }
+
+    private List<String[]> campaignDealerRows(List<CampaignDealerMetric> metrics) {
+        List<String[]> rows = new ArrayList<>();
+        for (CampaignDealerMetric metric : metrics) {
+            rows.add(new String[]{
+                    metric.dealerName(),
+                    "%d 活动，目标商机 %d，实际商机 %d，完成率 %s，目标订单 %d，赢单 %d".formatted(
+                            metric.campaignCount(), metric.targetOpportunityAmount(), metric.actualOpportunityCount(),
+                            formatPercent(metric.opportunityAttainmentRate()), metric.targetOrderAmount(),
+                            metric.wonOpportunityCount())
+            });
+        }
+        return rows;
+    }
+
+    private List<String[]> campaignRows(List<Campaign> campaigns) {
+        List<String[]> rows = new ArrayList<>();
+        for (Campaign campaign : campaigns) {
+            rows.add(new String[]{
+                    campaign.getCampaignName(),
+                    "目标商机 %d，实际商机 %d，赢单 %d，类型 %s/%s".formatted(
+                            campaign.getTargetOpportunityAmount(), campaign.getActualOpportunityCount(),
+                            campaign.getWonOpportunityCount(), campaign.getEventType(), campaign.getCampaignType())
+            });
+        }
+        return rows;
+    }
+
+    private List<Campaign> representativeCampaignsByDealer(List<Campaign> campaigns, int limit) {
+        Map<String, Campaign> byDealer = new LinkedHashMap<>();
+        for (Campaign campaign : campaigns) {
+            String key = isKnown(campaign.getDealerName()) ? campaign.getDealerName() : campaign.getCampaignName();
+            byDealer.putIfAbsent(key, campaign);
+            if (byDealer.size() >= limit) {
+                break;
+            }
+        }
+        return new ArrayList<>(byDealer.values());
+    }
+
+    private String dealerCodeSortKey(String dealerName) {
+        if (dealerName == null) {
+            return "";
+        }
+        int start = -1;
+        for (int i = 0; i < dealerName.length(); i++) {
+            if (Character.isUpperCase(dealerName.charAt(i))) {
+                start = i;
+                break;
+            }
+        }
+        if (start < 0) {
+            return dealerName;
+        }
+        int end = start;
+        while (end < dealerName.length() && Character.isUpperCase(dealerName.charAt(end))) {
+            end++;
+        }
+        return dealerName.substring(start, end);
+    }
+
     private List<DealerTargetMetric> buildDealerTargetMetrics(List<Target> targets) {
         return targets.stream()
                 .collect(Collectors.groupingBy(
@@ -3632,6 +5048,7 @@ public class RuleBasedAnalyticsService {
         if (includeProductModel) {
             putFilter(filters, "productModel", scope.productModel());
         }
+        putFilter(filters, "leadSource", scope.leadSource());
         addDateFilters(filters, scope.timeRange());
         return filters;
     }
@@ -3707,6 +5124,23 @@ public class RuleBasedAnalyticsService {
         return reportRenderer.followUpQuestions(questions);
     }
 
+    private int countMentionedOverviewEntities(String normalized) {
+        int count = 0;
+        if (containsAny(normalized, "\u5546\u673a", "opportunity", "opportunities")) {
+            count++;
+        }
+        if (containsAny(normalized, "\u7ebf\u7d22", "lead", "leads")) {
+            count++;
+        }
+        if (containsAny(normalized, "\u4efb\u52a1", "task", "tasks")) {
+            count++;
+        }
+        if (containsAny(normalized, "\u5e02\u573a\u6d3b\u52a8", "\u6d3b\u52a8", "campaign", "campaigns")) {
+            count++;
+        }
+        return count;
+    }
+
     private boolean containsAny(String source, String... keywords) {
         return Stream.of(keywords).anyMatch(source::contains);
     }
@@ -3725,11 +5159,24 @@ public class RuleBasedAnalyticsService {
             String productModel,
             AnalysisScope scope
     ) {
-        return matchesField(dealerCode, scope.dealerCode())
-                && matchesField(dealerName, scope.dealerName())
-                && matchesCity(city, scope.city())
+        if (hasScopeValue(scope.dealerCode()) || hasScopeValue(scope.dealerName())) {
+            return matchesDealerIdentity(dealerCode, dealerName, scope)
+                    && matchesCity(city, scope.city())
+                    && matchesField(productModel, scope.productModel());
+        }
+
+        return matchesCity(city, scope.city())
                 && matchesField(dealerGroupName, scope.dealerGroupName())
                 && matchesField(productModel, scope.productModel());
+    }
+
+    private boolean hasScopeValue(String value) {
+        return normalize(value) != null;
+    }
+
+    private boolean matchesDealerIdentity(String dealerCode, String dealerName, AnalysisScope scope) {
+        return (hasScopeValue(scope.dealerCode()) && matchesField(dealerCode, scope.dealerCode()))
+                || (hasScopeValue(scope.dealerName()) && matchesField(dealerName, scope.dealerName()));
     }
 
     private boolean matchesCity(String actual, String expected) {
@@ -3924,7 +5371,8 @@ public class RuleBasedAnalyticsService {
         CAMPAIGN_PERFORMANCE("\u6d3b\u52a8\u6548\u679c\u5206\u6790", "campaign performance"),
         LEAD_SOURCE("\u7ebf\u7d22\u6765\u6e90\u5206\u6790", "lead source analysis"),
         DEALER_BENCHMARK("\u95e8\u5e97\u5bf9\u6807\u5206\u6790", "dealer benchmark"),
-        DEALER_BUSINESS_ACTIVITY("\u95e8\u5e97\u7ecf\u8425\u6d3b\u8dc3\u5ea6", "dealer business activity");
+        DEALER_BUSINESS_ACTIVITY("\u95e8\u5e97\u7ecf\u8425\u6d3b\u8dc3\u5ea6", "dealer business activity"),
+        DATA_OVERVIEW("\u6570\u636e\u6982\u51b5", "data overview");
 
         private final String zhLabel;
         private final String enLabel;
@@ -3950,7 +5398,8 @@ public class RuleBasedAnalyticsService {
             String dealerCode,
             String dealerName,
             String dealerGroupName,
-            String productModel
+            String productModel,
+            String leadSource
     ) {
         String summary(String language) {
             List<String> parts = new ArrayList<>();
@@ -3969,6 +5418,9 @@ public class RuleBasedAnalyticsService {
             }
             if (productModel != null) {
                 parts.add(productModel);
+            }
+            if (leadSource != null) {
+                parts.add(leadSource);
             }
 
             if (parts.isEmpty()) {
@@ -4098,6 +5550,29 @@ public class RuleBasedAnalyticsService {
     ) {
     }
 
+    private record TargetAggregateMetric(
+            String label,
+            int targetValue,
+            int createCount,
+            int wonCount,
+            double achievementRate
+    ) {
+    }
+
+    private record CountMetric(
+            String label,
+            long count
+    ) {
+    }
+
+    private record RateMetric(
+            String label,
+            int total,
+            long positive,
+            double rate
+    ) {
+    }
+
     private record TaskBacklogMetric(
             String dealerName,
             int totalCount,
@@ -4159,6 +5634,19 @@ public class RuleBasedAnalyticsService {
             int leadCount,
             long convertedCount,
             double conversionRate
+    ) {
+    }
+
+    private record CampaignDealerMetric(
+            String dealerName,
+            int campaignCount,
+            int targetOpportunityAmount,
+            int actualOpportunityCount,
+            double opportunityAttainmentRate,
+            int targetOrderAmount,
+            int wonOpportunityCount,
+            double orderAttainmentRate,
+            int leadCount
     ) {
     }
 
@@ -4266,6 +5754,9 @@ public class RuleBasedAnalyticsService {
         body.append(buildHtmlTable(dataRows, language)).append("\n");
         if (mermaid != null && !mermaid.isBlank()) {
             body.append("\n").append(mermaid).append("\n");
+        }
+        if (fallback != null && !fallback.isBlank()) {
+            body.append("\n").append(fallback).append("\n");
         }
 
         // Section 3: Analysis (merged section with sub-headers)

@@ -34,6 +34,9 @@ public class Task {
     @Column(nullable = false, length = 64)
     private String opportunityId;
 
+    @Column(nullable = false, length = 128)
+    private String subject;
+
     @Column(nullable = false, length = 64)
     private String status;
 
@@ -53,12 +56,37 @@ public class Task {
             String status,
             LocalDate createdDate
     ) {
+        this(
+                taskId,
+                dealerCode,
+                dealerName,
+                city,
+                dealerGroupName,
+                opportunityId,
+                "未知",
+                status,
+                createdDate
+        );
+    }
+
+    public Task(
+            String taskId,
+            String dealerCode,
+            String dealerName,
+            String city,
+            String dealerGroupName,
+            String opportunityId,
+            String subject,
+            String status,
+            LocalDate createdDate
+    ) {
         this.taskId = taskId;
         this.dealerCode = dealerCode;
         this.dealerName = dealerName;
         this.city = city;
         this.dealerGroupName = dealerGroupName;
         this.opportunityId = opportunityId;
+        this.subject = subject == null || subject.isBlank() ? "未知" : subject;
         this.status = status;
         this.createdDate = createdDate;
     }
@@ -89,6 +117,10 @@ public class Task {
 
     public String getOpportunityId() {
         return opportunityId;
+    }
+
+    public String getSubject() {
+        return subject;
     }
 
     public String getStatus() {

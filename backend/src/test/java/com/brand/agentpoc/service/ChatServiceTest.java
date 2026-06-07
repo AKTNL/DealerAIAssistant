@@ -141,6 +141,30 @@ class ChatServiceTest {
     }
 
     @Test
+    void combinedEnglishGreetingAndIntroUsesBuiltInAssistantIntroduction() {
+        ChatRequest request = new ChatRequest(
+                "s1",
+                "Hello, who are you?",
+                "",
+                "",
+                ""
+        );
+
+        when(languageDetector.detectLanguage(request.message())).thenReturn("en");
+
+        String reply = chatService.chat(request);
+
+        assertThat(reply).contains("dealer AI analytics assistant");
+        assertThat(reply).contains("target achievement");
+        assertThat(reply).contains("FOLLOW_UP_QUESTIONS:");
+        assertThat(reply).doesNotContain("outside the dealer AI analytics assistant's business scope");
+        verify(sessionMemoryService).addUserMessage("s1", request.message());
+        verify(sessionMemoryService).addAssistantMessage("s1", reply);
+        verifyNoInteractions(modelConfigService);
+        verifyNoInteractions(analyticsService);
+    }
+
+    @Test
     void chatReturnsBuiltInIntroForIdentityQuestionWithoutCallingModelOrAnalytics() {
         ChatRequest request = new ChatRequest(
                 "s1",
@@ -162,6 +186,143 @@ class ChatServiceTest {
         assertThat(reply).doesNotContain("核心结论");
         verify(sessionMemoryService).addUserMessage("s1", "你是谁");
         verify(sessionMemoryService).addAssistantMessage("s1", reply);
+        verifyNoInteractions(modelConfigService);
+        verifyNoInteractions(analyticsService);
+    }
+
+    @Test
+    void chatReturnsEntityNotFoundForUnknownCustomerBeforeModelOrAnalytics() {
+        ChatRequest request = new ChatRequest(
+                "s1",
+                "客户A的目标达成率怎么样？",
+                "https://api.example.com",
+                "sk-test",
+                "gpt-4.1-mini"
+        );
+
+        when(languageDetector.detectLanguage(request.message())).thenReturn("zh");
+
+        String reply = chatService.chat(request);
+
+        assertThat(reply).contains("未找到");
+        assertThat(reply).contains("客户A");
+        assertThat(reply).contains("FOLLOW_UP_QUESTIONS:");
+        assertThat(reply).doesNotContain("接口调用链");
+        assertThat(reply).doesNotContain("核心结论");
+        assertThat(reply).doesNotContain("数据支撑");
+        verify(sessionMemoryService).addUserMessage("s1", request.message());
+        verify(sessionMemoryService).addAssistantMessage("s1", reply);
+        verifyNoInteractions(modelConfigService);
+        verifyNoInteractions(analyticsService);
+    }
+
+    @Test
+    void chatReturnsEntityNotFoundForUnknownDealerSuffixBeforeModelOrAnalytics() {
+        String message = "\u7ecf\u9500\u5546\u4e0d\u5b58\u5728XYZ\u7684\u76ee\u6807\u8fbe\u6210\u60c5\u51b5\u600e\u4e48\u6837\uff1f";
+        ChatRequest request = new ChatRequest(
+                "s1",
+                message,
+                "https://api.example.com",
+                "sk-test",
+                "gpt-4.1-mini"
+        );
+
+        when(languageDetector.detectLanguage(message)).thenReturn("zh");
+
+        String reply = chatService.chat(request);
+
+        assertThat(reply).contains("\u672a\u627e\u5230");
+        assertThat(reply).contains("\u7ecf\u9500\u5546\u4e0d\u5b58\u5728XYZ");
+        assertThat(reply).doesNotContain("\u6838\u5fc3\u7ed3\u8bba");
+        verify(sessionMemoryService).addUserMessage("s1", message);
+        verify(sessionMemoryService).addAssistantMessage("s1", reply);
+        verifyNoInteractions(modelConfigService);
+        verifyNoInteractions(analyticsService);
+    }
+
+    @Test
+    void streamReturnsEntityNotFoundForUnknownCustomerBeforeModelOrAnalytics() throws Exception {
+        ChatRequest request = new ChatRequest(
+                "s1",
+                "客户A的目标达成率怎么样？",
+                "https://api.example.com",
+                "sk-test",
+                "gpt-4.1-mini"
+        );
+        ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
+
+        when(languageDetector.detectLanguage(request.message())).thenReturn("zh");
+
+        chatService.streamChat(request, outputStream);
+
+        String payload = outputStream.toString(StandardCharsets.UTF_8);
+        assertThat(payload).contains("event: message");
+        assertThat(payload).contains("未找到");
+        assertThat(payload).contains("客户A");
+        assertThat(payload).contains("FOLLOW_UP_QUESTIONS:");
+        assertThat(payload).doesNotContain("接口调用链");
+        assertThat(payload).doesNotContain("核心结论");
+        assertThat(payload).doesNotContain("数据支撑");
+        assertThat(payload).doesNotContain("event: progress");
+        assertThat(payload).doesNotContain("event: error");
+        assertThat(payload).contains("event: done");
+        verify(sessionMemoryService).addUserMessage("s1", request.message());
+        verify(sessionMemoryService).addAssistantMessage(eq("s1"), anyString());
+        verifyNoInteractions(modelConfigService);
+        verifyNoInteractions(analyticsService);
+    }
+
+    @Test
+    void chatRejectsOutOfScopeQuestionBeforeModelOrAnalytics() {
+        ChatRequest request = new ChatRequest(
+                "s1",
+                "快速排序算法怎么写？",
+                "https://api.example.com",
+                "sk-test",
+                "gpt-4.1-mini"
+        );
+
+        when(languageDetector.detectLanguage(request.message())).thenReturn("zh");
+
+        String reply = chatService.chat(request);
+
+        assertThat(reply).contains("只能回答");
+        assertThat(reply).contains("经销商经营分析");
+        assertThat(reply).contains("FOLLOW_UP_QUESTIONS:");
+        assertThat(reply).doesNotContain("快速排序");
+        assertThat(reply).doesNotContain("接口调用链");
+        verify(sessionMemoryService).addUserMessage("s1", request.message());
+        verify(sessionMemoryService).addAssistantMessage("s1", reply);
+        verifyNoInteractions(modelConfigService);
+        verifyNoInteractions(analyticsService);
+    }
+
+    @Test
+    void streamRejectsOutOfScopeQuestionBeforeModelOrAnalytics() throws Exception {
+        ChatRequest request = new ChatRequest(
+                "s1",
+                "快速排序算法怎么写？",
+                "https://api.example.com",
+                "sk-test",
+                "gpt-4.1-mini"
+        );
+        ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
+
+        when(languageDetector.detectLanguage(request.message())).thenReturn("zh");
+
+        chatService.streamChat(request, outputStream);
+
+        String payload = outputStream.toString(StandardCharsets.UTF_8);
+        assertThat(payload).contains("event: message");
+        assertThat(payload).contains("只能回答");
+        assertThat(payload).contains("经销商经营分析");
+        assertThat(payload).contains("FOLLOW_UP_QUESTIONS:");
+        assertThat(payload).doesNotContain("快速排序");
+        assertThat(payload).doesNotContain("event: progress");
+        assertThat(payload).doesNotContain("event: error");
+        assertThat(payload).contains("event: done");
+        verify(sessionMemoryService).addUserMessage("s1", request.message());
+        verify(sessionMemoryService).addAssistantMessage(eq("s1"), anyString());
         verifyNoInteractions(modelConfigService);
         verifyNoInteractions(analyticsService);
     }
@@ -217,6 +378,66 @@ class ChatServiceTest {
 
         assertThat(reply).isEqualTo(plan.fallbackReply().trim());
         verify(analyticsService).plan(request.message(), "en");
+        verifyNoInteractions(modelConfigService);
+    }
+
+    @Test
+    void purchaseCycleQuestionUsesAnalyticsFallbackInsteadOfOutOfScopeReply() {
+        String message = "\u8d2d\u4e70\u5468\u671f\u6700\u591a\u96c6\u4e2d\u5728\u54ea\u4e2a\u533a\u95f4\uff1f";
+        ChatRequest request = new ChatRequest("s1", message, "", "", "");
+        AnalyticsPlan plan = analyticsPlan(
+                AnalyticsPlan.Scenario.OPPORTUNITY_FUNNEL,
+                """
+                ## \u6838\u5fc3\u7ed3\u8bba
+                \u8d2d\u4e70\u5468\u671f\u6700\u591a\u96c6\u4e2d\u5728 More than 10 Months\u3002
+                ## \u6570\u636e\u652f\u6491
+                <table><tr><td>More than 10 Months</td></tr></table>
+                ## \u7ecf\u8425\u5206\u6790
+                fallback
+                \u8ffd\u95ee\uff1a
+                1. next?
+                2. next?
+                """
+        );
+
+        when(languageDetector.detectLanguage(message)).thenReturn("zh");
+        when(analyticsService.plan(message, "zh")).thenReturn(plan);
+
+        String reply = chatService.chat(request);
+
+        assertThat(reply).contains("More than 10 Months");
+        assertThat(reply).doesNotContain("\u8d85\u51fa\u7ecf\u9500\u5546 AI \u5206\u6790\u52a9\u624b\u7684\u4e1a\u52a1\u8303\u56f4");
+        verify(analyticsService).plan(message, "zh");
+        verifyNoInteractions(modelConfigService);
+    }
+
+    @Test
+    void bestSellingModelQuestionUsesAnalyticsFallbackInsteadOfOutOfScopeReply() {
+        String message = "全国范围内哪款车卖得最好？";
+        ChatRequest request = new ChatRequest("s1", message, "", "", "");
+        AnalyticsPlan plan = analyticsPlan(
+                AnalyticsPlan.Scenario.TARGET_ACHIEVEMENT,
+                """
+                ## 核心结论
+                车型赢单最多：Nova X。
+                ## 数据支撑
+                <table><tr><td>Nova X</td></tr></table>
+                ## 经营分析
+                fallback
+                追问：
+                1. next?
+                2. next?
+                """
+        );
+
+        when(languageDetector.detectLanguage(message)).thenReturn("zh");
+        when(analyticsService.plan(message, "zh")).thenReturn(plan);
+
+        String reply = chatService.chat(request);
+
+        assertThat(reply).contains("车型赢单最多");
+        assertThat(reply).doesNotContain("超出经销商 AI 分析助手的业务范围");
+        verify(analyticsService).plan(message, "zh");
         verifyNoInteractions(modelConfigService);
     }
 

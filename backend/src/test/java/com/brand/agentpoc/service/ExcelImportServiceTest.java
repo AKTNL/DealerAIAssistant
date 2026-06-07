@@ -8,6 +8,7 @@ import static org.mockito.Mockito.when;
 import com.brand.agentpoc.config.AppProperties;
 import com.brand.agentpoc.entity.Campaign;
 import com.brand.agentpoc.entity.Dealer;
+import com.brand.agentpoc.entity.Lead;
 import com.brand.agentpoc.entity.Target;
 import com.brand.agentpoc.repository.CampaignRepository;
 import com.brand.agentpoc.repository.DealerRepository;
@@ -136,6 +137,44 @@ class ExcelImportServiceTest {
         }
     }
 
+    @Test
+    void importsLeadRowsWithBlankCreatedDate() throws Exception {
+        TargetRepository targetRepository = mock(TargetRepository.class);
+        DealerRepository dealerRepository = mock(DealerRepository.class);
+        CampaignRepository campaignRepository = mock(CampaignRepository.class);
+        LeadRepository leadRepository = mock(LeadRepository.class);
+        ExcelImportService service = importService(
+                targetRepository,
+                dealerRepository,
+                campaignRepository,
+                leadRepository,
+                workbookWithLeadRows(List.<Object[]>of(new Object[]{
+                        "LED-001",
+                        "经销商AI(上海浦东)",
+                        7035,
+                        "XY Online",
+                        "Qualified",
+                        "TRUE",
+                        "Aurora S",
+                        null
+                }))
+        );
+
+        service.run(mock(ApplicationArguments.class));
+
+        List<Lead> savedLeads = captureSavedLeads(leadRepository);
+        assertThat(savedLeads).hasSize(1);
+        Lead savedLead = savedLeads.getFirst();
+        assertThat(savedLead.getLeadId()).isEqualTo("LED-001");
+        assertThat(savedLead.getDealerName()).isEqualTo("经销商AI(上海浦东)");
+        assertThat(savedLead.getDealerCode()).isEqualTo("7035");
+        assertThat(savedLead.getLeadSource()).isEqualTo("XY Online");
+        assertThat(savedLead.getStageName()).isEqualTo("Qualified");
+        assertThat(savedLead.getProductModel()).isEqualTo("Aurora S");
+        assertThat(savedLead.getConverted()).isTrue();
+        assertThat(savedLead.getCreatedDate()).isNull();
+    }
+
     private ExcelImportService importService(TargetRepository targetRepository, Path workbookPath) {
         return importService(targetRepository, mock(DealerRepository.class), workbookPath);
     }
@@ -154,12 +193,21 @@ class ExcelImportServiceTest {
             CampaignRepository campaignRepository,
             Path workbookPath
     ) {
+        return importService(targetRepository, dealerRepository, campaignRepository, mock(LeadRepository.class), workbookPath);
+    }
+
+    private ExcelImportService importService(
+            TargetRepository targetRepository,
+            DealerRepository dealerRepository,
+            CampaignRepository campaignRepository,
+            LeadRepository leadRepository,
+            Path workbookPath
+    ) {
         AppProperties properties = new AppProperties();
         properties.getExcel().setPath(workbookPath.toString());
 
         OpportunityRepository opportunityRepository = mock(OpportunityRepository.class);
         TaskRepository taskRepository = mock(TaskRepository.class);
-        LeadRepository leadRepository = mock(LeadRepository.class);
 
         when(dealerRepository.count()).thenReturn(0L);
         when(opportunityRepository.count()).thenReturn(0L);
@@ -201,6 +249,45 @@ class ExcelImportServiceTest {
 
             for (int i = 0; i < campaignRows.size(); i++) {
                 Object[] values = campaignRows.get(i);
+                Row row = sheet.createRow(i + 1);
+                for (int column = 0; column < values.length; column++) {
+                    Object value = values[column];
+                    if (value instanceof Number number) {
+                        row.createCell(column).setCellValue(number.doubleValue());
+                    } else if (value != null) {
+                        row.createCell(column).setCellValue(String.valueOf(value));
+                    }
+                }
+            }
+
+            try (OutputStream outputStream = Files.newOutputStream(workbookPath)) {
+                workbook.write(outputStream);
+            }
+        }
+        return workbookPath;
+    }
+
+    private Path workbookWithLeadRows(List<Object[]> leadRows) throws Exception {
+        Path workbookPath = tempDir.resolve("leads.xlsx");
+        try (Workbook workbook = new XSSFWorkbook()) {
+            Sheet sheet = workbook.createSheet("Lead");
+            Row header = sheet.createRow(0);
+            String[] headers = {
+                    "Id",
+                    "SalesRetailer__r.Name",
+                    "SalesRetailer__r.DealerCode__c",
+                    "LeadSource",
+                    "Status",
+                    "IsConverted",
+                    "VehicleOfInterest__r.RangeProduct__r.Model__c",
+                    "CreatedDate"
+            };
+            for (int column = 0; column < headers.length; column++) {
+                header.createCell(column).setCellValue(headers[column]);
+            }
+
+            for (int i = 0; i < leadRows.size(); i++) {
+                Object[] values = leadRows.get(i);
                 Row row = sheet.createRow(i + 1);
                 for (int column = 0; column < values.length; column++) {
                     Object value = values[column];
@@ -313,5 +400,14 @@ class ExcelImportServiceTest {
         List<Campaign> savedCampaigns = new ArrayList<>();
         captor.getValue().forEach(savedCampaigns::add);
         return savedCampaigns;
+    }
+
+    @SuppressWarnings({"unchecked", "rawtypes"})
+    private List<Lead> captureSavedLeads(LeadRepository leadRepository) {
+        ArgumentCaptor<Iterable<Lead>> captor = ArgumentCaptor.forClass(Iterable.class);
+        verify(leadRepository).saveAll(captor.capture());
+        List<Lead> savedLeads = new ArrayList<>();
+        captor.getValue().forEach(savedLeads::add);
+        return savedLeads;
     }
 }

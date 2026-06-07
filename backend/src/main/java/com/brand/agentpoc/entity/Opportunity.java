@@ -35,6 +35,9 @@ public class Opportunity {
     private String productModel;
 
     @Column(nullable = false, length = 64)
+    private String purchaseHorizon;
+
+    @Column(nullable = false, length = 64)
     private String stageName;
 
     @Column(nullable = false, length = 64)
@@ -65,12 +68,43 @@ public class Opportunity {
             LocalDate expectedCloseDate,
             Integer probability
     ) {
+        this(
+                opportunityId,
+                dealerCode,
+                dealerName,
+                city,
+                dealerGroupName,
+                productModel,
+                "未知",
+                stageName,
+                leadSource,
+                createdDate,
+                expectedCloseDate,
+                probability
+        );
+    }
+
+    public Opportunity(
+            String opportunityId,
+            String dealerCode,
+            String dealerName,
+            String city,
+            String dealerGroupName,
+            String productModel,
+            String purchaseHorizon,
+            String stageName,
+            String leadSource,
+            LocalDate createdDate,
+            LocalDate expectedCloseDate,
+            Integer probability
+    ) {
         this.opportunityId = opportunityId;
         this.dealerCode = dealerCode;
         this.dealerName = dealerName;
         this.city = city;
         this.dealerGroupName = dealerGroupName;
         this.productModel = productModel;
+        this.purchaseHorizon = purchaseHorizon == null || purchaseHorizon.isBlank() ? "未知" : purchaseHorizon;
         this.stageName = stageName;
         this.leadSource = leadSource;
         this.createdDate = createdDate;
@@ -104,6 +138,10 @@ public class Opportunity {
 
     public String getProductModel() {
         return productModel;
+    }
+
+    public String getPurchaseHorizon() {
+        return purchaseHorizon;
     }
 
     public String getStageName() {
