@@ -14,6 +14,7 @@ import static org.mockito.Mockito.when;
 import com.brand.agentpoc.ai.LanguageDetector;
 import com.brand.agentpoc.ai.PromptFactory;
 import com.brand.agentpoc.dto.request.ChatRequest;
+import com.brand.agentpoc.repository.DealerRepository;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.OutputStream;
@@ -42,6 +43,7 @@ class ChatServiceTest {
     private RuleBasedAnalyticsService analyticsService;
     private PromptFactory promptFactory;
     private ModelConfigService modelConfigService;
+    private DealerRepository dealerRepository;
     private ChatService chatService;
 
     @BeforeEach
@@ -51,13 +53,15 @@ class ChatServiceTest {
         analyticsService = mock(RuleBasedAnalyticsService.class);
         promptFactory = mock(PromptFactory.class);
         modelConfigService = mock(ModelConfigService.class);
+        dealerRepository = mock(DealerRepository.class);
 
         chatService = new ChatService(
                 sessionMemoryService,
                 languageDetector,
                 analyticsService,
                 promptFactory,
-                modelConfigService
+                modelConfigService,
+                dealerRepository
         );
     }
 

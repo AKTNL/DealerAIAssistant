@@ -3,6 +3,7 @@ package com.brand.agentpoc.service;
 import com.brand.agentpoc.ai.LanguageDetector;
 import com.brand.agentpoc.ai.PromptFactory;
 import com.brand.agentpoc.dto.request.ChatRequest;
+import com.brand.agentpoc.repository.DealerRepository;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.io.BufferedWriter;
 import java.io.IOException;
@@ -65,7 +66,7 @@ public class ChatService {
     private static final List<String> BUSINESS_SCOPE_KEYWORDS = List.of(
             "经销商", "门店", "店", "客户", "顾客", "经营", "业务", "销售", "销量",
             "目标", "达成", "商机", "线索", "任务", "活动", "转化", "漏斗", "跟进", "客流",
-            "购买周期", "购车周期",
+            "购买周期", "购车周期", "年龄", "赢单",
             "市场", "车型", "车款", "哪款车", "哪种车", "卖得", "畅销", "成交", "城市", "集团", "对标", "绩效", "kpi", "crm", "dealer", "dealers",
             "dealership", "store", "stores", "customer", "client", "sales", "target",
             "achievement", "opportunity", "opportunities", "lead", "leads", "task", "tasks",
@@ -102,19 +103,22 @@ public class ChatService {
     private final RuleBasedAnalyticsService analyticsService;
     private final PromptFactory promptFactory;
     private final ModelConfigService modelConfigService;
+    private final DealerRepository dealerRepository;
 
     public ChatService(
             SessionMemoryService sessionMemoryService,
             LanguageDetector languageDetector,
             RuleBasedAnalyticsService analyticsService,
             PromptFactory promptFactory,
-            ModelConfigService modelConfigService
+            ModelConfigService modelConfigService,
+            DealerRepository dealerRepository
     ) {
         this.sessionMemoryService = sessionMemoryService;
         this.languageDetector = languageDetector;
         this.analyticsService = analyticsService;
         this.promptFactory = promptFactory;
         this.modelConfigService = modelConfigService;
+        this.dealerRepository = dealerRepository;
     }
 
     public String chat(ChatRequest request) {
@@ -1243,6 +1247,13 @@ public class ChatService {
         return !businessRelated;
     }
 
+    private static final Pattern IMPLICIT_ZH_DEALER_PATTERN = Pattern.compile(
+            "(?:经销商|门店|店)\\s*(?:名叫?|叫|是)\\s*([A-Za-z0-9\\u4e00-\\u9fff\\u3105-\\u3129_-]{1,20})"
+    );
+    private static final Pattern UNKNOWN_GENERIC_ENTITY_PATTERN = Pattern.compile(
+            "(?:客户|客戶|顾客|顧客|经销商|门店)\\s*[A-Za-z0-9Ａ-Ｚａ-ｚ０-９_-]{1,30}(?:\\s*(?:的|之))?\\s*(?:目标|商机|线索|任务|活动|达成|转化)"
+    );
+
     private boolean mentionsUnknownDemoEntity(String message) {
         return extractUnknownDemoEntityName(message) != null;
     }
@@ -1277,7 +1288,41 @@ public class ChatService {
             return enDealerMatcher.group().trim().replaceAll("\\s+", " ");
         }
 
+        Matcher implicitDealerMatcher = IMPLICIT_ZH_DEALER_PATTERN.matcher(message);
+        if (implicitDealerMatcher.find()) {
+            String dealerName = implicitDealerMatcher.group(1);
+            return isKnownDealer(dealerName) ? null : explicitExtract("经销商" + dealerName);
+        }
+
+        Matcher genericUnknownMatcher = UNKNOWN_GENERIC_ENTITY_PATTERN.matcher(message);
+        if (genericUnknownMatcher.find()) {
+            String group = genericUnknownMatcher.group();
+            String entityName = group.replaceAll("(?:的|之)?\\s*(?:目标|商机|线索|任务|活动|达成|转化).*$", "");
+            if (!hasText(entityName)) {
+                return null;
+            }
+            return isKnownDealer(entityName.replaceAll("^经销商|^门店|^店", "")) ? null : explicitExtract(entityName);
+        }
+
         return null;
+    }
+
+    private boolean isKnownDealer(String dealerName) {
+        if (!hasText(dealerName)) {
+            return true;
+        }
+        String normalizedName = dealerName.trim();
+        return dealerRepository.findAll().stream()
+                .anyMatch(dealer -> {
+                    String code = dealer.getDealerCode();
+                    String name = dealer.getDealerName();
+                    return (code != null && normalizedName.contains(code))
+                            || (name != null && (name.contains(normalizedName) || normalizedName.contains(name)));
+                });
+    }
+
+    private String explicitExtract(String text) {
+        return text == null ? null : text.trim().replaceAll("\\s+", "");
     }
 
     private String buildOutOfScopeReply(String language) {
@@ -1345,7 +1390,7 @@ public class ChatService {
                 normalized,
                 "经销商", "门店", "目标", "达成", "销量", "销售", "卖得", "畅销", "成交", "商机", "线索", "任务", "活动", "转化",
                 "分析", "复盘", "对比", "表现", "趋势", "集团", "城市", "车型", "最低", "最高",
-                "车款", "哪款车", "哪种车", "购买周期", "购车周期",
+                "车款", "哪款车", "哪种车", "购买周期", "购车周期", "赢单", "客户", "年龄",
                 "dealer", "dealers", "target", "achievement", "sales", "opportunity", "opportunities",
                 "lead", "leads", "task", "tasks", "campaign", "campaigns", "benchmark", "funnel",
                 "conversion", "city", "model", "performance", "trend", "lowest", "highest", "compare"

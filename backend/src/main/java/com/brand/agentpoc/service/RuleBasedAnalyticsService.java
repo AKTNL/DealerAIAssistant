@@ -375,12 +375,15 @@ public class RuleBasedAnalyticsService {
                 && containsAny(normalized, "\u6765\u6e90", "\u8d62\u5355\u7387", "\u8d62\u5355", "\u6210\u4ea4\u7387", "\u6210\u4ea4", "\u6f0f\u6597", "\u8f6c\u5316", "\u5e74\u9f84", "\u8d2d\u8f66\u5468\u671f", "\u533a\u95f4", "\u9636\u6bb5")) {
             return AnalysisTopic.OPPORTUNITY_FUNNEL;
         }
-        if (containsAny(normalized, "\u7ebf\u7d22", "\u6765\u6e90", "\u6d41\u91cf", "lead", "source", "organic", "trend")) {
+        if (containsAny(normalized, "\u7ebf\u7d22", "\u6d41\u91cf", "lead", "source", "organic", "trend")) {
             return AnalysisTopic.LEAD_SOURCE;
         }
         if (asksTopSalesVolume(normalized)
                 && (mentionsProductDimension(normalized) || mentionsDealerDimension(normalized)
                         || containsAny(normalized, "\u8c01", "\u54ea\u4e2a", "\u54ea\u5bb6"))) {
+            return AnalysisTopic.TARGET_ACHIEVEMENT;
+        }
+        if (asksTopSalesVolume(normalized)) {
             return AnalysisTopic.TARGET_ACHIEVEMENT;
         }
         if (containsAny(normalized, "\u5bf9\u6807", "\u6bd4\u8f83", "\u8868\u73b0\u6700\u597d", "outperform", "benchmark", "compare", "best")) {
@@ -3263,7 +3266,7 @@ public class RuleBasedAnalyticsService {
             return leadDealerAnswer(language, "转化线索最多的经销商", metrics);
         }
 
-        if (scope.leadSource() != null || containsAny(normalized, "转化情况")) {
+        if (scope.leadSource() != null || containsAny(normalized, "转化情况", "转化怎么样")) {
             String source = scope.leadSource();
             if (source == null) {
                 source = detectLeadSourceFromMessage(normalized);
@@ -3630,6 +3633,7 @@ public class RuleBasedAnalyticsService {
 
     private ScenarioResult analyzeDataOverview(AnalysisScope scope, String language,
             String traceId, AtomicInteger seq, Consumer<StepEvent> onStep) {
+        int dealerCount = cachedDealers().size();
         int opportunityCount = cachedOpportunities().size();
         int leadCount = cachedLeads().size();
         int taskCount = cachedTasks().size();
@@ -3639,25 +3643,26 @@ public class RuleBasedAnalyticsService {
         traceSteps.add(new CalcStep(
                 "加载全部实体表统计数据总量",
                 "Load all entity tables and count totals",
-                "商机 " + opportunityCount + " | 线索 " + leadCount + " | 任务 " + taskCount + " | 活动 " + campaignCount,
-                "Opportunities " + opportunityCount + " | Leads " + leadCount + " | Tasks " + taskCount + " | Campaigns " + campaignCount
+                "经销商 " + dealerCount + " | 商机 " + opportunityCount + " | 线索 " + leadCount + " | 任务 " + taskCount + " | 活动 " + campaignCount,
+                "Dealers " + dealerCount + " | Opportunities " + opportunityCount + " | Leads " + leadCount + " | Tasks " + taskCount + " | Campaigns " + campaignCount
         ));
         emitStep(onStep, StepEvent.success(traceId, seq.getAndIncrement(), StepType.data_load,
                 isZh(language) ? "加载全部实体表统计数据总量" : "Load all entity tables and count totals",
                 isZh(language)
-                        ? "商机 " + opportunityCount + ", 线索 " + leadCount + ", 任务 " + taskCount + ", 活动 " + campaignCount
-                        : "Opps " + opportunityCount + ", Leads " + leadCount + ", Tasks " + taskCount + ", Campaigns " + campaignCount,
-                Map.of("opportunityCount", opportunityCount, "leadCount", leadCount,
+                        ? "经销商 " + dealerCount + ", 商机 " + opportunityCount + ", 线索 " + leadCount + ", 任务 " + taskCount + ", 活动 " + campaignCount
+                        : "Dealers " + dealerCount + ", Opps " + opportunityCount + ", Leads " + leadCount + ", Tasks " + taskCount + ", Campaigns " + campaignCount,
+                Map.of("dealerCount", dealerCount, "opportunityCount", opportunityCount, "leadCount", leadCount,
                         "taskCount", taskCount, "campaignCount", campaignCount)));
 
         if ("zh".equals(language)) {
             String conclusion = String.format(
-                    "- 当前系统**商机** %d 条\n- **线索** %d 条\n- **销售任务** %d 条\n- **市场活动** %d 个",
-                    opportunityCount, leadCount, taskCount, campaignCount);
+                    "- 当前系统**经销商** %d 家\n- **商机** %d 条\n- **线索/客户** %d 条\n- **销售任务** %d 条\n- **市场活动** %d 个",
+                    dealerCount, opportunityCount, leadCount, taskCount, campaignCount);
 
             List<String[]> dataRows = new ArrayList<>();
+            dataRows.add(new String[]{"经销商", String.valueOf(dealerCount)});
             dataRows.add(new String[]{"商机", String.valueOf(opportunityCount)});
-            dataRows.add(new String[]{"线索", String.valueOf(leadCount)});
+            dataRows.add(new String[]{"线索/客户", String.valueOf(leadCount)});
             dataRows.add(new String[]{"销售任务", String.valueOf(taskCount)});
             dataRows.add(new String[]{"市场活动", String.valueOf(campaignCount)});
 
@@ -3668,19 +3673,20 @@ public class RuleBasedAnalyticsService {
 
             return normalResult(buildEnrichedReply(language, conclusion, dataRows,
                     new SummaryContext("数据概况", 0, "实体总量",
-                            String.valueOf(opportunityCount + leadCount + taskCount + campaignCount), "—",
+                            String.valueOf(dealerCount + opportunityCount + leadCount + taskCount + campaignCount), "—",
                             null, null, null, null),
                     null, null, List.of(), List.of(), followUps),
                     "data overview", "Entity count", traceSteps);
         }
 
         String conclusion = String.format(
-                "- System has **%d** opportunities\n- **%d** leads\n- **%d** sales tasks\n- **%d** campaigns",
-                opportunityCount, leadCount, taskCount, campaignCount);
+                "- System has **%d** dealers\n- **%d** opportunities\n- **%d** leads/customers\n- **%d** sales tasks\n- **%d** campaigns",
+                dealerCount, opportunityCount, leadCount, taskCount, campaignCount);
 
         List<String[]> dataRows = new ArrayList<>();
+        dataRows.add(new String[]{"Dealers", String.valueOf(dealerCount)});
         dataRows.add(new String[]{"Opportunities", String.valueOf(opportunityCount)});
-        dataRows.add(new String[]{"Leads", String.valueOf(leadCount)});
+        dataRows.add(new String[]{"Leads/Customers", String.valueOf(leadCount)});
         dataRows.add(new String[]{"Sales Tasks", String.valueOf(taskCount)});
         dataRows.add(new String[]{"Campaigns", String.valueOf(campaignCount)});
 
@@ -3691,7 +3697,7 @@ public class RuleBasedAnalyticsService {
 
         return normalResult(buildEnrichedReply(language, conclusion, dataRows,
                 new SummaryContext("Data Overview", 0, "Total Entities",
-                        String.valueOf(opportunityCount + leadCount + taskCount + campaignCount), "—",
+                        String.valueOf(dealerCount + opportunityCount + leadCount + taskCount + campaignCount), "—",
                         null, null, null, null),
                 null, null, List.of(), List.of(), followUps),
                 "data overview", "Entity count", traceSteps);
@@ -4600,15 +4606,19 @@ public class RuleBasedAnalyticsService {
                 "战败商机最多",
                 "高概率商机主要集中",
                 "商机主要来自哪些线索来源",
+                "商机主要来源于哪些线索来源",
                 "线索来源的商机赢单率最高",
                 "哪个车型商机数量最多",
                 "哪个车型赢单率最高",
                 "的商机漏斗如何",
-                "购买周期最多集中")
+                "购买周期最多集中",
+                "购车周期年龄",
+                "购车周期")
                 || asksOpportunityStageBreakdown(normalized)
                 || asksOpportunitySourceBreakdown(normalized)
                 || (mentionsProductDimension(normalized) && (asksWinRate(normalized) || asksBreakdown(normalized)))
-                || (containsAny(normalized, "商机") && asksTopSalesVolume(normalized));
+                || (containsAny(normalized, "商机") && asksTopSalesVolume(normalized))
+                || (containsAny(normalized, "年龄", "购车周期") && containsAny(normalized, "区间", "集中"));
     }
 
     private boolean isDirectLeadQuestion(String normalized) {
@@ -4620,8 +4630,11 @@ public class RuleBasedAnalyticsService {
                 "线索的转化情况怎么样",
                 "线索意向车型最多",
                 "线索分配最多",
-                "转化线索最多")
-                || (containsAny(normalized, "线索") && (asksStatusBreakdown(normalized) || asksBreakdown(normalized)));
+                "转化线索最多",
+                "线索的转化情况怎么样")
+                || (containsAny(normalized, "线索") && (asksStatusBreakdown(normalized) || asksBreakdown(normalized)))
+                || (containsAny(normalized, "线索") && containsAny(normalized, "转化情况", "转化怎么样"))
+                || (containsAny(normalized, "来源", "XY") && containsAny(normalized, "线索", "转化情况"));
     }
 
     private boolean isDirectTaskQuestion(String normalized) {
