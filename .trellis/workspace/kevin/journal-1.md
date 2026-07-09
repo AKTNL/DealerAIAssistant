@@ -137,3 +137,36 @@ Added a GitHub Actions CI workflow with separate backend Maven tests and fronten
 ### Next Steps
 
 - None - task complete
+
+
+## Session 5: 准确率题库自动回归
+
+**Date**: 2026-07-09
+**Task**: 准确率题库自动回归
+**Branch**: `main`
+
+### Summary
+
+新增准确率题库集成回归，校验样本导入基线、51 道题库原题和反过拟合同义问法，并修复排行问法误触未知实体拦截。
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `93b14b7` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
