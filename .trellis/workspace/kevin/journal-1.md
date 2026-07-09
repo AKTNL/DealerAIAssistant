@@ -170,3 +170,36 @@ Added a GitHub Actions CI workflow with separate backend Maven tests and fronten
 ### Next Steps
 
 - None - task complete
+
+
+## Session 6: README 文档可读性修复
+
+**Date**: 2026-07-09
+**Task**: README 文档可读性修复
+**Branch**: `main`
+
+### Summary
+
+补充 README UTF-8 读取提示，更新准确率题库回归命令，并将 Maven -D 参数加引号的 PowerShell 兼容约定写入 backend quality spec。
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `5d4335a` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
