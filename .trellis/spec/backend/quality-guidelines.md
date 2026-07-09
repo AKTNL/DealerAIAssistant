@@ -444,10 +444,19 @@ mockMvc = MockMvcBuilders.standaloneSetup(
 
 ```bash
 # Run backend tests only (skip frontend build)
-mvn test -Dfrontend.skip=true
+mvn "-Dfrontend.skip=true" test
 
 # Run all tests including frontend
 mvn test
+```
+
+When documenting or running Maven system properties, quote the full `-D...`
+argument. The quoted form works in Bash and PowerShell, and it prevents
+PowerShell from parsing comma-separated values such as `-Dtest=A,B` as an
+argument list:
+
+```bash
+mvn "-Dfrontend.skip=true" "-Dtest=AccuracyWorkbookRegressionTest,RuleBasedAnalyticsServiceTest" test
 ```
 
 ### Expected Test Coverage
