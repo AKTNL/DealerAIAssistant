@@ -29,6 +29,9 @@ class DirectQuestionMatcherTest {
 
     @Test
     void detectsLeadTaskAndCampaignDirectQuestions() {
+        assertThat(DirectQuestionMatcher.isDirectLeadQuestion(
+                normalize("\u54ea\u79cd\u6e20\u9053\u5e26\u6765\u7684\u7ebf\u7d22\u8f6c\u5316\u7387\u6700\u9ad8\uff1f")))
+                .isTrue();
         assertThat(DirectQuestionMatcher.isDirectLeadQuestion(normalize("线索状态分布如何？")))
                 .isTrue();
         assertThat(DirectQuestionMatcher.isDirectTaskQuestion(normalize("任务类型前三是什么？")))

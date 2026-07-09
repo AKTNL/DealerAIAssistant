@@ -245,6 +245,24 @@ class ChatServiceTest {
     }
 
     @Test
+    void dealerRankingQuestionDoesNotTreatWhoAsAnUnknownDealerName() {
+        String message = "\u5168\u91cf\u6570\u636e\u4e2d\u8d62\u5355\u6570\u6700\u591a\u7684\u7ecf\u9500\u5546\u662f\u8c01\uff1f";
+        ChatRequest request = new ChatRequest("s1", message, "", "", "");
+        AnalyticsPlan plan = analyticsPlan(AnalyticsPlan.Scenario.TARGET_ACHIEVEMENT, "\u7ecf\u9500\u5546F 555");
+
+        when(languageDetector.detectLanguage(message)).thenReturn("zh");
+        when(analyticsService.plan(message, "zh")).thenReturn(plan);
+
+        String reply = chatService.chat(request);
+
+        assertThat(reply).contains("\u7ecf\u9500\u5546F");
+        assertThat(reply).contains("555");
+        assertThat(reply).doesNotContain("\u672a\u627e\u5230");
+        verify(analyticsService).plan(message, "zh");
+        verifyNoInteractions(modelConfigService);
+    }
+
+    @Test
     void streamReturnsEntityNotFoundForUnknownCustomerBeforeModelOrAnalytics() throws Exception {
         ChatRequest request = new ChatRequest(
                 "s1",

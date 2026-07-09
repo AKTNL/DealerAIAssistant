@@ -61,7 +61,11 @@ public final class DirectQuestionMatcher {
                 "线索的转化情况怎么样")
                 || (containsAny(normalized, "线索") && (asksStatusBreakdown(normalized) || asksBreakdown(normalized)))
                 || (containsAny(normalized, "线索") && containsAny(normalized, "转化情况", "转化怎么样"))
-                || (containsAny(normalized, "来源", "XY") && containsAny(normalized, "线索", "转化情况"));
+                || (containsAny(normalized, "来源", "XY") && containsAny(normalized, "线索", "转化情况"))
+                || (containsAny(normalized, "\u7ebf\u7d22")
+                        && containsAny(normalized, "\u6e20\u9053")
+                        && containsAny(normalized, "\u8f6c\u5316\u7387")
+                        && containsAny(normalized, "\u6700\u9ad8"));
     }
 
     public static boolean isDirectTaskQuestion(String normalized) {

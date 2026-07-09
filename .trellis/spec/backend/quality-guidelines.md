@@ -183,6 +183,9 @@ public Opportunity(String opportunityId, ..., String purchaseHorizon, ...) {
 - Message asks for a known dimension but data is absent -> return the normal no-data or low-confidence analytics result, not a fabricated answer.
 - Message asks a non-business topic with no dealer analytics terms -> out-of-scope reply.
 
+- "全量数据中赢单数最多的经销商是谁？" -> analytics ranking reply, not entity-not-found for `谁`.
+- "活动最多的经销商是谁？" -> campaign ranking reply, not entity-not-found for `谁`.
+
 #### 5. Good/Base/Bad Cases
 - Good: "全国范围内哪款车卖得最好？" routes to target/won-sales aggregation and returns the top product model from repository data.
 - Good: "商机按阶段怎么分布？" routes to opportunity funnel aggregation and reports counts by `stageName`.
@@ -288,6 +291,7 @@ if (fallback != null && !fallback.isBlank()) {
 - `isKnownDealer()` checks both dealer codes and dealer names (case-insensitive).
 - If the dealer is known, the message proceeds to analytics normally.
 - If the dealer is unknown, return entity-not-found reply.
+- Generic ranking/interrogative words are not entity names. Phrases such as `经销商是谁`, `哪个经销商`, `哪家门店`, `哪些经销商`, `最多`, `最高`, and `最低` must bypass unknown-entity interception and proceed to analytics routing.
 
 #### 4. Validation & Error Matrix
 - "经销商不存在XYZ的目标达成率怎么样？" but dealer XYZ is unknown → entity-not-found reply.
@@ -298,12 +302,15 @@ if (fallback != null && !fallback.isBlank()) {
 #### 5. Good/Base/Bad Cases
 - Good: "经销商不存在的门店的目标怎么样？" → entity-not-found reply.
 - Base: "星星门店的目标达成率怎么样？" → extracts "星星门店", cross-checks DB, proceeds to analytics if found.
+- Good: "全量数据中目标达成率最高的经销商是谁？" bypasses unknown-entity handling because `谁` is an interrogative placeholder, not a dealer name.
 - Bad: Adding exact string matching for every unknown dealer name instead of using the pattern + DB cross-check pipeline.
+- Bad: Treating `经销商是谁` or `活动最多的经销商是谁` as a literal unknown dealer entity and returning "未找到".
 
 #### 6. Tests Required
 - Pattern matching tests for each regex pattern (explicit, suffix, implicit, generic).
 - `isKnownDealer` unit tests with known and unknown dealer names/codes.
 - Integration test: unknown dealer message returns entity-not-found, known dealer proceeds to analytics.
+- Chat regression: dealer ranking questions containing `谁` / `哪个` / `哪家` call `RuleBasedAnalyticsService.plan(...)` and do not return entity-not-found.
 
 #### 7. Wrong vs Correct
 

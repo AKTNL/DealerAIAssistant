@@ -357,7 +357,7 @@ public class RuleBasedAnalyticsService {
 
         if (containsAny(normalized, "\u6570\u636e\u6982\u51b5")
                 || (containsAny(normalized, "\u5f53\u524d\u7cfb\u7edf") && containsAny(normalized, "\u4e00\u5171\u6709\u591a\u5c11"))
-                || (containsAny(normalized, "\u4e00\u5171\u6709\u591a\u5c11", "\u591a\u5c11\u6761")
+                || (containsAny(normalized, "\u4e00\u5171\u6709\u591a\u5c11", "\u591a\u5c11\u6761", "\u5206\u522b\u6709\u591a\u5c11", "\u6709\u591a\u5c11")
                         && countMentionedOverviewEntities(normalized) >= 2)) {
             return AnalysisTopic.DATA_OVERVIEW;
         }

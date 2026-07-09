@@ -1291,6 +1291,9 @@ public class ChatService {
         Matcher implicitDealerMatcher = IMPLICIT_ZH_DEALER_PATTERN.matcher(message);
         if (implicitDealerMatcher.find()) {
             String dealerName = implicitDealerMatcher.group(1);
+            if (isGenericInterrogativeEntity(dealerName)) {
+                return null;
+            }
             return isKnownDealer(dealerName) ? null : explicitExtract("经销商" + dealerName);
         }
 
@@ -1301,10 +1304,33 @@ public class ChatService {
             if (!hasText(entityName)) {
                 return null;
             }
+            if (isGenericInterrogativeEntity(entityName)) {
+                return null;
+            }
             return isKnownDealer(entityName.replaceAll("^经销商|^门店|^店", "")) ? null : explicitExtract(entityName);
         }
 
         return null;
+    }
+
+    private boolean isGenericInterrogativeEntity(String entityName) {
+        if (!hasText(entityName)) {
+            return true;
+        }
+        String normalized = entityName.trim()
+                .replaceAll("\\s+", "")
+                .replaceFirst("^(?:\\u7ecf\\u9500\\u5546|\\u95e8\\u5e97|\\u5e97)", "");
+        if (normalized.isBlank()) {
+            return true;
+        }
+        return containsAny(normalized,
+                "\u8c01",
+                "\u54ea\u4e2a",
+                "\u54ea\u5bb6",
+                "\u54ea\u4e9b",
+                "\u6700\u591a",
+                "\u6700\u9ad8",
+                "\u6700\u4f4e");
     }
 
     private boolean isKnownDealer(String dealerName) {
