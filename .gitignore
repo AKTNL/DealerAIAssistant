@@ -22,7 +22,12 @@ backend/target/
 .agents/
 .claude/
 .codex/
-.trellis/
+# Trellis persistence is versioned; generated/runtime state stays local.
+.trellis/.backup-*
+.trellis/worktrees/
+.trellis/.template-hashes.json
+.trellis/.runtime/
+.trellis/.cache/
 .worktrees/
 AGENTS.md
 

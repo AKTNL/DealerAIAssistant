@@ -1,0 +1,73 @@
+# Journal - kevin (Part 1)
+
+> AI development session journal
+> Started: 2026-06-03
+
+---
+
+
+
+## Session 1: 修复准确率测试题库 + 填充 Spec 编码规范
+
+**Date**: 2026-06-15
+**Task**: 修复准确率测试题库 + 填充 Spec 编码规范
+**Branch**: `main`
+
+### Summary
+
+修复 detectTopic 关键词路由、增强线索多维分析、扩展边界检测；填充全部 backend/frontend spec 文件；清理过期 worktree 和 settings 权限
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `9d80745` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
+
+
+## Session 2: Refactor RuleBasedAnalyticsService direct question matcher
+
+**Date**: 2026-07-09
+**Task**: Refactor RuleBasedAnalyticsService direct question matcher
+**Branch**: `main`
+
+### Summary
+
+Extracted direct-question matching predicates from RuleBasedAnalyticsService into service.analytics.DirectQuestionMatcher, added focused matcher tests, and verified backend tests.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `dcd8b31` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
