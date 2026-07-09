@@ -105,6 +105,18 @@ Get-Content -Raw -Encoding UTF8 README.md
 
 ### 1. 启动后端
 
+PowerShell：
+
+```powershell
+cd backend
+$env:APP_ACCESS_KEY="local-demo-key"
+$env:APP_SESSION_SECRET="local-demo-session-secret-at-least-32-chars"
+$env:APP_API_KEY="local-demo-internal-api-key"
+mvn "-Dfrontend.skip=true" spring-boot:run
+```
+
+Bash：
+
 ```bash
 cd backend
 export APP_ACCESS_KEY="change-me-login-key"
@@ -119,7 +131,7 @@ mvn "-Dfrontend.skip=true" spring-boot:run
 
 ```bash
 cd frontend
-npm install
+npm ci
 npm run dev
 ```
 
@@ -250,19 +262,23 @@ SSE 流式聊天事件类型：
 
 ```bash
 cd frontend
+npm run lint
 npm run test
 npm run build
 ```
 
-`npm run build` 会把构建产物输出到 `backend/src/main/resources/static`。
+`npm run lint` 使用 ESLint flat config 检查 JavaScript/Vue 代码。`npm run build` 会先清理生成的 `assets/` 目录，再把构建产物输出到 `backend/src/main/resources/static`，同时保留后端维护的 `openapi.json`、`logo.png`、`background.jpg` 等静态文件。
 
 ### 后端
 
 ```bash
 cd backend
+mvn "-Dfrontend.skip=true" pmd:check
 mvn "-Dfrontend.skip=true" test
 mvn "-Dfrontend.skip=true" clean install
 ```
+
+`pmd:check` 使用 `backend/config/pmd-ruleset.xml` 中的 PMD error-prone 基线规则。GitHub Actions 会先跑前端 lint 和后端 PMD，再跑测试与构建。
 
 ### 准确率题库回归
 
@@ -292,6 +308,7 @@ mvn clean install
 | --- | --- |
 | `backend/src/main/java/com/brand/agentpoc/service/ChatService.java` | 聊天主流程、SSE 输出、step 事件流式推送、模型与规则引擎分流 |
 | `backend/src/main/java/com/brand/agentpoc/service/RuleBasedAnalyticsService.java` | 规则分析引擎、fallback 报告生成、实时 step 回调 |
+| `backend/src/main/java/com/brand/agentpoc/service/analytics/AnalyticsTopicClassifier.java` | 纯文本分析主题识别，维护场景路由优先级 |
 | `backend/src/main/java/com/brand/agentpoc/service/StepEvent.java` | SSE step 事件 record（traceId、seq、type、status、label、detail、meta） |
 | `backend/src/main/java/com/brand/agentpoc/service/StepType.java` | step 类型枚举（data_load/filter/calculation/tool_call/model_thought/insight） |
 | `backend/src/main/java/com/brand/agentpoc/service/AnalyticsScenarioCatalog.java` | 分析场景目录、示例问题、工具链说明 |
