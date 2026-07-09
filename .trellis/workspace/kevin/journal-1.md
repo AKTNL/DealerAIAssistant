@@ -236,3 +236,36 @@ Added a GitHub Actions CI workflow with separate backend Maven tests and fronten
 ### Next Steps
 
 - None - task complete
+
+
+## Session 8: Stabilize chart-json frontend CI
+
+**Date**: 2026-07-09
+**Task**: Stabilize chart-json frontend CI
+**Branch**: `main`
+
+### Summary
+
+Mocked the lazy chart-json adapter in AssistantMessage parent tests, documented the async child mock pattern, and verified frontend tests/build pass.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `ea9cc39` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
