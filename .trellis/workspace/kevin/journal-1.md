@@ -104,3 +104,36 @@ Removed the broad .trellis/ ignore rule, replaced it with specific generated/run
 ### Next Steps
 
 - None - task complete
+
+
+## Session 4: Add CI checks
+
+**Date**: 2026-07-09
+**Task**: Add CI checks
+**Branch**: `main`
+
+### Summary
+
+Added a GitHub Actions CI workflow with separate backend Maven tests and frontend npm test/build jobs, using Java 21, Node.js 24, and dependency caching. Verified workflow YAML and local backend/frontend commands.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `e7a4c74` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
