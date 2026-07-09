@@ -6,7 +6,7 @@
 
 ## Overview
 
-The project uses Vite for building, Vitest for testing, and has no configured linter or formatter. Quality is enforced through code review conventions, consistent patterns across the codebase, and a comprehensive test suite.
+The project uses Vite for building, Vitest for testing, and ESLint for JavaScript/Vue static checks. It does not use a configured formatter. Quality is enforced through `npm run lint`, tests, code review conventions, and consistent patterns across the codebase.
 
 ---
 
@@ -378,12 +378,80 @@ build: {
 
 ## Linting and Formatting
 
-No ESLint or Prettier configuration files exist in the `frontend/` directory. The codebase relies on:
+ESLint is configured through `frontend/eslint.config.js` using flat config, `@eslint/js`, and `eslint-plugin-vue`.
+
+Run lint locally from `frontend/`:
+
+```bash
+npm run lint
+```
+
+The lint gate intentionally avoids broad formatting churn. Formatting-heavy Vue rules such as HTML self-closing, attribute-per-line, and template newline rules are disabled; correctness and maintainability findings should be fixed in code.
+
+No Prettier configuration exists. The codebase still relies on:
 - Consistent indentation (2-space tabs observed throughout).
 - Consistent semicolons at end of statements.
 - Consistent single quotes for strings (not double quotes, not template literals unless interpolation is needed).
 - Consistent trailing commas in multi-line objects/arrays.
 - `camelCase` for variables and functions, `PascalCase` for components, `UPPER_SNAKE` for constants.
+
+---
+
+## Scenario: Frontend ESLint Quality Gate
+
+### 1. Scope / Trigger
+- Trigger: Any JavaScript or Vue source change in `frontend/` must pass the lint gate before tests/build in CI.
+- This is an infra and frontend quality contract because `npm run lint` is now a required local and CI command.
+
+### 2. Signatures
+- Local command from `frontend/`: `npm run lint`
+- Package script: `"lint": "eslint ."`
+- Config file: `frontend/eslint.config.js`
+- CI step: `.github/workflows/ci.yml` runs `npm run lint` after `npm ci` and before `npm test`.
+
+### 3. Contracts
+- ESLint uses flat config with `@eslint/js`, `eslint-plugin-vue`, and `globals`.
+- Browser, Node, and Vitest globals are available in linted JS/Vue files.
+- Generated or external directories must be ignored: `dist/**`, `../backend/src/main/resources/static/**`, `node_modules/**`, and `coverage/**`.
+- Formatting-only Vue rules stay disabled to avoid broad template churn; correctness and maintainability findings should be fixed in source.
+- No Prettier gate exists; do not introduce formatting-only rewrites under the lint task unless explicitly requested.
+
+### 4. Validation & Error Matrix
+- Unused imports, variables, or destructured bindings -> lint must fail and the source should be fixed.
+- Backend static build output is linted -> reject; generated files must remain ignored.
+- Formatting-only Vue template newline/self-closing warnings block CI -> reject; keep those rules disabled unless the team chooses a formatter/style migration.
+- CI omits `npm run lint` -> reject; local lint must match CI.
+
+### 5. Good/Base/Bad Cases
+- Good: Removing an unused binding makes `npm run lint` pass without changing unrelated formatting.
+- Base: Existing Vue components can keep their current template formatting while correctness rules still run.
+- Bad: Running a broad formatter to satisfy ESLint and mixing style-only churn with behavior or quality changes.
+
+### 6. Tests Required
+- Quality verification must include `cd frontend && npm run lint`.
+- CI must run `npm run lint` before `npm test` and `npm run build`.
+- If changing ignores or parser/globals, run `npm run lint`, `npm test`, and `npm run build`.
+
+### 7. Wrong vs Correct
+
+Wrong:
+```json
+{
+  "scripts": {
+    "test": "vitest run"
+  }
+}
+```
+
+Correct:
+```json
+{
+  "scripts": {
+    "lint": "eslint .",
+    "test": "vitest run"
+  }
+}
+```
 
 ---
 
@@ -399,10 +467,11 @@ When reviewing a frontend PR, verify:
 6. [ ] New storage keys are added to `constants/storageKeys.js`.
 7. [ ] Timers and controllers are cleaned up in `onBeforeUnmount`.
 8. [ ] Test file exists in co-located `__tests__/` directory.
-9. [ ] Tests use the project's mount helpers and mocking patterns.
-10. [ ] `use*` composables follow the factory-function pattern.
-11. [ ] Error states are handled (loading, empty, error, edge cases).
-12. [ ] No hardcoded CSS values -- use CSS custom properties from `style.css` when possible.
+9. [ ] `npm run lint` passes.
+10. [ ] Tests use the project's mount helpers and mocking patterns.
+11. [ ] `use*` composables follow the factory-function pattern.
+12. [ ] Error states are handled (loading, empty, error, edge cases).
+13. [ ] No hardcoded CSS values -- use CSS custom properties from `style.css` when possible.
 
 ---
 

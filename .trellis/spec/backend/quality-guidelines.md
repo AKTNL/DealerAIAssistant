@@ -8,6 +8,66 @@
 
 The project uses JUnit 5 (Jupiter) with AssertJ assertions and Mockito for mocking. Tests follow the same package structure as main source. The project does not use `@SpringBootTest` for unit tests -- manual wiring via constructors is preferred. The build runs via `mvn test` (with optional `-Dfrontend.skip=true` to skip frontend build).
 
+Backend static analysis uses PMD through `maven-pmd-plugin`. The project-owned ruleset lives at `backend/config/pmd-ruleset.xml`, starts from PMD's Java error-prone rules, and excludes legacy high-noise rules that would require broad style-only churn. Run the PMD gate from `backend/` with:
+
+```bash
+mvn "-Dfrontend.skip=true" pmd:check
+```
+
+---
+
+## Scenario: Backend PMD Quality Gate
+
+### 1. Scope / Trigger
+- Trigger: Backend Java changes must pass PMD before tests in CI.
+- This is an infra and backend quality contract because PMD is now a required Maven goal and CI step.
+
+### 2. Signatures
+- Local command from `backend/`: `mvn "-Dfrontend.skip=true" pmd:check`
+- Maven plugin: `org.apache.maven.plugins:maven-pmd-plugin:3.28.0`
+- Ruleset file: `backend/config/pmd-ruleset.xml`
+- CI step: `.github/workflows/ci.yml` runs `mvn -B -ntp -Dfrontend.skip=true pmd:check` before backend tests.
+
+### 3. Contracts
+- PMD must fail the build on violations (`failOnViolation=true`).
+- PMD must print failing errors (`printFailingErrors=true`) so CI logs are actionable.
+- The project ruleset starts from `category/java/errorprone.xml`.
+- The first PMD baseline excludes legacy high-noise rules that would force broad style-only churn: `AvoidDuplicateLiterals`, `AvoidFieldNameMatchingMethodName`, `AvoidLiteralsInIfCondition`, `NullAssignment`, `UseLocaleWithCaseConversions`, and `UseProperClassLoader`.
+- Do not add Checkstyle or SpotBugs under this contract; the selected backend static-analysis gate is PMD only.
+
+### 4. Validation & Error Matrix
+- PMD reports a non-excluded error-prone violation -> fix the code or deliberately tune the project ruleset with a narrow reason.
+- `failOnViolation=false` -> reject; PMD would stop being a gate.
+- Ruleset points directly at the full built-in category and creates broad historical churn -> reject; use the project-owned ruleset.
+- CI omits `pmd:check` -> reject; local and CI quality gates must match.
+- Maven system properties are unquoted in PowerShell documentation -> reject; use `mvn "-Dfrontend.skip=true" ...`.
+
+### 5. Good/Base/Bad Cases
+- Good: `mvn "-Dfrontend.skip=true" pmd:check` passes locally and in CI without business-code rewrites.
+- Base: Existing tests remain the behavioral authority after PMD passes.
+- Bad: Fixing PMD by renaming many legacy literals or reformatting unrelated analytics code in the same task.
+
+### 6. Tests Required
+- Quality verification must include `cd backend && mvn "-Dfrontend.skip=true" pmd:check`.
+- Backend behavior verification must still include `cd backend && mvn "-Dfrontend.skip=true" test`.
+- If changing PMD rules, inspect violations before widening or narrowing the ruleset.
+
+### 7. Wrong vs Correct
+
+Wrong:
+```xml
+<rulesets>
+    <ruleset>category/java/errorprone.xml</ruleset>
+</rulesets>
+```
+
+Correct:
+```xml
+<rulesets>
+    <ruleset>config/pmd-ruleset.xml</ruleset>
+</rulesets>
+```
+
 ---
 
 ## Required Patterns
@@ -165,7 +225,7 @@ public Opportunity(String opportunityId, ..., String purchaseHorizon, ...) {
 - Analytics entry point:
   - `RuleBasedAnalyticsService.plan(String message, String language): AnalyticsPlan`
 - Routing surfaces:
-  - `RuleBasedAnalyticsService.detectTopic(String message): AnalysisTopic`
+  - `AnalyticsTopicClassifier.detect(String message): AnalysisTopic`
   - Direct-answer helpers under target, opportunity, task, lead, and campaign analysis.
 
 #### 3. Contracts
@@ -174,6 +234,7 @@ public Opportunity(String opportunityId, ..., String purchaseHorizon, ...) {
 - Completion-rate paraphrases such as "highest target completion rate" and "highest achievement rate" must route to target achievement aggregation.
 - Breakdown paraphrases such as "by stage distribution", "status respectively how many", "task type top three", and "source/channel distribution" must route to the relevant entity aggregation.
 - Multi-entity count questions that mention two or more of opportunity, lead, task, and campaign must route to `DATA_OVERVIEW` before single-entity campaign/task/lead routing.
+- Topic priority ordering lives in `service.analytics.AnalyticsTopicClassifier`; keep it focused on pure text classification and leave repository-backed aggregation in `RuleBasedAnalyticsService` or focused analytics collaborators.
 - Greeting plus intro messages such as "Hello, who are you?" must return the built-in assistant introduction, not out-of-scope text.
 
 #### 4. Validation & Error Matrix
@@ -195,6 +256,7 @@ public Opportunity(String opportunityId, ..., String purchaseHorizon, ...) {
 
 #### 6. Tests Required
 - Unit regression: each new paraphrase class asserts the selected `AnalyticsPlan.Scenario` and concrete data-backed values.
+- Topic-classifier regression: routing-priority changes in `AnalyticsTopicClassifier` should have focused tests in `service/analytics/AnalyticsTopicClassifierTest`.
 - Matcher regression: pure direct-question predicates added to `DirectQuestionMatcher` should have focused tests in `service/analytics/DirectQuestionMatcherTest`.
 - Chat regression: business-scope keywords include product-sales and purchase-cycle wording so analytics is called.
 - Runtime regression for accuracy work: import the workbook, verify baseline counts, run the original workbook set, and run an anti-overfit paraphrase set.
@@ -351,7 +413,7 @@ if (extracted.isPresent() && !isKnownDealer(extracted.get())) {
 
 - **Logging secrets or API keys**. Use `MessageDigest.isEqual()` for comparison but never log keys, tokens, or authentication material.
 
-- **Ambiguous keyword detection without priority ordering**. The `detectTopic()` chain in `RuleBasedAnalyticsService` must order checks so specific combinations win over generic keywords. Example: "来源" alone is ambiguous (could be LEAD_SOURCE or OPPORTUNITY). When the message also contains "商机", the OPPORTUNITY check must execute before LEAD_SOURCE. Never add a high-priority keyword to a routing branch without verifying it doesn't overshadow more specific combinations earlier in the chain.
+- **Ambiguous keyword detection without priority ordering**. The `AnalyticsTopicClassifier.detect()` chain must order checks so specific combinations win over generic keywords. Example: "来源" alone is ambiguous (could be LEAD_SOURCE or OPPORTUNITY). When the message also contains "商机", the OPPORTUNITY check must execute before LEAD_SOURCE. Never add a high-priority keyword to a routing branch without verifying it doesn't overshadow more specific combinations earlier in the chain.
 
 - **Returning hard-coded strings that bypass the repository layer**. All data returned to users must come from the database via repositories, rendered through the analytics pipeline.
 
@@ -459,9 +521,12 @@ Prefer asserting parsed event data when a helper exists:
 assertThat(extractEventData(payload, "message")).containsSequence("first", "second");
 ```
 
-### Running Tests
+### Running Tests And Static Analysis
 
 ```bash
+# Run backend PMD only (skip frontend build)
+mvn "-Dfrontend.skip=true" pmd:check
+
 # Run backend tests only (skip frontend build)
 mvn "-Dfrontend.skip=true" test
 
