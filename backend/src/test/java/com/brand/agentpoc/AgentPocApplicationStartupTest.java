@@ -34,16 +34,16 @@ class AgentPocApplicationStartupTest {
     }
 
     @Test
-    void applicationYamlDefaultsCredentialsForLocalDev() {
+    void applicationYamlDoesNotDefaultCredentials() {
         YamlPropertiesFactoryBean factory = new YamlPropertiesFactoryBean();
         factory.setResources(new ClassPathResource("application.yml"));
 
         Properties properties = factory.getObject();
 
         assertThat(properties).isNotNull();
-        assertThat(properties.getProperty("app.auth.access-key")).isEqualTo("${APP_ACCESS_KEY:demo123}");
-        assertThat(properties.getProperty("app.auth.session-secret")).isEqualTo("${APP_SESSION_SECRET:demo123-session-secret-at-least-32-chars}");
-        assertThat(properties.getProperty("app.security.api-key")).isEqualTo("${APP_API_KEY:demo123-api-key}");
+        assertThat(properties.getProperty("app.auth.access-key")).isEqualTo("${APP_ACCESS_KEY:}");
+        assertThat(properties.getProperty("app.auth.session-secret")).isEqualTo("${APP_SESSION_SECRET:}");
+        assertThat(properties.getProperty("app.security.api-key")).isEqualTo("${APP_API_KEY:}");
     }
 
     @Test
