@@ -16,6 +16,10 @@ import com.brand.agentpoc.repository.OpportunityRepository;
 import com.brand.agentpoc.repository.TargetRepository;
 import com.brand.agentpoc.repository.TaskRepository;
 import com.brand.agentpoc.service.analytics.AnalyticsCalculator;
+import com.brand.agentpoc.service.analytics.AnalyticsChartRenderer;
+import com.brand.agentpoc.service.analytics.AnalyticsChartRenderer.ChartEntityType;
+import com.brand.agentpoc.service.analytics.AnalyticsReportComposer;
+import com.brand.agentpoc.service.analytics.AnalyticsReportComposer.SummaryContext;
 import com.brand.agentpoc.service.analytics.DirectQuestionMatcher;
 import com.brand.agentpoc.service.analytics.ReportRenderer;
 import java.time.Clock;
@@ -76,6 +80,8 @@ public class RuleBasedAnalyticsService {
     private final DataQueryService dataQueryService;
     private final Clock clock;
     private final ReportRenderer reportRenderer = new ReportRenderer();
+    private final AnalyticsChartRenderer chartRenderer = new AnalyticsChartRenderer(reportRenderer);
+    private final AnalyticsReportComposer reportComposer = new AnalyticsReportComposer(reportRenderer);
     private final AnalyticsCalculator analyticsCalculator = new AnalyticsCalculator();
     private final ThreadLocal<AnalysisDataCache> analysisDataCache = new ThreadLocal<>();
 
@@ -5111,18 +5117,6 @@ public class RuleBasedAnalyticsService {
         }
     }
 
-    private record SummaryContext(
-            String scenarioLabel,
-            int totalUnits,
-            String primaryMetricLabel,
-            String primaryValue,
-            String primaryBenchmark,
-            String bestUnitLabel,
-            String bestUnitValue,
-            String worstUnitLabel,
-            String worstUnitValue
-    ) {}
-
     private final class AnalysisDataCache {
 
         private List<Dealer> dealers;
@@ -5461,18 +5455,6 @@ public class RuleBasedAnalyticsService {
     ) {
     }
 
-    private enum ChartEntityType {
-        DEALER,
-        CAMPAIGN,
-        STAGE,
-        SOURCE,
-        GENERIC
-    }
-
-    private ReportRenderer.ChartEntityType rendererChartEntityType(ChartEntityType entityType) {
-        return ReportRenderer.ChartEntityType.valueOf(entityType.name());
-    }
-
     private <T> List<T> bottomTopDistinct(List<T> sorted, int showLimit) {
         int show = Math.min(showLimit, sorted.size());
         return Stream.concat(
@@ -5489,7 +5471,7 @@ public class RuleBasedAnalyticsService {
             List<Double> values,
             Double averageLine
     ) {
-        return reportRenderer.chartJsonBar(title, chartMetricName(yLabel), chartMetricType(yLabel), labels, values, averageLine);
+        return chartRenderer.xyChart(title, xLabel, yLabel, labels, values, averageLine);
     }
 
     private String buildMermaidXyChart(
@@ -5501,44 +5483,23 @@ public class RuleBasedAnalyticsService {
             List<Double> values,
             Double averageLine
     ) {
-        return reportRenderer.chartJsonBar(
-                title,
-                chartMetricName(yLabel),
-                chartMetricType(yLabel),
-                rendererChartEntityType(entityType),
-                labels,
-                values,
-                averageLine
-        );
+        return chartRenderer.xyChart(title, xLabel, yLabel, entityType, labels, values, averageLine);
     }
 
     private String buildMermaidPie(String title, Map<String, Double> slices) {
-        return reportRenderer.chartJsonPie(title, slices);
+        return chartRenderer.pieChart(title, slices);
     }
 
     private String buildMermaidPie(String title, ChartEntityType entityType, Map<String, Double> slices) {
-        return reportRenderer.chartJsonPie(title, rendererChartEntityType(entityType), slices);
-    }
-
-    private String chartMetricName(String yLabel) {
-        return String.valueOf(yLabel == null ? "" : yLabel)
-                .replaceAll("\\s*\\([^)]*\\)", "")
-                .trim();
-    }
-
-    private String chartMetricType(String yLabel) {
-        String label = String.valueOf(yLabel == null ? "" : yLabel).toLowerCase(Locale.ROOT);
-        return label.contains("%") || label.contains("rate") || label.contains("\u7387")
-                ? "percentage"
-                : "absolute";
+        return chartRenderer.pieChart(title, entityType, slices);
     }
 
     private String buildFallbackBars(List<String> labels, List<Double> values, double maxValue) {
-        return reportRenderer.fallbackBars(labels, values, maxValue);
+        return chartRenderer.fallbackBars(labels, values, maxValue);
     }
 
     private String buildFallbackBars(ChartEntityType entityType, List<String> labels, List<Double> values, double maxValue) {
-        return reportRenderer.fallbackBars(rendererChartEntityType(entityType), labels, values, maxValue);
+        return chartRenderer.fallbackBars(entityType, labels, values, maxValue);
     }
 
     private String buildEnrichedReply(
@@ -5552,125 +5513,17 @@ public class RuleBasedAnalyticsService {
             List<String> recommendations,
             List<String> followUps
     ) {
-        boolean isZh = "zh".equals(language);
-
-        StringBuilder body = new StringBuilder();
-
-        // Section 1: Conclusion
-        body.append(isZh ? "## 核心结论\n\n" : "## Conclusion\n\n");
-        body.append(escapeHtml(conclusion)).append("\n");
-
-        // Section 2: Data Support
-        body.append(isZh ? "## 数据支撑\n\n" : "## Data Support\n\n");
-        body.append(buildHtmlTable(dataRows, language)).append("\n");
-        if (mermaid != null && !mermaid.isBlank()) {
-            body.append("\n").append(mermaid).append("\n");
-        }
-        if (fallback != null && !fallback.isBlank()) {
-            body.append("\n").append(fallback).append("\n");
-        }
-
-        // Section 3: Analysis (merged section with sub-headers)
-        body.append(isZh ? "## 经营分析\n\n" : "## Short Analysis\n\n");
-
-        if (!attributions.isEmpty()) {
-            body.append(isZh ? "**数据归因：**\n\n" : "**Data Attribution:**\n\n");
-            for (String attr : attributions) {
-                body.append("- ").append(escapeHtml(attr)).append("\n");
-            }
-            body.append("\n");
-        }
-        if (!recommendations.isEmpty()) {
-            body.append(isZh ? "**可执行建议：**\n\n" : "**Recommendations:**\n\n");
-            for (String rec : recommendations) {
-                body.append("- ").append(escapeHtml(rec)).append("\n");
-            }
-            body.append("\n");
-        }
-
-        // Section 4: Problem Diagnosis
-        body.append(isZh ? "## 问题诊断与解决\n\n" : "## Problem Diagnosis\n\n");
-        int totalUnits = summaryContext != null ? summaryContext.totalUnits() : 0;
-        String worstLabel = summaryContext != null ? summaryContext.worstUnitLabel() : null;
-        String worstValue = summaryContext != null ? summaryContext.worstUnitValue() : null;
-        String primaryMetric = summaryContext != null ? summaryContext.primaryMetricLabel() : "";
-        double primaryRate = summaryContext != null ? parsePrimaryRate(summaryContext.primaryValue()) : 0;
-
-        if (isZh) {
-            if (totalUnits == 0) {
-                body.append("- 当前范围内无匹配数据，无法进行诊断分析。建议扩大查询范围或检查数据导入状态。\n\n");
-            } else if (primaryRate > 0 && worstLabel != null && !worstLabel.isEmpty()) {
-                body.append(String.format("- **主要差距**：%s 的%s仅为 **%s**，低于 80%% 基准线。\n",
-                        worstLabel, primaryMetric, worstValue));
-                body.append("  - 根因分析：该指标未达标可能与线索质量、跟进效率或市场环境有关。\n");
-                body.append(String.format("  - 解决动作：建议对 %s 进行专项复盘，优化资源配置，并在本月底前完成一轮辅导。\n\n", worstLabel));
-            } else if (primaryRate >= 80.0) {
-                body.append(String.format("- 当前%s表现良好（%.1f%%），整体稳定。下一阶段应关注相对薄弱的维度，防范新的短板出现。\n\n",
-                        primaryMetric, primaryRate));
-            } else {
-                body.append("- 当前数据量不足以进行细粒度诊断，建议扩大查询范围。\n\n");
-            }
-        } else {
-            if (totalUnits == 0) {
-                body.append("- No matching data in the current scope; unable to perform diagnostic analysis. Consider broadening the scope or checking data import status.\n\n");
-            } else if (primaryRate > 0 && worstLabel != null && !worstLabel.isEmpty()) {
-                body.append(String.format("- **Main gap**: %s has %s of only **%s**, below the 80%% baseline.\n",
-                        worstLabel, primaryMetric, worstValue));
-                body.append("  - Root cause: This underperformance may relate to lead quality, follow-up efficiency, or market conditions.\n");
-                body.append(String.format("  - Action: Conduct a targeted review for %s, optimize resource allocation, and complete a coaching round by month-end.\n\n", worstLabel));
-            } else if (primaryRate >= 80.0) {
-                body.append(String.format("- Current %s is performing well (%.1f%%), overall stable. Focus on relatively weaker dimensions to prevent new gaps.\n\n",
-                        primaryMetric, primaryRate));
-            } else {
-                body.append("- Insufficient data for granular diagnosis; consider broadening the scope.\n\n");
-            }
-        }
-
-        // Section 5: Improvement Suggestions
-        body.append(isZh ? "## 改进建议\n\n" : "## Improvement Suggestions\n\n");
-        if (isZh) {
-            if (primaryRate >= 80.0) {
-                body.append("- **扩大优势**：总结表现最佳的门店/活动的成功经验，形成标准化操作手册。\n");
-                body.append("- **横向复制**：将高效做法推广至其他门店/车型，下季度在集团内组织经验分享会。\n\n");
-            } else if (totalUnits > 0) {
-                body.append("- **本月目标**：针对达成率最低的单位制定每周跟进计划，月底前提升 10-15 个百分点。\n");
-                body.append("- **下季度目标**：建立月度复盘机制，每单位每月至少一次经营分析会。\n");
-                body.append("- **年度目标**：集团整体达成率 ≥ 85%，对连续两季度不达标的单位启动专项帮扶。\n\n");
-            } else {
-                body.append("- 当前数据不足，无法生成有针对性的改进建议。\n\n");
-            }
-        } else {
-            if (primaryRate >= 80.0) {
-                body.append("- **Expand strengths**: Document the best-performing unit/campaign success patterns into a standardized playbook.\n");
-                body.append("- **Lateral replication**: Promote effective practices to other stores/models, organize quarterly experience-sharing sessions.\n\n");
-            } else if (totalUnits > 0) {
-                body.append("- **This month**: Create a weekly follow-up plan for the lowest-performing unit, targeting a 10-15 pp improvement by month-end.\n");
-                body.append("- **Next quarter**: Establish a monthly review cadence with at least one operations review per unit per month.\n");
-                body.append("- **Annual**: Overall group achievement rate >= 85%, launch targeted support for units underperforming for two consecutive quarters.\n\n");
-            } else {
-                body.append("- Insufficient data to generate targeted improvement suggestions.\n\n");
-            }
-        }
-
-        // Section 6: Follow-up Questions
-        body.append(isZh ? "追问：\n\n" : "FOLLOW_UP_QUESTIONS:\n\n");
-        for (int i = 0; i < followUps.size(); i++) {
-            body.append(i + 1).append(". ").append(escapeHtml(followUps.get(i))).append("\n");
-        }
-
-        return body.toString();
-    }
-
-    private static double parsePrimaryRate(String primaryValue) {
-        if (primaryValue == null || primaryValue.isBlank()) {
-            return 0;
-        }
-        try {
-            String cleaned = primaryValue.replace("%", "").replace(",", ".").trim();
-            return Double.parseDouble(cleaned);
-        } catch (NumberFormatException e) {
-            return 0;
-        }
+        return reportComposer.enrichedReply(
+                language,
+                conclusion,
+                dataRows,
+                summaryContext,
+                mermaid,
+                fallback,
+                attributions,
+                recommendations,
+                followUps
+        );
     }
 
     private boolean matchesScope(Target t, AnalysisScope scope) {
