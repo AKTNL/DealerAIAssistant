@@ -10,7 +10,7 @@ const SCROLL_LOCK_THRESHOLD = 40;
 const ASSISTANT_RENDER_DELAY_MS = 100;
 const STREAM_PHASE = { IDLE: "idle", THINKING: "thinking", GENERATING: "generating" };
 
-export function useChat({ authVerified, dictionary, locale, modelSettings, openModelSettings, onAuthExpired }) {
+export function useChat({ authVerified, dictionary, locale, modelSettings, onAuthExpired }) {
   const promptInput = ref("");
   const isSending = ref(false);
   const requestError = ref("");

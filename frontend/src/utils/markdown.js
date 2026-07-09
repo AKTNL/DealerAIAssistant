@@ -37,7 +37,7 @@ markdown.renderer.rules.link_open = (tokens, index, options, env, self) => {
   return self.renderToken(tokens, index, options);
 };
 
-markdown.renderer.rules.fence = (tokens, index, options, env, self) => {
+markdown.renderer.rules.fence = (tokens, index, options, env) => {
   const token = tokens[index];
   const info = token.info ? markdown.utils.unescapeAll(token.info).trim() : "";
   const langName = info ? escapeHtml(info.split(/\s+/g)[0]) : "";

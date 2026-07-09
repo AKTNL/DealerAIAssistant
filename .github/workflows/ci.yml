@@ -31,6 +31,9 @@ jobs:
           java-version: "21"
           cache: maven
 
+      - name: Run PMD
+        run: mvn -B -ntp -Dfrontend.skip=true pmd:check
+
       - name: Run Maven tests
         run: mvn -B -ntp -Dfrontend.skip=true test
 
@@ -53,6 +56,9 @@ jobs:
 
       - name: Install dependencies
         run: npm ci --no-audit --no-fund
+
+      - name: Run frontend lint
+        run: npm run lint
 
       - name: Run frontend tests
         run: npm test

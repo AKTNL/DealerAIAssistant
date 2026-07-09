@@ -48,7 +48,6 @@ const {
   isSending,
   jumpToLatest,
   messages,
-  openMobileSidebar,
   promptInput,
   requestError,
   scrollContainer,

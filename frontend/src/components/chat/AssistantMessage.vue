@@ -100,7 +100,6 @@ let mermaidRenderSequence = 0;
 let mermaidSyncQueued = false;
 let mermaidForceSyncQueued = false;
 let mermaidSyncInFlight = false;
-let mermaidSyncPromise = Promise.resolve();
 
 function getMermaidLabels() {
   return {
@@ -429,7 +428,7 @@ function queueMermaidSync({ force = false } = {}) {
   }
 
   mermaidSyncInFlight = true;
-  mermaidSyncPromise = nextTick()
+  void nextTick()
     .then(async () => {
       while (mermaidSyncQueued) {
         const shouldForce = mermaidForceSyncQueued;
