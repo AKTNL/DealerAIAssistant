@@ -244,6 +244,30 @@ vi.mock("../../utils/markdown", () => ({
 
 `vi.hoisted()` is used when the mock needs to be referenced inside a `vi.mock()` factory AND used in assertions -- it hoists the mock function above the import level.
 
+When a parent component lazy-loads a heavy child component with `defineAsyncComponent`, keep the parent test focused on the parent contract. If the child has its own spec file, mock the child module and assert the props/DOM contract rather than depending on the child's async library initialization timing:
+
+```js
+const { adapterInputs } = vi.hoisted(() => ({ adapterInputs: [] }));
+
+vi.mock("../chat/MermaidChartAdapter.vue", async () => {
+  const { defineComponent, h } = await import("vue");
+
+  return {
+    __esModule: true,
+    default: defineComponent({
+      name: "MermaidChartAdapter",
+      props: { rawJson: { type: String, required: true } },
+      setup(props) {
+        adapterInputs.push(props.rawJson);
+        return () => h("section", { class: "chart-json-panel" });
+      }
+    })
+  };
+});
+```
+
+The `__esModule: true` marker is required for mocked `.vue` modules used through dynamic `import()`, otherwise Vue Test Utils can see the module namespace object instead of the component.
+
 ### Testing Composables
 
 Composables are tested by mounting a minimal harness component that calls the composable in its `setup()`:
@@ -317,4 +341,4 @@ When reviewing a frontend PR, verify:
 2. **Skipping tests for simple components.** Even simple components like `SystemMessage.vue` and `UserMessage.vue` have tests. The bar for test coverage is high.
 3. **Not testing error paths.** Happy-path tests are easy; the codebase also tests auth failures, network errors, and edge cases like expired tokens.
 4. **Importing UI library CSS globally in a component.** All global CSS imports belong in `main.js`. Component-specific styling that can't be done with existing CSS classes should be discussed before introducing scoped `<style>` blocks.
-5. **Asserting async component internals before rendering settles.** Lazy components loaded with `defineAsyncComponent` can resolve more slowly in CI than locally. Tests should wait for the user-visible DOM contract (for example, `.chart-json-panel`) and assert relevant side effects instead of immediately asserting the async component wrapper name after a single flush.
+5. **Letting parent component tests depend on heavy lazy child internals.** Lazy components loaded with `defineAsyncComponent` can resolve more slowly in CI than locally. If the child behavior is already covered by its own spec, mock the child module in the parent test and assert the parent-to-child contract (for example, raw JSON props and `.chart-json-panel` placement) instead of waiting on ECharts/Mermaid initialization inside the parent test.

@@ -6,7 +6,8 @@ const { mermaidInitializeMock, mermaidRenderMock } = vi.hoisted(() => ({
   mermaidRenderMock: vi.fn()
 }));
 
-const { echartsInitMock, echartsUseMock } = vi.hoisted(() => ({
+const { chartAdapterRawJsonValues, echartsInitMock, echartsUseMock } = vi.hoisted(() => ({
+  chartAdapterRawJsonValues: [],
   echartsInitMock: vi.fn(() => ({
     dispose: vi.fn(),
     resize: vi.fn(),
@@ -45,6 +46,36 @@ vi.mock("echarts/core", () => ({
 vi.mock("echarts/renderers", () => ({
   CanvasRenderer: {}
 }));
+
+vi.mock("../chat/MermaidChartAdapter.vue", async () => {
+  const { defineComponent, h } = await import("vue");
+
+  return {
+    __esModule: true,
+    default: defineComponent({
+      name: "MermaidChartAdapter",
+      props: {
+        rawJson: {
+          type: String,
+          required: true
+        }
+      },
+      setup(props) {
+        chartAdapterRawJsonValues.push(props.rawJson);
+
+        return () => h("section", {
+          class: "chart-json-panel",
+          "data-chart-json-type": "stub"
+        }, [
+          h("div", {
+            class: "chart-json-canvas",
+            "data-raw-json": props.rawJson
+          })
+        ]);
+      }
+    })
+  };
+});
 
 import { renderMarkdownLite } from "../../utils/markdown";
 
@@ -139,6 +170,7 @@ async function waitForElement(wrapper, selector) {
 }
 
 beforeEach(() => {
+  chartAdapterRawJsonValues.length = 0;
   echartsInitMock.mockClear();
   echartsUseMock.mockClear();
   mermaidRenderMock.mockReset();
@@ -820,7 +852,7 @@ describe("AssistantMessage analysis enhancements", () => {
     expect(wrapper.find(".analysis-chart-panel").exists()).toBe(false);
   });
 
-  test("renders chart-json fences through the lazy ECharts adapter", async () => {
+  test("passes chart-json fences to the lazy chart adapter", async () => {
     const html = renderMarkdownLite(`\`\`\`chart-json
 {"type":"bar","title":"Achievement","metric":"Rate","categories":["A","B"],"values":[80,60]}
 \`\`\``);
@@ -831,7 +863,10 @@ describe("AssistantMessage analysis enhancements", () => {
     expect(wrapper.find(".chart-json-block").exists()).toBe(true);
     const placeholder = wrapper.element.querySelector(".chart-json-block");
     expect(renderedChart).toBeTruthy();
-    expect(echartsInitMock).toHaveBeenCalled();
+    expect(chartAdapterRawJsonValues).toEqual([
+      '{"type":"bar","title":"Achievement","metric":"Rate","categories":["A","B"],"values":[80,60]}'
+    ]);
+    expect(renderedChart.querySelector(".chart-json-canvas").dataset.rawJson).toBe(chartAdapterRawJsonValues[0]);
     expect(placeholder.compareDocumentPosition(renderedChart) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(mermaidRenderMock).not.toHaveBeenCalled();
   });
