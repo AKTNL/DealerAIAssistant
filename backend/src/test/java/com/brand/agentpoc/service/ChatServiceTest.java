@@ -646,10 +646,7 @@ class ChatServiceTest {
         chatService.streamChat(request, outputStream);
 
         String payload = outputStream.toString(StandardCharsets.UTF_8);
-        assertThat(payload).containsSubsequence(
-                "event: message\r\ndata: Hello ",
-                "event: message\r\ndata: world"
-        );
+        assertThat(extractEventData(payload, "message")).containsSequence("Hello ", "world");
         assertThat(payload).contains("data: FOLLOW_UP_QUESTIONS:");
         assertThat(payload).contains("event: done");
         verify(sessionMemoryService).addAssistantMessage(eq("s1"), replyCaptor.capture());

@@ -317,3 +317,4 @@ When reviewing a frontend PR, verify:
 2. **Skipping tests for simple components.** Even simple components like `SystemMessage.vue` and `UserMessage.vue` have tests. The bar for test coverage is high.
 3. **Not testing error paths.** Happy-path tests are easy; the codebase also tests auth failures, network errors, and edge cases like expired tokens.
 4. **Importing UI library CSS globally in a component.** All global CSS imports belong in `main.js`. Component-specific styling that can't be done with existing CSS classes should be discussed before introducing scoped `<style>` blocks.
+5. **Asserting async component internals before rendering settles.** Lazy components loaded with `defineAsyncComponent` can resolve more slowly in CI than locally. Tests should wait for the user-visible DOM contract (for example, `.chart-json-panel`) and assert relevant side effects instead of immediately asserting the async component wrapper name after a single flush.

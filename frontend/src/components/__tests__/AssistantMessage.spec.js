@@ -122,7 +122,25 @@ async function flushMermaid() {
   }
 }
 
+async function waitForElement(wrapper, selector) {
+  for (let index = 0; index < 10; index += 1) {
+    await flushPromises();
+    await new Promise((resolve) => {
+      setTimeout(resolve, 0);
+    });
+
+    const element = wrapper.element.querySelector(selector);
+    if (element) {
+      return element;
+    }
+  }
+
+  return null;
+}
+
 beforeEach(() => {
+  echartsInitMock.mockClear();
+  echartsUseMock.mockClear();
   mermaidRenderMock.mockReset();
   mermaidRenderMock.mockResolvedValue({ svg: "<svg><text>ok</text></svg>" });
   global.ResizeObserver = vi.fn(() => ({
@@ -808,13 +826,12 @@ describe("AssistantMessage analysis enhancements", () => {
 \`\`\``);
     const wrapper = mountAssistant(buildMessage(html));
 
-    await flushMermaid();
+    const renderedChart = await waitForElement(wrapper, ".chart-json-panel");
 
     expect(wrapper.find(".chart-json-block").exists()).toBe(true);
-    expect(wrapper.findComponent({ name: "MermaidChartAdapter" }).exists()).toBe(true);
     const placeholder = wrapper.element.querySelector(".chart-json-block");
-    const renderedChart = wrapper.element.querySelector(".chart-json-panel");
     expect(renderedChart).toBeTruthy();
+    expect(echartsInitMock).toHaveBeenCalled();
     expect(placeholder.compareDocumentPosition(renderedChart) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(mermaidRenderMock).not.toHaveBeenCalled();
   });

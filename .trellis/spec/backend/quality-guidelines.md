@@ -440,6 +440,25 @@ mockMvc = MockMvcBuilders.standaloneSetup(
         .build();
 ```
 
+**SSE payload tests normalize line endings**:
+
+CI runs on Linux while local development may happen on Windows. Tests that
+assert streamed SSE blocks must normalize `\r\n` to `\n`, or parse event data
+through a helper, before checking ordering:
+
+```java
+String normalizedPayload = payload.replace("\r\n", "\n");
+assertThat(normalizedPayload).containsSubsequence(
+        "event: message\ndata: first",
+        "event: message\ndata: second");
+```
+
+Prefer asserting parsed event data when a helper exists:
+
+```java
+assertThat(extractEventData(payload, "message")).containsSequence("first", "second");
+```
+
 ### Running Tests
 
 ```bash
