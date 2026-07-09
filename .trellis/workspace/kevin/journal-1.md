@@ -203,3 +203,36 @@ Added a GitHub Actions CI workflow with separate backend Maven tests and fronten
 ### Next Steps
 
 - None - task complete
+
+
+## Session 7: CI 测试稳定性修复
+
+**Date**: 2026-07-09
+**Task**: CI 测试稳定性修复
+**Branch**: `main`
+
+### Summary
+
+修复远端 CI 上后端 SSE 换行断言和前端 lazy chart-json adapter 异步等待导致的测试失败，并将测试稳定性约定补充到 backend/frontend quality specs。
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `7170839` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
