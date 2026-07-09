@@ -1,10 +1,20 @@
 // @vitest-environment node
 
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import config from "../../vite.config.js";
 
 describe("vite manual chunks", () => {
   const manualChunks = config.build?.rollupOptions?.output?.manualChunks;
+
+  it("preserves backend-owned static files during frontend builds", () => {
+    expect(config.build?.outDir).toBe("../backend/src/main/resources/static");
+    expect(config.build?.emptyOutDir).toBe(false);
+
+    const packageJson = JSON.parse(readFileSync(resolve(process.cwd(), "package.json"), "utf8"));
+    expect(packageJson.scripts?.prebuild).toBe("node scripts/clean-build-assets.js");
+  });
 
   it("uses function-form manual chunks", () => {
     expect(manualChunks).toEqual(expect.any(Function));

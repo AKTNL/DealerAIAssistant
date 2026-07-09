@@ -305,6 +305,77 @@ The project has ~30 test files covering all major modules. New code should add t
 
 ---
 
+## Scenario: Vite Build Output Into Backend Static Resources
+
+### 1. Scope / Trigger
+- Trigger: `frontend/vite.config.js` writes the production build into `backend/src/main/resources/static`, which is also a backend-owned static resource directory.
+- This is an infra and cross-layer contract because frontend build settings can delete backend files such as `openapi.json`, `logo.png`, or `background.jpg`.
+
+### 2. Signatures
+- Frontend build command: `npm run build`
+- Build pre-hook: `npm run prebuild` runs automatically before `build`
+- Vite output:
+  - `build.outDir = "../backend/src/main/resources/static"`
+  - `build.emptyOutDir = false`
+- Generated asset cleanup script: `frontend/scripts/clean-build-assets.js`
+
+### 3. Contracts
+- The backend static root is not disposable.
+- Vite must not empty `backend/src/main/resources/static`.
+- Generated frontend assets live under `backend/src/main/resources/static/assets`.
+- The build pre-hook may delete only the generated `assets/` directory.
+- Backend-owned files at the static root must survive every frontend build:
+  - `openapi.json`
+  - `logo.png`
+  - `background.jpg`
+
+### 4. Validation & Error Matrix
+- `emptyOutDir: true` -> reject; it can delete backend-owned static files.
+- Missing `prebuild` script -> reject; stale hashed assets can accumulate.
+- Cleanup path outside `backend/src/main/resources/static/assets` -> reject; path guard must fail.
+- `npm run build` removes `openapi.json`, `logo.png`, or `background.jpg` -> build contract regression.
+
+### 5. Good/Base/Bad Cases
+- Good: `npm run build` runs `node scripts/clean-build-assets.js`, rebuilds frontend assets, and preserves backend-owned root static files.
+- Base: `npm test` asserts `outDir`, `emptyOutDir`, and the package `prebuild` hook.
+- Bad: Using `emptyOutDir: true` on the backend static root makes Vite treat the whole backend static directory as generated output.
+
+### 6. Tests Required
+- `frontend/src/__tests__/viteConfig.spec.js` must assert:
+  - `config.build.outDir === "../backend/src/main/resources/static"`
+  - `config.build.emptyOutDir === false`
+  - `package.json` keeps `scripts.prebuild === "node scripts/clean-build-assets.js"`
+- Manual or CI verification should include `npm run build` when changing build output paths or cleanup scripts.
+
+### 7. Wrong vs Correct
+
+Wrong:
+```js
+build: {
+  outDir: "../backend/src/main/resources/static",
+  emptyOutDir: true
+}
+```
+
+Correct:
+```js
+build: {
+  outDir: "../backend/src/main/resources/static",
+  emptyOutDir: false
+}
+```
+
+```json
+{
+  "scripts": {
+    "prebuild": "node scripts/clean-build-assets.js",
+    "build": "vite build"
+  }
+}
+```
+
+---
+
 ## Linting and Formatting
 
 No ESLint or Prettier configuration files exist in the `frontend/` directory. The codebase relies on:
