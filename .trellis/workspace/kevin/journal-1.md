@@ -269,3 +269,38 @@ Mocked the lazy chart-json adapter in AssistantMessage parent tests, documented 
 ### Next Steps
 
 - None - task complete
+
+
+## Session 9: Engineering hardening
+
+**Date**: 2026-07-09
+**Task**: Engineering hardening
+**Branch**: `main`
+
+### Summary
+
+Removed default demo credentials, made frontend build preserve backend static files, and extracted chat/analytics service collaborators with tests passing.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `30e122e` | (see git log) |
+| `6d8977d` | (see git log) |
+| `a5edb1f` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete

@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 8
+- **Total Sessions**: 9
 - **Last Active**: 2026-07-09
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~271 | Active |
+| `journal-1.md` | ~306 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 9 | 2026-07-09 | Engineering hardening | `30e122e`, `6d8977d`, `a5edb1f` | `main` |
 | 8 | 2026-07-09 | Stabilize chart-json frontend CI | `ea9cc39` | `main` |
 | 7 | 2026-07-09 | CI 测试稳定性修复 | `7170839` | `main` |
 | 6 | 2026-07-09 | README 文档可读性修复 | `5d4335a` | `main` |
