@@ -16,6 +16,7 @@ import com.brand.agentpoc.repository.OpportunityRepository;
 import com.brand.agentpoc.repository.TargetRepository;
 import com.brand.agentpoc.repository.TaskRepository;
 import com.brand.agentpoc.service.analytics.AnalyticsCalculator;
+import com.brand.agentpoc.service.analytics.DirectQuestionMatcher;
 import com.brand.agentpoc.service.analytics.ReportRenderer;
 import java.time.Clock;
 import java.time.LocalDate;
@@ -378,12 +379,12 @@ public class RuleBasedAnalyticsService {
         if (containsAny(normalized, "\u7ebf\u7d22", "\u6d41\u91cf", "lead", "source", "organic", "trend")) {
             return AnalysisTopic.LEAD_SOURCE;
         }
-        if (asksTopSalesVolume(normalized)
-                && (mentionsProductDimension(normalized) || mentionsDealerDimension(normalized)
+        if (DirectQuestionMatcher.asksTopSalesVolume(normalized)
+                && (DirectQuestionMatcher.mentionsProductDimension(normalized) || DirectQuestionMatcher.mentionsDealerDimension(normalized)
                         || containsAny(normalized, "\u8c01", "\u54ea\u4e2a", "\u54ea\u5bb6"))) {
             return AnalysisTopic.TARGET_ACHIEVEMENT;
         }
-        if (asksTopSalesVolume(normalized)) {
+        if (DirectQuestionMatcher.asksTopSalesVolume(normalized)) {
             return AnalysisTopic.TARGET_ACHIEVEMENT;
         }
         if (containsAny(normalized, "\u5bf9\u6807", "\u6bd4\u8f83", "\u8868\u73b0\u6700\u597d", "outperform", "benchmark", "compare", "best")) {
@@ -2952,15 +2953,15 @@ public class RuleBasedAnalyticsService {
         if (normalized == null) {
             return null;
         }
-        if (!"zh".equals(language) || !isDirectTargetQuestion(normalized)) {
+        if (!"zh".equals(language) || !DirectQuestionMatcher.isDirectTargetQuestion(normalized)) {
             return null;
         }
 
-        boolean asksModel = mentionsProductDimension(normalized);
-        boolean asksMostWon = asksTopSalesVolume(normalized);
-        boolean asksHighestRate = asksHighestRate(normalized);
-        boolean asksLowestRate = asksLowestRate(normalized);
-        boolean asksDealer = mentionsDealerDimension(normalized)
+        boolean asksModel = DirectQuestionMatcher.mentionsProductDimension(normalized);
+        boolean asksMostWon = DirectQuestionMatcher.asksTopSalesVolume(normalized);
+        boolean asksHighestRate = DirectQuestionMatcher.asksHighestRate(normalized);
+        boolean asksLowestRate = DirectQuestionMatcher.asksLowestRate(normalized);
+        boolean asksDealer = DirectQuestionMatcher.mentionsDealerDimension(normalized)
                 || (!asksModel && (asksMostWon || asksHighestRate || asksLowestRate));
 
         if (asksModel && asksMostWon) {
@@ -3051,7 +3052,7 @@ public class RuleBasedAnalyticsService {
         if (normalized == null) {
             return null;
         }
-        if (!"zh".equals(language) || !isDirectOpportunityQuestion(normalized)) {
+        if (!"zh".equals(language) || !DirectQuestionMatcher.isDirectOpportunityQuestion(normalized)) {
             return null;
         }
         List<Opportunity> filtered = cachedOpportunities().stream()
@@ -3078,7 +3079,7 @@ public class RuleBasedAnalyticsService {
                     "opportunity funnel", "Opportunity count", List.of());
         }
 
-        if (asksOpportunityStageBreakdown(normalized) || containsAny(normalized, "各阶段", "阶段分别", "商机漏斗")) {
+        if (DirectQuestionMatcher.asksOpportunityStageBreakdown(normalized) || containsAny(normalized, "各阶段", "阶段分别", "商机漏斗")) {
             List<CountMetric> metrics = countBy(filtered, Opportunity::getStageName).stream()
                     .sorted(countDescending())
                     .toList();
@@ -3107,7 +3108,7 @@ public class RuleBasedAnalyticsService {
         }
 
         if (containsAny(normalized, "线索来源", "来源", "渠道", "source")) {
-            if (asksWinRate(normalized)) {
+            if (DirectQuestionMatcher.asksWinRate(normalized)) {
                 List<RateMetric> metrics = rateBy(filtered, Opportunity::getLeadSource, this::isWonOpportunity).stream()
                         .filter(metric -> metric.total() >= 30 && isKnown(metric.label()))
                         .sorted(rateDescending())
@@ -3135,8 +3136,8 @@ public class RuleBasedAnalyticsService {
                     "opportunity funnel", "Opportunity count", List.of());
         }
 
-        if (mentionsProductDimension(normalized)) {
-            if (asksWinRate(normalized)) {
+        if (DirectQuestionMatcher.mentionsProductDimension(normalized)) {
+            if (DirectQuestionMatcher.asksWinRate(normalized)) {
                 List<RateMetric> metrics = rateBy(filtered, Opportunity::getProductModel, this::isWonOpportunity).stream()
                         .filter(metric -> metric.total() >= 30 && isKnown(metric.label()))
                         .sorted(rateDescending())
@@ -3169,7 +3170,7 @@ public class RuleBasedAnalyticsService {
         }
 
         if (containsAny(normalized, "赢单商机最多", "成交商机最多")
-                || (containsAny(normalized, "商机") && asksTopSalesVolume(normalized))) {
+                || (containsAny(normalized, "商机") && DirectQuestionMatcher.asksTopSalesVolume(normalized))) {
             List<CountMetric> metrics = countBy(filtered.stream().filter(this::isWonOpportunity).toList(), Opportunity::getDealerName).stream()
                     .sorted(countDescending())
                     .toList();
@@ -3208,7 +3209,7 @@ public class RuleBasedAnalyticsService {
         if (normalized == null) {
             return null;
         }
-        if (!"zh".equals(language) || !isDirectLeadQuestion(normalized)) {
+        if (!"zh".equals(language) || !DirectQuestionMatcher.isDirectLeadQuestion(normalized)) {
             return null;
         }
         List<Lead> filtered = cachedLeads().stream()
@@ -3221,7 +3222,7 @@ public class RuleBasedAnalyticsService {
             return null;
         }
 
-        if (asksStatusBreakdown(normalized) || containsAny(normalized, "状态分布", "一共有多少")) {
+        if (DirectQuestionMatcher.asksStatusBreakdown(normalized) || containsAny(normalized, "状态分布", "一共有多少")) {
             List<CountMetric> metrics = countBy(filtered, Lead::getStageName).stream().sorted(countDescending()).toList();
             String conclusion = "zh".equals(language)
                     ? "线索共 %d 条，其中 %s。".formatted(filtered.size(), joinCountMetrics(metrics, 5))
@@ -3359,7 +3360,7 @@ public class RuleBasedAnalyticsService {
         if (normalized == null) {
             return null;
         }
-        if (!"zh".equals(language) || !isDirectTaskQuestion(normalized)) {
+        if (!"zh".equals(language) || !DirectQuestionMatcher.isDirectTaskQuestion(normalized)) {
             return null;
         }
         List<Task> filtered = cachedTasks().stream()
@@ -3371,9 +3372,9 @@ public class RuleBasedAnalyticsService {
             return null;
         }
 
-        if (asksTaskSubjectBreakdown(normalized)) {
+        if (DirectQuestionMatcher.asksTaskSubjectBreakdown(normalized)) {
             List<CountMetric> metrics = countBy(filtered, Task::getSubject).stream().sorted(countDescending()).toList();
-            int limit = requestedTopLimit(normalized, 5);
+            int limit = DirectQuestionMatcher.requestedTopLimit(normalized, 5);
             String conclusion = "zh".equals(language)
                     ? "任务 Subject 中最多的是 %s。".formatted(joinCountMetrics(metrics, limit))
                     : "Top task subjects are %s.".formatted(joinCountMetrics(metrics, limit));
@@ -3489,7 +3490,7 @@ public class RuleBasedAnalyticsService {
         if (normalized == null) {
             return null;
         }
-        if (!"zh".equals(language) || !isDirectCampaignQuestion(normalized)) {
+        if (!"zh".equals(language) || !DirectQuestionMatcher.isDirectCampaignQuestion(normalized)) {
             return null;
         }
         List<Campaign> filtered = cachedCampaigns().stream()
@@ -4578,209 +4579,6 @@ public class RuleBasedAnalyticsService {
             return List.of("是否需要按经销商继续拆分？", "是否需要查看相关明细数据？");
         }
         return List.of("Should I break this down by dealer?", "Would you like the related detail rows?");
-    }
-
-    private boolean isDirectTargetQuestion(String normalized) {
-        return containsAny(normalized,
-                "整体新车目标达成",
-                "全量目标达成情况",
-                "全量数据中赢单数最多",
-                "全量数据中目标达成率最高",
-                "全量数据中目标达成率最低",
-                "全量数据中哪个车型",
-                "目标达成率较低的经销商",
-                "目标达成率最低的经销商有哪些",
-                "目标达成率最高的经销商是谁")
-                || asksTopSalesVolume(normalized)
-                || asksHighestRate(normalized)
-                || asksLowestRate(normalized)
-                || (containsAny(normalized, "2026年") && containsAny(normalized, "整体目标达成", "目标达成率最高", "目标完成率最高", "目标达成率最低", "目标完成率最低"));
-    }
-
-    private boolean isDirectOpportunityQuestion(String normalized) {
-        return containsAny(normalized,
-                "当前商机一共有多少",
-                "阶段分别有多少",
-                "商机最多的经销商",
-                "赢单商机最多",
-                "战败商机最多",
-                "高概率商机主要集中",
-                "商机主要来自哪些线索来源",
-                "商机主要来源于哪些线索来源",
-                "线索来源的商机赢单率最高",
-                "哪个车型商机数量最多",
-                "哪个车型赢单率最高",
-                "的商机漏斗如何",
-                "购买周期最多集中",
-                "购车周期年龄",
-                "购车周期")
-                || asksOpportunityStageBreakdown(normalized)
-                || asksOpportunitySourceBreakdown(normalized)
-                || (mentionsProductDimension(normalized) && (asksWinRate(normalized) || asksBreakdown(normalized)))
-                || (containsAny(normalized, "商机") && asksTopSalesVolume(normalized))
-                || (containsAny(normalized, "年龄", "购车周期") && containsAny(normalized, "区间", "集中"));
-    }
-
-    private boolean isDirectLeadQuestion(String normalized) {
-        return containsAny(normalized,
-                "线索一共有多少",
-                "状态分布如何",
-                "线索来源最多的是哪个渠道",
-                "哪个线索来源转化率最高",
-                "线索的转化情况怎么样",
-                "线索意向车型最多",
-                "线索分配最多",
-                "转化线索最多",
-                "线索的转化情况怎么样")
-                || (containsAny(normalized, "线索") && (asksStatusBreakdown(normalized) || asksBreakdown(normalized)))
-                || (containsAny(normalized, "线索") && containsAny(normalized, "转化情况", "转化怎么样"))
-                || (containsAny(normalized, "来源", "XY") && containsAny(normalized, "线索", "转化情况"));
-    }
-
-    private boolean isDirectTaskQuestion(String normalized) {
-        return containsAny(normalized,
-                "任务总体完成情况",
-                "任务类型最多",
-                "哪个经销商关联任务最多",
-                "哪个经销商计划中任务最多",
-                "任务完成率最低",
-                "任务完成情况怎么样")
-                || asksTaskSubjectBreakdown(normalized);
-    }
-
-    private boolean isDirectCampaignQuestion(String normalized) {
-        return containsAny(normalized,
-                "市场活动一共有多少个",
-                "活动最多的经销商",
-                "市场活动总体商机目标完成情况",
-                "活动产生商机最多的单个活动",
-                "哪个经销商活动商机产出最多",
-                "活动效果怎么样",
-                "活动目标商机完成率为0");
-    }
-
-    private boolean asksTopSalesVolume(String normalized) {
-        return containsAny(normalized,
-                "赢单数最多",
-                "赢单数量最多",
-                "赢单商机最多",
-                "赢单最多",
-                "成交商机最多",
-                "成交最多",
-                "成交量最多",
-                "成交数量最多",
-                "卖得最好",
-                "卖得最多",
-                "销量最高",
-                "销量最好",
-                "销量最多",
-                "销售最好",
-                "销售最多",
-                "售出最多",
-                "最畅销",
-                "畅销",
-                "won most",
-                "most won",
-                "best-selling",
-                "best selling",
-                "most sold");
-    }
-
-    private boolean asksHighestRate(String normalized) {
-        return containsAny(normalized,
-                "达成率最高",
-                "完成率最高",
-                "目标达成率最高",
-                "目标完成率最高",
-                "最高达成率",
-                "最高完成率",
-                "achievement rate highest",
-                "highest achievement",
-                "highest completion");
-    }
-
-    private boolean asksLowestRate(String normalized) {
-        return containsAny(normalized,
-                "达成率最低",
-                "完成率最低",
-                "目标达成率最低",
-                "目标完成率最低",
-                "较低",
-                "最低",
-                "lowest achievement",
-                "lowest completion");
-    }
-
-    private boolean asksWinRate(String normalized) {
-        return containsAny(normalized,
-                "赢单率",
-                "成交率",
-                "成交转化率",
-                "win rate",
-                "conversion rate");
-    }
-
-    private boolean mentionsProductDimension(String normalized) {
-        return containsAny(normalized,
-                "车型",
-                "车款",
-                "哪款车",
-                "哪种车",
-                "product model",
-                "model");
-    }
-
-    private boolean mentionsDealerDimension(String normalized) {
-        return containsAny(normalized,
-                "经销商",
-                "门店",
-                "店",
-                "dealer",
-                "store");
-    }
-
-    private boolean asksBreakdown(String normalized) {
-        return containsAny(normalized,
-                "分布",
-                "分别",
-                "分别多少",
-                "分别有多少",
-                "多少",
-                "怎么分",
-                "按",
-                "占比",
-                "结构",
-                "构成",
-                "breakdown",
-                "distribution");
-    }
-
-    private boolean asksStatusBreakdown(String normalized) {
-        return containsAny(normalized, "状态", "status") && asksBreakdown(normalized);
-    }
-
-    private boolean asksOpportunityStageBreakdown(String normalized) {
-        return containsAny(normalized, "阶段", "stage") && asksBreakdown(normalized);
-    }
-
-    private boolean asksOpportunitySourceBreakdown(String normalized) {
-        return containsAny(normalized, "来源", "渠道", "source")
-                && (containsAny(normalized, "商机", "opportunity") || asksBreakdown(normalized) || asksWinRate(normalized));
-    }
-
-    private boolean asksTaskSubjectBreakdown(String normalized) {
-        return containsAny(normalized, "任务类型", "任务类别", "subject")
-                || (containsAny(normalized, "任务", "task") && containsAny(normalized, "类型", "类别"));
-    }
-
-    private int requestedTopLimit(String normalized, int defaultLimit) {
-        if (containsAny(normalized, "前三", "top3", "top 3")) {
-            return 3;
-        }
-        if (containsAny(normalized, "前五", "top5", "top 5")) {
-            return 5;
-        }
-        return defaultLimit;
     }
 
     private TargetAggregateMetric aggregateTarget(List<Target> targets, String label) {
