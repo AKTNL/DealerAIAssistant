@@ -339,3 +339,36 @@ Added frontend ESLint and backend PMD quality gates, wired them into CI, extract
 ### Next Steps
 
 - None - task complete
+
+
+## Session 11: README startup commands
+
+**Date**: 2026-07-10
+**Task**: README startup commands
+**Branch**: `main`
+
+### Summary
+
+Updated README with PowerShell startup steps, reproducible frontend install, lint and PMD quality commands, CI gate notes, and the analytics topic classifier reference; started backend and frontend locally.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `a5cfadf` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
