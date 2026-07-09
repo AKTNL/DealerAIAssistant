@@ -71,3 +71,36 @@ Extracted direct-question matching predicates from RuleBasedAnalyticsService int
 ### Next Steps
 
 - None - task complete
+
+
+## Session 3: Adjust Trellis git ignore strategy
+
+**Date**: 2026-07-09
+**Task**: Adjust Trellis git ignore strategy
+**Branch**: `main`
+
+### Summary
+
+Removed the broad .trellis/ ignore rule, replaced it with specific generated/runtime Trellis ignores, versioned Trellis project persistence files, and verified git ignore behavior.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `890ed89` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete

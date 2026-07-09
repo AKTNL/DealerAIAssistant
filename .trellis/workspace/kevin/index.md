@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 2
+- **Total Sessions**: 3
 - **Last Active**: 2026-07-09
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~73 | Active |
+| `journal-1.md` | ~106 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 3 | 2026-07-09 | Adjust Trellis git ignore strategy | `890ed89` | `main` |
 | 2 | 2026-07-09 | Refactor RuleBasedAnalyticsService direct question matcher | `dcd8b31` | `main` |
 | 1 | 2026-06-15 | 修复准确率测试题库 + 填充 Spec 编码规范 | `9d80745` | `main` |
 <!-- @@@/auto:session-history -->
