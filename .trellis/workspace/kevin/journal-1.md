@@ -405,3 +405,36 @@ Implemented grounded analytics confidence metadata, relaxed analysis follow-ups 
 ### Next Steps
 
 - None - task complete
+
+
+## Session 13: README analytics metadata docs
+
+**Date**: 2026-07-10
+**Task**: README analytics metadata docs
+**Branch**: `main`
+
+### Summary
+
+Updated README to document analysis metadata SSE events, evidence/limitation/confidence display, and 0-2 analytics follow-up behavior.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `5fa2a5b` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
