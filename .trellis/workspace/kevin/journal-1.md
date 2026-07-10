@@ -372,3 +372,36 @@ Updated README with PowerShell startup steps, reproducible frontend install, lin
 ### Next Steps
 
 - None - task complete
+
+
+## Session 12: Improve dealer QA confidence metadata
+
+**Date**: 2026-07-10
+**Task**: Improve dealer QA confidence metadata
+**Branch**: `main`
+
+### Summary
+
+Implemented grounded analytics confidence metadata, relaxed analysis follow-ups to 0-2 questions, surfaced analysis lens and limitations in the chat UI, updated tests and documented the SSE contract.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `903c521` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
