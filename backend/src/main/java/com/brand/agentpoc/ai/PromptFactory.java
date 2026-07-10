@@ -23,7 +23,7 @@ public class PromptFactory {
     ) {
         if ("zh".equals(language)) {
             return """
-                    我会将当前问题归入【%s】场景，并以「%s」作为本次分析范围。接着按标准工具链获取事实：%s。随后结合场景逻辑「%s」判断最强信号、主要差距和潜在风险点，最后整理成规定结构并补齐 FOLLOW_UP_QUESTIONS。
+                    我会将当前问题归入【%s】场景，并以「%s」作为本次分析范围。接着按标准工具链获取事实：%s。随后结合场景逻辑「%s」区分数据事实、可支持判断和需要验证的假设，最后整理成规定结构；仅在有必要时补充 0-2 个追问。
                     """.formatted(
                     scenarioWorkflow.label(language),
                     scopeSummary,
@@ -33,7 +33,7 @@ public class PromptFactory {
         }
 
         return """
-                I will treat this as a %s question and use %s as the working scope. I will gather the needed facts through the standard chain (%s), then apply the scenario logic (%s) to identify the strongest signal, the main gap, and any risks before shaping the final report and FOLLOW_UP_QUESTIONS.
+                I will treat this as a %s question and use %s as the working scope. I will gather the needed facts through the standard chain (%s), then apply the scenario logic (%s) to separate facts, supported judgments, and assumptions that still need validation before shaping the final report; I will add 0-2 follow-up questions only when useful.
                 """.formatted(
                 scenarioWorkflow.label(language),
                 scopeSummary,
@@ -119,12 +119,12 @@ public class PromptFactory {
                        - ## 经营分析
                        - ## 问题诊断与解决
                        - ## 改进建议
-                       - 追问：
+                       - 如果确实需要追问，在正文末尾使用 `追问：`
                        严禁修改以下二级标题的任何文字，严禁添加图标或改变 Markdown 层级，否则系统将无法识别。
-                    3. 不得改动任何 KPI 数值、门店名称、分析范围或表格事实
+                    3. 只能基于参考事实作答；不得改动任何 KPI 数值、门店名称、分析范围或表格事实，也不得引入参考事实之外的业务数据
                     4. 不要提到"参考事实"或"内部分析引擎"这类措辞
                     5. `## 接口调用链` 必须保留参考事实中的执行步骤事实，不得改写时间、范围、经销商编码或数据类别
-                    6. `## 核心结论` 用 2-4 条要点写清核心发现、优先级或经营判断，引用具体数字
+                    6. `## 核心结论` 用 2-4 条要点写清核心发现、优先级或经营判断，引用具体数字；结论必须能从参考事实直接推出
                     7. `## 数据支撑` 段必须包含 HTML <table>，并在表格后保留参考事实中的 chart-json 或 chart-empty 图表代码块。不得把 chart-json 转换成 Mermaid。
                        除非是从参考事实中复制已经验证过的值，否则不得改写 JSON。
                        数值对比图使用 {"type":"bar"}；商机漏斗和线索来源分布使用 {"type":"pie"}。
@@ -135,15 +135,19 @@ public class PromptFactory {
                        Mermaid 仅用于自由结构图，不用于固定数值分析图表。
                     9. 请将所有客观数字、表格纯粹保留在【数据支撑】中。严禁在【数据支撑】后方或报告末尾创造任何形式的“数据总览”、“总计尾注”或“摘要段落”。
                     10. `## 经营分析` 拆为两段：
-                       - 数据归因：2-3 条，格式为 [指标变化] + [具体对象] + [可能原因]
+                       - 数据归因：2-3 条，格式为 [指标变化] + [具体对象] + [证据支持的解释或可进一步验证方向]
                        - 可执行建议：2-3 条，格式为 [动作] + [对象] + [预期目标]
                     11. `## 问题诊断与解决` 用 1-2 条识别当前最大差距或瓶颈：
-                        - 格式为 [差距/瓶颈指标] + [具体对象] + [根本原因] + [解决动作]
+                        - 格式为 [差距/瓶颈指标] + [具体对象] + [证据状态] + [解决动作]
+                        - 禁止把未证实推测写成根因；如证据不足，必须写成“可进一步验证方向”或“当前数据不足以证明原因”
                         - 如果各项指标达标（达成率 >= 80%%），说明当前表现稳定，并指出最需要关注的次弱指标
                     12. `## 改进建议` 根据达成率分支：
-                        - 若达成率 >= 80%%：给 2 条建议，聚焦如何拉开差距和将成功经验复制到其他门店/车型/渠道
+                        - 若达成率 >= 80%%：给 2 条建议，聚焦保持优势和验证可迁移做法，避免把单店结果包装成通用成功经验
                         - 若达成率 < 80%%：给 2-3 条分阶段建议，每条包含 [动作] + [对象] + [预期结果] + [时间范围（本月/下季度/年度）]
-                    13. `追问：` 必须包含且只包含 2 个编号追问，每个追问必须与当前分析的具体门店、指标或场景直接相关，禁止泛泛追问
+                    13. 追问策略：
+                        - 如果当前答案已经完整，允许不输出追问
+                        - 如果缺少会影响结论的关键口径，只问 1 个最关键问题
+                        - 如果需要提供探索方向，最多输出 2 个编号追问，且必须与当前分析的具体门店、指标、口径或数据限制直接相关
                     """.formatted(userMessage, sessionHistory, groundedReference);
         }
 
@@ -167,12 +171,12 @@ public class PromptFactory {
                    - ## Short Analysis
                    - ## Problem Diagnosis & Solutions
                    - ## Improvement Suggestions
-                   - FOLLOW_UP_QUESTIONS:
+                   - If useful, append `FOLLOW_UP_QUESTIONS:` at the end.
                    Do not change any required level-2 heading text, do not add icons, and do not change the Markdown heading level; otherwise the system cannot recognize the response.
-                3. Do not change KPI values, dealer names, scope, or table facts.
+                3. Use the grounded reference as the only source of truth. Do not change KPI values, dealer names, scope, or table facts, and do not introduce business data that is not in the reference.
                 4. Do not mention internal planning, grounded references, tool names, or API names.
                 5. `## Interface Call Chain` must preserve the factual execution steps from the grounded reference; do not change dates, scope, dealer codes, or data categories.
-                6. `## Conclusion` should contain 2-4 bullets covering key findings, priority, or business takeaway with specific numbers.
+                6. `## Conclusion` should contain 2-4 bullets covering key findings, priority, or business takeaway with specific numbers. Each conclusion must be directly supported by the grounded reference.
                 7. The `## Data Support` section must include an HTML <table> followed by the existing chart-json or chart-empty chart block from the grounded reference. Do not convert chart-json blocks into Mermaid.
                    Preserve the strict JSON exactly unless you are copying a validated value from the grounded reference.
                    Numeric comparison charts use {"type":"bar"}; opportunity funnel and lead source distribution use {"type":"pie"}.
@@ -183,15 +187,19 @@ public class PromptFactory {
                    Mermaid is only for free-form structural diagrams, not fixed numeric analytics charts.
                 9. Keep all objective numbers and tables only in Data Support. Do not create any data overview, total note, summary block, or trailing recap after Data Support or at the end of the report.
                 10. `## Short Analysis` should include:
-                   - Data attribution: 2-3 points in [metric change] + [specific object] + [possible cause] format
+                   - Data attribution: 2-3 points in [metric change] + [specific object] + [supported explanation or validation direction] format
                    - Actionable recommendations: 2-3 points in [action] + [target] + [expected outcome] format
                 11. `## Problem Diagnosis & Solutions` should identify 1-2 largest gaps or bottlenecks:
-                    - Format: [gap/bottleneck metric] + [specific object] + [root cause] + [resolution action]
+                    - Format: [gap/bottleneck metric] + [specific object] + [evidence status] + [resolution action]
+                    - Do not write an unproven assumption as a root cause. If evidence is insufficient, say what is missing or mark it as an operating assumption to validate.
                     - If all metrics are healthy (achievement rate >= 80%%), note stability and highlight the next-weakest indicator
                 12. `## Improvement Suggestions` should branch by achievement level:
-                    - If achievement rate >= 80%%: provide 2 suggestions on widening the gap and replicating success
+                    - If achievement rate >= 80%%: provide 2 suggestions on maintaining the advantage and validating transferable practices, without presenting one store's result as a universal playbook
                     - If achievement rate < 80%%: provide 2-3 phased suggestions, each with [action] + [target] + [expected outcome] + [timeframe (this month / next quarter / annual)]
-                13. `FOLLOW_UP_QUESTIONS:` must contain exactly 2 numbered questions, each directly tied to the specific dealers, metrics, or scenarios analyzed. No vague generic questions.
+                13. Follow-up strategy:
+                    - If the answer is already complete, omit `FOLLOW_UP_QUESTIONS:`.
+                    - If a missing business lens would change the conclusion, ask only the single most important question.
+                    - If exploration would help, include at most 2 numbered questions, each tied directly to the specific dealers, metrics, lens, or data limitations analyzed. No vague generic questions.
                 """.formatted(userMessage, sessionHistory, groundedReference);
     }
 

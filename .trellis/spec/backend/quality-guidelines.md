@@ -195,6 +195,63 @@ private static final String STREAMED_REPLY_LIMIT_MESSAGE =
         "The streamed reply exceeded the allowed output limit.";
 ```
 
+### Scenario: Analysis Metadata SSE Contract
+
+#### 1. Scope / Trigger
+- Trigger: Analytics chat replies need a machine-readable explanation of the analysis lens, data sources, limitations, and confidence before the Markdown body is streamed.
+- This is a backend streaming and frontend display contract because `ChatService` emits the event and `useChat` attaches it to the active assistant message for `AssistantMessage` to render.
+
+#### 2. Signatures
+- Backend model: `service.AnalyticsMetadata`
+- Analytics plan field: `AnalyticsPlan.metadata(): AnalyticsMetadata`
+- SSE event name: `analysis_metadata`
+- Frontend message field: `message.analysisMetadata`
+
+#### 3. Contracts
+- `analysis_metadata` is emitted only for analytics replies after an `AnalyticsPlan` exists and before the first `message` event.
+- The event payload is JSON with camelCase fields:
+  - `scenarioLabel: string`
+  - `scopeLabel: string`
+  - `metricLens: string`
+  - `dataSources: string[]`
+  - `limitations: string[]`
+  - `confidence: "high" | "medium" | "low" | ""`
+- Empty metadata is not emitted.
+- Frontend must display only backend-provided metadata and must not infer business meaning from Markdown.
+- Direct greetings, out-of-scope replies, entity-not-found replies, and model-configuration guidance do not emit `analysis_metadata`.
+
+#### 4. Validation & Error Matrix
+- Metadata is `null` or all fields are empty -> skip `analysis_metadata`.
+- Analytics fallback path without configured model -> emit metadata before the fallback `message`.
+- Analytics configured-model path -> emit metadata before model-generated or fallback `message`.
+- Frontend receives an invalid payload -> ignore it and continue rendering the Markdown reply.
+- Unknown confidence value -> normalize to an empty confidence label, not a runtime error.
+
+#### 5. Good/Base/Bad Cases
+- Good: Campaign analytics emits limitations such as incomplete conversion fields so the UI warns that zero conversion fields do not prove campaign failure.
+- Base: A normal target-achievement reply emits scope, metric lens, sources, and `high` or `medium` confidence before the body.
+- Bad: Frontend parses Markdown headings or chart JSON to invent limitations; that duplicates backend business logic and can drift.
+
+#### 6. Tests Required
+- `ChatServiceTest` asserts `analysis_metadata` ordering before `message` for built-in fallback streaming.
+- `ChatServiceTest` asserts configured analytics streaming includes the metadata event.
+- `useChat.spec.js` asserts the event attaches normalized metadata to the active assistant message.
+- `AssistantMessage.spec.js` asserts scope, metric, source, limitation, and confidence render in the message-top banner.
+
+#### 7. Wrong vs Correct
+
+Wrong:
+```java
+sseEventWriter.writeChunkedEvent(writer, "message", analyticsPlan.fallbackReply());
+// Frontend later tries to infer sources/limitations from Markdown text.
+```
+
+Correct:
+```java
+sseEventWriter.writeAnalysisMetadataEvent(writer, analyticsPlan.metadata());
+sseEventWriter.writeChunkedEvent(writer, "message", analyticsPlan.fallbackReply());
+```
+
 ### Entity Constructor Delegation
 
 Entities use constructor chaining for default values rather than field initializers or setters:

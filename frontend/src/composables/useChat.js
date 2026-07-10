@@ -9,6 +9,7 @@ import { readStorageValue, writeStorageValue } from "../utils/storage";
 const SCROLL_LOCK_THRESHOLD = 40;
 const ASSISTANT_RENDER_DELAY_MS = 100;
 const STREAM_PHASE = { IDLE: "idle", THINKING: "thinking", GENERATING: "generating" };
+const ANALYSIS_CONFIDENCE_LEVELS = new Set(["high", "medium", "low"]);
 
 export function useChat({ authVerified, dictionary, locale, modelSettings, onAuthExpired }) {
   const promptInput = ref("");
@@ -158,6 +159,7 @@ export function useChat({ authVerified, dictionary, locale, modelSettings, onAut
       rawContent: "",
       html: "",
       followUps: [],
+      analysisMetadata: null,
       status: dictionary.value.statusThinking,
       steps: [],
       streaming: true,
@@ -451,6 +453,15 @@ export function useChat({ authVerified, dictionary, locale, modelSettings, onAut
             return;
           }
 
+          if (event === "analysis_metadata") {
+            const metadata = normalizeAnalysisMetadata(data);
+            if (metadata) {
+              assistantMessage.analysisMetadata = metadata;
+              syncViewport({ markUnread: true });
+            }
+            return;
+          }
+
           if (event === "message") {
             let remaining = crossChunkBuffer + eventText;
             crossChunkBuffer = "";
@@ -648,6 +659,68 @@ function normalizeEventText(value) {
   }
 
   return String(value);
+}
+
+function normalizeAnalysisMetadata(value) {
+  const source = typeof value === "string" ? parseMetadataString(value) : value;
+  if (!source || typeof source !== "object" || Array.isArray(source)) {
+    return null;
+  }
+
+  const metadata = {
+    scenarioLabel: normalizeMetadataText(source.scenarioLabel),
+    scopeLabel: normalizeMetadataText(source.scopeLabel),
+    metricLens: normalizeMetadataText(source.metricLens),
+    dataSources: normalizeMetadataList(source.dataSources),
+    limitations: normalizeMetadataList(source.limitations),
+    confidence: normalizeConfidence(source.confidence)
+  };
+
+  if (
+    !metadata.scenarioLabel &&
+    !metadata.scopeLabel &&
+    !metadata.metricLens &&
+    !metadata.dataSources.length &&
+    !metadata.limitations.length &&
+    !metadata.confidence
+  ) {
+    return null;
+  }
+
+  return metadata;
+}
+
+function parseMetadataString(value) {
+  const text = String(value ?? "").trim();
+  if (!text) {
+    return null;
+  }
+
+  try {
+    return JSON.parse(text);
+  } catch {
+    return null;
+  }
+}
+
+function normalizeMetadataText(value) {
+  return typeof value === "string" ? value.trim() : "";
+}
+
+function normalizeMetadataList(value) {
+  if (Array.isArray(value)) {
+    return value
+      .map(item => normalizeMetadataText(item))
+      .filter(Boolean);
+  }
+
+  const singleValue = normalizeMetadataText(value);
+  return singleValue ? [singleValue] : [];
+}
+
+function normalizeConfidence(value) {
+  const confidence = normalizeMetadataText(value).toLowerCase();
+  return ANALYSIS_CONFIDENCE_LEVELS.has(confidence) ? confidence : "";
 }
 
 function isAuthExpiredError(error) {

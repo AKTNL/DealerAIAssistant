@@ -48,6 +48,10 @@ class PromptFactoryTest {
         assertThat(prompt).contains("well-structured analytics report");
         assertThat(prompt).contains("2-4 bullets covering key findings");
         assertThat(prompt).contains("business takeaway");
+        assertThat(prompt).contains("only source of truth");
+        assertThat(prompt).contains("Do not write an unproven assumption as a root cause");
+        assertThat(prompt).contains("at most 2 numbered questions");
+        assertThat(prompt).doesNotContain("exactly 2 numbered questions");
     }
 
     @Test
@@ -63,6 +67,10 @@ class PromptFactoryTest {
         assertThat(prompt).contains("使用中文");
         assertThat(prompt).contains("2-4 条要点");
         assertThat(prompt).contains("## 数据支撑");
+        assertThat(prompt).contains("只能基于参考事实作答");
+        assertThat(prompt).contains("禁止把未证实推测写成根因");
+        assertThat(prompt).contains("允许不输出追问");
+        assertThat(prompt).doesNotContain("必须包含且只包含 2 个编号追问");
     }
 
     @Test
@@ -159,7 +167,7 @@ class PromptFactoryTest {
         assertThat(thinking).contains("Opportunity Funnel & Conversion Analysis");
         assertThat(thinking).contains("Beijing / current month");
         assertThat(thinking).contains("standard chain");
-        assertThat(thinking).contains("strongest signal");
+        assertThat(thinking).contains("separate facts, supported judgments, and assumptions");
         assertThat(thinking).doesNotContainPattern("(?m)^\\s*\\d+\\.");
     }
 

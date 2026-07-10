@@ -149,6 +149,7 @@ public class ChatService {
                 if (!progressMessages.isEmpty()) {
                     sseEventWriter.writeEvent(writer, "progress", progressMessages.getFirst());
                 }
+                writeAnalyticsMetadata(writer, analyticsPlan);
 
                 if (!configuredModel) {
                     GeneratedReply generatedReply = analyticsPlan != null
@@ -312,6 +313,12 @@ public class ChatService {
         sseEventWriter.writeChunkedEvent(writer, "message", finalReply);
         sessionMemoryService.addAssistantMessage(request.sessionId(), finalReply);
         sseEventWriter.writeEvent(writer, "done", "[DONE]");
+    }
+
+    private void writeAnalyticsMetadata(BufferedWriter writer, AnalyticsPlan analyticsPlan) throws IOException {
+        if (analyticsPlan != null) {
+            sseEventWriter.writeAnalysisMetadataEvent(writer, analyticsPlan.metadata());
+        }
     }
 
     private Prompt buildStreamingPrompt(

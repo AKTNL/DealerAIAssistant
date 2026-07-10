@@ -31,6 +31,31 @@ const EMPTY_ANALYSIS_ENHANCEMENTS = { charts: [], metricCards: [] };
 const thinkingSummary = computed(() => buildThinkingSummary(props.message?.steps, props.locale));
 const thinkingSummaryTitle = computed(() => props.locale === "zh" ? "证据链" : "Evidence trail");
 const progressTitle = computed(() => props.locale === "zh" ? "分析进度" : "Processing progress");
+const analysisMetadata = computed(() => normalizeAnalysisMetadata(props.message?.analysisMetadata));
+const hasAnalysisMetadata = computed(() => {
+  const metadata = analysisMetadata.value;
+  return Boolean(
+    metadata.scenarioLabel ||
+    metadata.scopeLabel ||
+    metadata.metricLens ||
+    metadata.dataSources.length ||
+    metadata.limitations.length ||
+    metadata.confidence
+  );
+});
+const analysisConfidenceLabel = computed(() => {
+  const confidence = analysisMetadata.value.confidence;
+  if (confidence === "high") {
+    return props.dictionary.analysisMetadataConfidenceHigh;
+  }
+  if (confidence === "medium") {
+    return props.dictionary.analysisMetadataConfidenceMedium;
+  }
+  if (confidence === "low") {
+    return props.dictionary.analysisMetadataConfidenceLow;
+  }
+  return "";
+});
 const progressSteps = computed(() => {
   const steps = Array.isArray(props.message?.steps) ? props.message.steps : [];
   return steps.filter(step => step?.type === "progress" || step?.progressPlaceholder === true);
@@ -75,6 +100,48 @@ watch(() => props.message?.streaming, (streaming) => {
 function toggleThinkingDetails() {
   timelineExpanded.value = !timelineExpanded.value;
   thinkingCollapsed.value = !timelineExpanded.value;
+}
+
+function normalizeAnalysisMetadata(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return {
+      scenarioLabel: "",
+      scopeLabel: "",
+      metricLens: "",
+      dataSources: [],
+      limitations: [],
+      confidence: ""
+    };
+  }
+
+  return {
+    scenarioLabel: normalizeMetadataText(value.scenarioLabel),
+    scopeLabel: normalizeMetadataText(value.scopeLabel),
+    metricLens: normalizeMetadataText(value.metricLens),
+    dataSources: normalizeMetadataList(value.dataSources),
+    limitations: normalizeMetadataList(value.limitations),
+    confidence: normalizeConfidence(value.confidence)
+  };
+}
+
+function normalizeMetadataText(value) {
+  return typeof value === "string" ? value.trim() : "";
+}
+
+function normalizeMetadataList(value) {
+  if (Array.isArray(value)) {
+    return value
+      .map(item => normalizeMetadataText(item))
+      .filter(Boolean);
+  }
+
+  const singleValue = normalizeMetadataText(value);
+  return singleValue ? [singleValue] : [];
+}
+
+function normalizeConfidence(value) {
+  const confidence = normalizeMetadataText(value).toLowerCase();
+  return ["high", "medium", "low"].includes(confidence) ? confidence : "";
 }
 
 function hasActiveModelThought() {
@@ -679,6 +746,49 @@ onBeforeUnmount(() => {
       </div>
 
       <div v-if="message.html" class="analysis-response-body">
+        <section v-if="hasAnalysisMetadata" class="analysis-metadata-banner" aria-live="polite">
+          <div class="analysis-metadata-header">
+            <span class="analysis-metadata-title">{{ dictionary.analysisMetadataTitle }}</span>
+            <span
+              v-if="analysisMetadata.confidence && analysisConfidenceLabel"
+              :class="`analysis-confidence-pill analysis-confidence-pill--${analysisMetadata.confidence}`"
+            >
+              {{ dictionary.analysisMetadataConfidence }}：{{ analysisConfidenceLabel }}
+            </span>
+          </div>
+
+          <dl class="analysis-metadata-grid">
+            <div v-if="analysisMetadata.scenarioLabel" class="analysis-metadata-item">
+              <dt>{{ dictionary.analysisMetadataScenario }}</dt>
+              <dd>{{ analysisMetadata.scenarioLabel }}</dd>
+            </div>
+            <div v-if="analysisMetadata.scopeLabel" class="analysis-metadata-item">
+              <dt>{{ dictionary.analysisMetadataScope }}</dt>
+              <dd>{{ analysisMetadata.scopeLabel }}</dd>
+            </div>
+            <div v-if="analysisMetadata.metricLens" class="analysis-metadata-item">
+              <dt>{{ dictionary.analysisMetadataMetric }}</dt>
+              <dd>{{ analysisMetadata.metricLens }}</dd>
+            </div>
+            <div v-if="analysisMetadata.dataSources.length" class="analysis-metadata-item">
+              <dt>{{ dictionary.analysisMetadataSources }}</dt>
+              <dd>{{ analysisMetadata.dataSources.join(" / ") }}</dd>
+            </div>
+          </dl>
+
+          <div v-if="analysisMetadata.limitations.length" class="analysis-metadata-limitations">
+            <span>{{ dictionary.analysisMetadataLimitations }}</span>
+            <ul>
+              <li
+                v-for="limitation in analysisMetadata.limitations"
+                :key="limitation"
+              >
+                {{ limitation }}
+              </li>
+            </ul>
+          </div>
+        </section>
+
         <div
           v-if="analysisEnhancements.metricCards.length"
           aria-label="Analysis summary"

@@ -64,7 +64,7 @@ class ChatReplyGuard {
         }
 
         return normalizeBlock(replyTable).equals(normalizeBlock(fallbackTable))
-                && hasExactlyTwoFollowUpQuestions(normalized);
+                && hasValidAnalyticsFollowUpQuestions(normalized);
     }
 
     String ensureFollowUpQuestions(String reply, String language, boolean analyticsRequested) {
@@ -75,11 +75,15 @@ class ChatReplyGuard {
 
         List<String> contextDefaults = buildContextualFollowUps(language, trimmed);
 
+        if (analyticsRequested) {
+            return ensureAnalyticsFollowUpQuestions(trimmed, language, contextDefaults);
+        }
+
         String repaired;
         if (hasExactlyTwoFollowUpQuestions(trimmed)) {
             repaired = trimmed;
         } else if (trimmed.contains("FOLLOW_UP_QUESTIONS:") || trimmed.contains("追问：")) {
-            repaired = repairPartialFollowUpQuestions(trimmed, contextDefaults);
+            repaired = repairPartialFollowUpQuestions(trimmed, contextDefaults, true);
         } else {
             return """
                     %s
@@ -97,6 +101,25 @@ class ChatReplyGuard {
         }
 
         return repaired;
+    }
+
+    private String ensureAnalyticsFollowUpQuestions(
+            String reply,
+            String language,
+            List<String> contextDefaults
+    ) {
+        if (findFollowUpMarker(reply) == null) {
+            return reply;
+        }
+
+        String repaired = repairPartialFollowUpQuestions(reply, contextDefaults, false);
+        List<String> extracted = extractFollowUpsFromReply(repaired);
+        if (extracted.isEmpty()) {
+            return removeFollowUpBlock(repaired);
+        }
+
+        List<String> validated = validateAnalyticsFollowUpRelevance(repaired, extracted, language);
+        return rebuildReplyWithFollowUps(repaired, validated);
     }
 
     List<String> buildContextualFollowUps(String language, String reply) {
@@ -188,27 +211,9 @@ class ChatReplyGuard {
     }
 
     List<String> extractFollowUpsFromReply(String reply) {
-        String normalized = reply == null ? "" : reply;
-        String[] markers = {"FOLLOW_UP_QUESTIONS:", "追问："};
-        int markerIndex = -1;
-        int markerLen = 0;
-
-        for (String marker : markers) {
-            int idx = normalized.indexOf(marker);
-            if (idx >= 0 && (markerIndex < 0 || idx < markerIndex)) {
-                markerIndex = idx;
-                markerLen = marker.length();
-            }
-        }
-
-        if (markerIndex < 0) {
-            return List.of();
-        }
-
-        return normalized.substring(markerIndex + markerLen).lines()
-                .map(line -> line.replaceFirst("^\\s*(?:\\d+\\.\\s*|[-*·•]\\s*)", "")
-                        .replaceAll("[*_~]+", "").trim())
-                .filter(line -> !line.isBlank())
+        return extractRawFollowUpLines(reply).stream()
+                .map(ChatReplyGuard::cleanFollowUpLine)
+                .filter(ChatReplyGuard::hasText)
                 .limit(2)
                 .toList();
     }
@@ -326,28 +331,32 @@ class ChatReplyGuard {
     }
 
     private boolean hasExactlyTwoFollowUpQuestions(String reply) {
-        String[] markers = {"FOLLOW_UP_QUESTIONS:", "追问："};
-        int markerIndex = -1;
-        int markerLength = 0;
-        for (String marker : markers) {
-            int index = reply.indexOf(marker);
-            if (index >= 0 && (markerIndex < 0 || index < markerIndex)) {
-                markerIndex = index;
-                markerLength = marker.length();
-            }
-        }
-        if (markerIndex < 0) {
-            return false;
-        }
-
-        String followUpBlock = reply.substring(markerIndex + markerLength).trim();
-        List<String> lines = followUpBlock.lines()
-                .map(String::trim)
-                .filter(line -> !line.isBlank())
-                .toList();
+        List<String> lines = extractRawFollowUpLines(reply);
         return lines.size() == 2
                 && lines.getFirst().matches("1\\.\\s+.+")
                 && lines.getLast().matches("2\\.\\s+.+");
+    }
+
+    private boolean hasValidAnalyticsFollowUpQuestions(String reply) {
+        if (findFollowUpMarker(reply) == null) {
+            return true;
+        }
+
+        List<String> lines = extractRawFollowUpLines(reply);
+        if (lines.isEmpty()) {
+            return false;
+        }
+
+        if (lines.size() > 2) {
+            return false;
+        }
+
+        for (int index = 0; index < lines.size(); index++) {
+            if (!lines.get(index).matches("%d\\.\\s+.+".formatted(index + 1))) {
+                return false;
+            }
+        }
+        return true;
     }
 
     private String normalizeBlock(String value) {
@@ -355,67 +364,122 @@ class ChatReplyGuard {
     }
 
     private String rebuildReplyWithFollowUps(String reply, List<String> followUps) {
-        String[] markers = {"FOLLOW_UP_QUESTIONS:", "追问："};
-        for (String marker : markers) {
-            int idx = reply.lastIndexOf(marker);
-            if (idx >= 0) {
-                return reply.substring(0, idx + marker.length())
-                        + "\n1. " + followUps.get(0)
-                        + "\n2. " + followUps.get(1);
-            }
+        FollowUpMarker marker = findLastFollowUpMarker(reply);
+        if (marker == null) {
+            return reply;
         }
-        return reply;
+        if (followUps == null || followUps.isEmpty()) {
+            return reply.substring(0, marker.index()).stripTrailing();
+        }
+
+        StringBuilder rebuilt = new StringBuilder(reply.substring(0, marker.index() + marker.marker().length()));
+        int count = Math.min(followUps.size(), 2);
+        for (int index = 0; index < count; index++) {
+            rebuilt.append("\n").append(index + 1).append(". ").append(followUps.get(index));
+        }
+        return rebuilt.toString().trim();
     }
 
-    private String repairPartialFollowUpQuestions(String reply, List<String> defaults) {
-        int markerIndex = reply.indexOf("FOLLOW_UP_QUESTIONS:");
-        if (markerIndex < 0) {
+    private String repairPartialFollowUpQuestions(String reply, List<String> defaults, boolean requireTwo) {
+        FollowUpMarker marker = findFollowUpMarker(reply);
+        if (marker == null) {
             return reply;
         }
 
-        String marker = "FOLLOW_UP_QUESTIONS:";
-        String prefix = reply.substring(0, markerIndex + marker.length());
-        String followUpBlock = reply.substring(markerIndex + marker.length()).trim();
-        List<String> lines = followUpBlock.lines()
-                .map(String::trim)
-                .filter(line -> !line.isBlank())
+        List<String> candidates = extractRawFollowUpLines(reply).stream()
+                .map(ChatReplyGuard::cleanFollowUpLine)
+                .filter(ChatReplyGuard::hasText)
+                .limit(2)
                 .toList();
 
-        if (lines.isEmpty()) {
-            return """
-                    %s
-                    1. %s
-                    2. %s
-                    """.formatted(prefix, defaults.getFirst(), defaults.getLast()).trim();
+        List<String> repaired = new ArrayList<>(candidates);
+        if (requireTwo) {
+            if (repaired.size() == 1 && defaults.size() > 1 && !repaired.contains(defaults.getLast())) {
+                repaired.add(defaults.getLast());
+            }
+            for (String defaultQuestion : defaults) {
+                if (repaired.size() >= 2) {
+                    break;
+                }
+                if (!repaired.contains(defaultQuestion)) {
+                    repaired.add(defaultQuestion);
+                }
+            }
         }
 
-        if (lines.size() == 1 && lines.getFirst().matches("1\\.\\s+.+")) {
-            return """
-                    %s
-                    %s
-                    2. %s
-                    """.formatted(prefix, lines.getFirst(), defaults.getLast()).trim();
+        String prefix = reply.substring(0, marker.index() + marker.marker().length());
+        int count = Math.min(repaired.size(), requireTwo ? 2 : repaired.size());
+        StringBuilder rebuilt = new StringBuilder(prefix);
+
+        for (int index = 0; index < count; index++) {
+            rebuilt.append("\n").append(index + 1).append(". ").append(repaired.get(index));
         }
 
-        return """
-                %s
-                1. %s
-                2. %s
-                """.formatted(prefix, defaults.getFirst(), defaults.getLast()).trim();
+        return rebuilt.toString().trim();
     }
 
-    private List<String> defaultAnalyticsFollowUps(String language) {
-        if ("zh".equals(language)) {
-            return List.of(
-                    "你想继续看这个问题对应的商机、线索还是任务状态？",
-                    "要不要我再按城市、门店或车型细分对比一层？"
-            );
+    private List<String> validateAnalyticsFollowUpRelevance(
+            String reply,
+            List<String> followUps,
+            String language
+    ) {
+        List<String> topicKeywords = extractTopicKeywords(reply, language);
+        if (topicKeywords.isEmpty()) {
+            return followUps.subList(0, Math.min(followUps.size(), 2));
         }
 
-        return List.of(
-                "Do you want to drill into the related opportunities, leads, or tasks next?",
-                "Should I break this down further by city, dealer, or product model?"
-        );
+        List<String> validated = followUps.stream()
+                .filter(followUp -> isStronglyRelevant(followUp, topicKeywords))
+                .limit(2)
+                .toList();
+        return validated;
+    }
+
+    private String removeFollowUpBlock(String reply) {
+        FollowUpMarker marker = findLastFollowUpMarker(reply);
+        return marker == null ? reply : reply.substring(0, marker.index()).stripTrailing();
+    }
+
+    private List<String> extractRawFollowUpLines(String reply) {
+        FollowUpMarker marker = findFollowUpMarker(reply);
+        if (marker == null) {
+            return List.of();
+        }
+
+        return reply.substring(marker.index() + marker.marker().length()).trim().lines()
+                .map(String::trim)
+                .filter(ChatReplyGuard::hasText)
+                .toList();
+    }
+
+    private FollowUpMarker findFollowUpMarker(String reply) {
+        String normalized = reply == null ? "" : reply;
+        FollowUpMarker best = null;
+        for (String marker : List.of("FOLLOW_UP_QUESTIONS:", "追问：")) {
+            int index = normalized.indexOf(marker);
+            if (index >= 0 && (best == null || index < best.index())) {
+                best = new FollowUpMarker(index, marker);
+            }
+        }
+        return best;
+    }
+
+    private FollowUpMarker findLastFollowUpMarker(String reply) {
+        String normalized = reply == null ? "" : reply;
+        FollowUpMarker best = null;
+        for (String marker : List.of("FOLLOW_UP_QUESTIONS:", "追问：")) {
+            int index = normalized.lastIndexOf(marker);
+            if (index >= 0 && (best == null || index > best.index())) {
+                best = new FollowUpMarker(index, marker);
+            }
+        }
+        return best;
+    }
+
+    private static String cleanFollowUpLine(String line) {
+        return line == null ? "" : line.replaceFirst("^\\s*(?:\\d+\\.\\s*|[-*·•]\\s*)", "")
+                .replaceAll("[*_~]+", "")
+                .trim();
     }
 
     private List<String> defaultGeneralFollowUps(String language) {
@@ -432,7 +496,10 @@ class ChatReplyGuard {
         );
     }
 
-    private boolean hasText(String value) {
+    private static boolean hasText(String value) {
         return value != null && !value.isBlank();
+    }
+
+    private record FollowUpMarker(int index, String marker) {
     }
 }

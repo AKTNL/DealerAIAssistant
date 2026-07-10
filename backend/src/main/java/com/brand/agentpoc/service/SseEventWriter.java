@@ -7,10 +7,10 @@ import java.util.Map;
 
 class SseEventWriter {
 
-    private static final ObjectMapper STEP_EVENT_MAPPER = new ObjectMapper();
+    private static final ObjectMapper SSE_EVENT_MAPPER = new ObjectMapper();
 
     void writeStepEvent(BufferedWriter writer, StepEvent step) throws IOException {
-        String json = STEP_EVENT_MAPPER.writeValueAsString(Map.of(
+        String json = SSE_EVENT_MAPPER.writeValueAsString(Map.of(
                 "trace_id", step.traceId(),
                 "seq", step.seq(),
                 "type", step.type().name(),
@@ -21,6 +21,13 @@ class SseEventWriter {
                 "meta", step.meta() != null ? step.meta() : Map.of()
         ));
         writeEvent(writer, "step", json);
+    }
+
+    void writeAnalysisMetadataEvent(BufferedWriter writer, AnalyticsMetadata metadata) throws IOException {
+        if (metadata == null || metadata.isEmpty()) {
+            return;
+        }
+        writeEvent(writer, "analysis_metadata", SSE_EVENT_MAPPER.writeValueAsString(metadata));
     }
 
     void writeEvent(BufferedWriter writer, String event, String data) throws IOException {

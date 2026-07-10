@@ -66,7 +66,7 @@ public class AnalyticsReportComposer {
             body.append("\n");
         }
 
-        body.append(isZh ? "## 问题诊断与解决\n\n" : "## Problem Diagnosis\n\n");
+        body.append(isZh ? "## 问题诊断与解决\n\n" : "## Problem Diagnosis & Solutions\n\n");
         int totalUnits = summaryContext != null ? summaryContext.totalUnits() : 0;
         String worstLabel = summaryContext != null ? summaryContext.worstUnitLabel() : null;
         String worstValue = summaryContext != null ? summaryContext.worstUnitValue() : null;
@@ -79,7 +79,7 @@ public class AnalyticsReportComposer {
             } else if (primaryRate > 0 && worstLabel != null && !worstLabel.isEmpty()) {
                 body.append(String.format("- **主要差距**：%s 的%s仅为 **%s**，低于 80%% 基准线。\n",
                         worstLabel, primaryMetric, worstValue));
-                body.append("  - 根因分析：该指标未达标可能与线索质量、跟进效率或市场环境有关。\n");
+                body.append("  - 当前证据：现有数据只能确认指标差距，具体原因仍需结合线索质量、跟进效率或市场环境进一步验证。\n");
                 body.append(String.format("  - 解决动作：建议对 %s 进行专项复盘，优化资源配置，并在本月底前完成一轮辅导。\n\n", worstLabel));
             } else if (primaryRate >= 80.0) {
                 body.append(String.format("- 当前%s表现良好（%.1f%%），整体稳定。下一阶段应关注相对薄弱的维度，防范新的短板出现。\n\n",
@@ -93,7 +93,7 @@ public class AnalyticsReportComposer {
             } else if (primaryRate > 0 && worstLabel != null && !worstLabel.isEmpty()) {
                 body.append(String.format("- **Main gap**: %s has %s of only **%s**, below the 80%% baseline.\n",
                         worstLabel, primaryMetric, worstValue));
-                body.append("  - Root cause: This underperformance may relate to lead quality, follow-up efficiency, or market conditions.\n");
+                body.append("  - Evidence status: The current data confirms the metric gap; lead quality, follow-up efficiency, and market conditions are validation directions, not proven causes.\n");
                 body.append(String.format("  - Action: Conduct a targeted review for %s, optimize resource allocation, and complete a coaching round by month-end.\n\n", worstLabel));
             } else if (primaryRate >= 80.0) {
                 body.append(String.format("- Current %s is performing well (%.1f%%), overall stable. Focus on relatively weaker dimensions to prevent new gaps.\n\n",
@@ -106,8 +106,8 @@ public class AnalyticsReportComposer {
         body.append(isZh ? "## 改进建议\n\n" : "## Improvement Suggestions\n\n");
         if (isZh) {
             if (primaryRate >= 80.0) {
-                body.append("- **扩大优势**：总结表现最佳的门店/活动的成功经验，形成标准化操作手册。\n");
-                body.append("- **横向复制**：将高效做法推广至其他门店/车型，下季度在集团内组织经验分享会。\n\n");
+                body.append("- **保持优势**：复盘表现较好的门店/活动，先确认哪些做法与当前指标改善有数据关联。\n");
+                body.append("- **验证迁移**：将可验证做法在相近门店/车型小范围试点，下季度再评估是否扩大。\n\n");
             } else if (totalUnits > 0) {
                 body.append("- **本月目标**：针对达成率最低的单位制定每周跟进计划，月底前提升 10-15 个百分点。\n");
                 body.append("- **下季度目标**：建立月度复盘机制，每单位每月至少一次经营分析会。\n");
@@ -117,8 +117,8 @@ public class AnalyticsReportComposer {
             }
         } else {
             if (primaryRate >= 80.0) {
-                body.append("- **Expand strengths**: Document the best-performing unit/campaign success patterns into a standardized playbook.\n");
-                body.append("- **Lateral replication**: Promote effective practices to other stores/models, organize quarterly experience-sharing sessions.\n\n");
+                body.append("- **Maintain the advantage**: Review stronger units or campaigns and confirm which practices have data-backed links to the metric lift.\n");
+                body.append("- **Validate transferability**: Pilot any transferable practice in similar stores or models first, then evaluate whether to expand next quarter.\n\n");
             } else if (totalUnits > 0) {
                 body.append("- **This month**: Create a weekly follow-up plan for the lowest-performing unit, targeting a 10-15 pp improvement by month-end.\n");
                 body.append("- **Next quarter**: Establish a monthly review cadence with at least one operations review per unit per month.\n");
@@ -128,9 +128,12 @@ public class AnalyticsReportComposer {
             }
         }
 
-        body.append(isZh ? "追问：\n\n" : "FOLLOW_UP_QUESTIONS:\n\n");
-        for (int i = 0; i < followUps.size(); i++) {
-            body.append(i + 1).append(". ").append(reportRenderer.escapeHtml(followUps.get(i))).append("\n");
+        if (followUps != null && !followUps.isEmpty()) {
+            body.append(isZh ? "追问：\n\n" : "FOLLOW_UP_QUESTIONS:\n\n");
+            int followUpCount = Math.min(followUps.size(), 2);
+            for (int i = 0; i < followUpCount; i++) {
+                body.append(i + 1).append(". ").append(reportRenderer.escapeHtml(followUps.get(i))).append("\n");
+            }
         }
 
         return body.toString();

@@ -83,6 +83,16 @@ let AssistantMessage;
 
 const dictionary = {
   assistantLabel: "AI 助手",
+  analysisMetadataConfidence: "置信度",
+  analysisMetadataConfidenceHigh: "高",
+  analysisMetadataConfidenceMedium: "中",
+  analysisMetadataConfidenceLow: "低",
+  analysisMetadataLimitations: "关键限制",
+  analysisMetadataMetric: "主指标",
+  analysisMetadataScenario: "场景",
+  analysisMetadataScope: "范围",
+  analysisMetadataSources: "数据源",
+  analysisMetadataTitle: "本次分析口径",
   hideThinking: "收起思考过程",
   mermaidRenderError: "图表渲染失败，请检查语法或切换到代码查看源码",
   mermaidReload: "重新加载",
@@ -806,6 +816,32 @@ describe("AssistantMessage timeline panel", () => {
   });
 });
 describe("AssistantMessage analysis enhancements", () => {
+  test("renders analysis metadata above the response body", async () => {
+    const wrapper = mountAssistant(buildMessage("<p>Final answer</p>", {
+      analysisMetadata: {
+        scenarioLabel: "目标达成分析",
+        scopeLabel: "当前样例数据",
+        metricLens: "目标达成率 = 赢单数 ÷ 目标数",
+        dataSources: ["AE Target Data", "Opportunity"],
+        limitations: ["部分线索缺少经销商字段"],
+        confidence: "medium"
+      }
+    }));
+
+    await flushPromises();
+
+    const banner = wrapper.find(".analysis-metadata-banner");
+    expect(banner.exists()).toBe(true);
+    expect(banner.text()).toContain("本次分析口径");
+    expect(banner.text()).toContain("目标达成分析");
+    expect(banner.text()).toContain("当前样例数据");
+    expect(banner.text()).toContain("目标达成率 = 赢单数 ÷ 目标数");
+    expect(banner.text()).toContain("AE Target Data / Opportunity");
+    expect(banner.text()).toContain("部分线索缺少经销商字段");
+    expect(banner.text()).toContain("置信度：中");
+    expect(wrapper.find(".analysis-confidence-pill--medium").exists()).toBe(true);
+  });
+
   test("renders metric cards from current reply values and not fixed examples", async () => {
     const html = renderMarkdownLite(`## Conclusion
 

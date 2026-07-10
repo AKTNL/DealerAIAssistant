@@ -294,7 +294,7 @@ class RuleBasedAnalyticsServiceTest {
         assertThat(targetPlan.fallbackReply()).contains("**Dealer B** has the lowest target achievement");
         assertThat(targetPlan.fallbackReply()).contains("Dealer B (7 / 10)");
         assertThat(targetPlan.fallbackReply()).contains("Dealer A (20 / 25)");
-        assertThat(benchmarkPlan.fallbackReply()).contains("**Dealer A** is the top performer");
+        assertThat(benchmarkPlan.fallbackReply()).contains("**Dealer A** has the strongest achievement rate");
         assertThat(benchmarkPlan.fallbackReply()).contains("**Dealer B** needs the most attention");
         assertThat(benchmarkPlan.fallbackReply()).contains("80.0%");
         assertThat(benchmarkPlan.fallbackReply()).contains("70.0%");

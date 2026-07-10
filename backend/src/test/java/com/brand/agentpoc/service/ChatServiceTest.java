@@ -365,6 +365,46 @@ class ChatServiceTest {
     }
 
     @Test
+    void streamingAnalyticsEmitsMetadataBeforeBuiltInFallbackMessage() throws Exception {
+        ChatRequest request = new ChatRequest(
+                "s1",
+                "Which dealers have the lowest target achievement?",
+                "",
+                "",
+                ""
+        );
+        AnalyticsMetadata metadata = sampleMetadata();
+        AnalyticsPlan plan = analyticsPlan(
+                AnalyticsPlan.Scenario.TARGET_ACHIEVEMENT,
+                englishAnalyticsFallbackReport(),
+                metadata
+        );
+        ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
+
+        when(languageDetector.detectLanguage(request.message())).thenReturn("en");
+        when(analyticsService.plan(eq(request.message()), eq("en"), anyString(), any())).thenReturn(plan);
+
+        chatService.streamChat(request, outputStream);
+
+        String payload = outputStream.toString(StandardCharsets.UTF_8).replace("\r\n", "\n");
+        assertThat(payload).containsSubsequence(
+                "event: progress\n",
+                "event: analysis_metadata\n",
+                "event: message\n"
+        );
+        assertThat(extractEventData(payload, "analysis_metadata")).hasSize(1);
+        assertThat(extractEventData(payload, "analysis_metadata").getFirst())
+                .contains("\"scenarioLabel\":\"Target Achievement Analysis\"")
+                .contains("\"scopeLabel\":\"the current sample dataset\"")
+                .contains("\"metricLens\":\"Target achievement rate = won deals / target\"")
+                .contains("\"dataSources\":[\"AE Target Data\",\"Opportunity\"]")
+                .contains("\"limitations\":[\"Lead rows with missing dealer are excluded from dealer ranking\"]")
+                .contains("\"confidence\":\"medium\"");
+        assertThat(extractEventData(payload, "message")).containsExactly(plan.fallbackReply().trim());
+        verifyNoInteractions(modelConfigService);
+    }
+
+    @Test
     void analyticsRequestsUseBuiltInFallbackWhenModelSettingsAreMissing() {
         ChatRequest request = new ChatRequest(
                 "s1",
@@ -973,7 +1013,8 @@ class ChatServiceTest {
         ArgumentCaptor<String> replyCaptor = ArgumentCaptor.forClass(String.class);
         AnalyticsPlan plan = analyticsPlan(
                 AnalyticsPlan.Scenario.TARGET_ACHIEVEMENT,
-                englishAnalyticsFallbackReport()
+                englishAnalyticsFallbackReport(),
+                sampleMetadata()
         );
         String validReply = """
                 ## 1. Interface Call Chain
@@ -1023,9 +1064,64 @@ class ChatServiceTest {
                 "Data consistency validation passed, returning the final report"
         );
         assertThat(messageEvents).containsExactly(validReply);
+        assertThat(extractEventData(payload, "analysis_metadata").getFirst())
+                .contains("\"confidence\":\"medium\"");
         verify(sessionMemoryService).addAssistantMessage(eq("s1"), replyCaptor.capture());
         assertThat(replyCaptor.getValue()).isEqualTo(validReply);
         assertThat(messageEvents.getFirst()).isEqualTo(replyCaptor.getValue());
+    }
+
+    @Test
+    void streamingAnalyticsAcceptsValidStructuredRepliesWithoutFollowUps() throws Exception {
+        ChatRequest request = new ChatRequest(
+                "s1",
+                "Which dealers have the lowest target achievement?",
+                "https://api.example.com",
+                "sk-test",
+                "gpt-4.1-mini"
+        );
+        ChatModel chatModel = mock(ChatModel.class);
+        ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
+        ArgumentCaptor<String> replyCaptor = ArgumentCaptor.forClass(String.class);
+        AnalyticsPlan plan = analyticsPlan(
+                AnalyticsPlan.Scenario.TARGET_ACHIEVEMENT,
+                englishAnalyticsFallbackReport()
+        );
+        String validReply = """
+                ## Interface Call Chain
+                1. Current date: 2026-05-20.
+                ## Conclusion
+                fallback
+                ## Data Support
+                <table><tr><td>fallback</td></tr></table>
+                ## Short Analysis
+                fallback
+                ## Problem Diagnosis & Solutions
+                fallback
+                ## Improvement Suggestions
+                fallback
+                """.trim();
+
+        when(languageDetector.detectLanguage(request.message())).thenReturn("en");
+        when(modelConfigService.createChatModel(request)).thenReturn(chatModel);
+        when(analyticsService.plan(eq(request.message()), eq("en"), anyString(), any())).thenReturn(plan);
+        when(promptFactory.buildGroundedModelPrompt("en", request.message(), "None", plan.groundedReference()))
+                .thenReturn("Grounded prompt");
+        when(promptFactory.buildSystemPrompt("en")).thenReturn("System prompt");
+        when(chatModel.stream(any(Prompt.class))).thenReturn(Flux.just(
+                new ChatResponse(List.of(new Generation(new AssistantMessage(validReply))))
+        ));
+
+        chatService.streamChat(request, outputStream);
+
+        List<String> messageEvents = extractEventData(outputStream.toString(StandardCharsets.UTF_8), "message")
+                .stream()
+                .filter(eventData -> !eventData.startsWith("<think>"))
+                .toList();
+
+        assertThat(messageEvents).containsExactly(validReply);
+        verify(sessionMemoryService).addAssistantMessage(eq("s1"), replyCaptor.capture());
+        assertThat(replyCaptor.getValue()).isEqualTo(validReply);
     }
 
     @Test
@@ -1671,6 +1767,14 @@ class ChatServiceTest {
     }
 
     private AnalyticsPlan analyticsPlan(AnalyticsPlan.Scenario scenario, String fallbackReply) {
+        return analyticsPlan(scenario, fallbackReply, AnalyticsMetadata.empty());
+    }
+
+    private AnalyticsPlan analyticsPlan(
+            AnalyticsPlan.Scenario scenario,
+            String fallbackReply,
+            AnalyticsMetadata metadata
+    ) {
         return new AnalyticsPlan(
                 scenario,
                 null,
@@ -1678,7 +1782,19 @@ class ChatServiceTest {
                 List.of("Identifying the analysis theme", "Filtering target data", "Generating a structured response"),
                 "1. Classify the request\n2. Compute KPIs\n3. Produce the report",
                 "Scenario: %s\nScope: the current sample dataset\nLanguage: en".formatted(scenario.name()),
-                fallbackReply
+                fallbackReply,
+                metadata
+        );
+    }
+
+    private AnalyticsMetadata sampleMetadata() {
+        return new AnalyticsMetadata(
+                "Target Achievement Analysis",
+                "the current sample dataset",
+                "Target achievement rate = won deals / target",
+                List.of("AE Target Data", "Opportunity"),
+                List.of("Lead rows with missing dealer are excluded from dealer ranking"),
+                "medium"
         );
     }
 

@@ -174,7 +174,8 @@ public class RuleBasedAnalyticsService {
                     progressMessages,
                     visibleThinking,
                     buildGroundedReference(scenarioWorkflow, scopeSummary, language, fallbackReply, resultWithCallChain.quality()),
-                    fallbackReply
+                    fallbackReply,
+                    buildAnalyticsMetadata(scenarioWorkflow, scopeSummary, language, resultWithCallChain.quality())
             );
         } finally {
             analysisDataCache.remove();
@@ -249,7 +250,8 @@ public class RuleBasedAnalyticsService {
                     progressMessages,
                     visibleThinking,
                     buildGroundedReference(scenarioWorkflow, scopeSummary, language, fallbackReply, resultWithCallChain.quality()),
-                    fallbackReply
+                    fallbackReply,
+                    buildAnalyticsMetadata(scenarioWorkflow, scopeSummary, language, resultWithCallChain.quality())
             );
         } finally {
             analysisDataCache.remove();
@@ -755,12 +757,12 @@ public class RuleBasedAnalyticsService {
                     ? "%s 达成率 %s，%s，当前不构成风险门店".formatted(
                             lowest.dealerName(), formatPercent(lowest.achievementRate()),
                             describeDeltaToAverage(deltaToAverage))
-                    : "%s 达成率 %s，%s，需结合在途商机转化节奏排查原因".formatted(
+                    : "%s 达成率 %s，%s，需结合在途商机和跟进记录进一步验证影响因素".formatted(
                             lowest.dealerName(), formatPercent(lowest.achievementRate()),
                             describeDeltaToAverage(deltaToAverage));
             String comparisonAttribution = metrics.size() < 2
                     ? "当前仅 1 家门店匹配，结果适合做单店复盘，不适合解读为门店间排名落后"
-                    : "%s 达成率 %s，领先第二名 %.1f 个百分点，其活动节奏和商机跟进模式值得横向推广".formatted(
+                    : "%s 达成率 %s，领先第二名 %.1f 个百分点；其活动节奏和商机跟进模式可作为待验证样本".formatted(
                             highest.dealerName(), formatPercent(highest.achievementRate()),
                             highest.achievementRate() - sorted.get(sorted.size() - 2).achievementRate());
             List<String> attributions = List.of(lowestAttribution, comparisonAttribution);
@@ -768,10 +770,10 @@ public class RuleBasedAnalyticsService {
             String primaryRecommendation = lowestGapUnits > 0
                     ? "围绕 %s 的 %d 台目标差额，优先推进高概率商机成交，并复盘目标设置是否匹配当前线索池".formatted(
                             lowest.dealerName(), lowestGapUnits)
-                    : "复盘 %s 的成交来源、邀约节奏和跟进动作，沉淀为可复制样板".formatted(lowest.dealerName());
+                    : "复盘 %s 的成交来源、邀约节奏和跟进动作，先确认哪些做法与当前指标有数据关联".formatted(lowest.dealerName());
             String secondaryRecommendation = metrics.size() < 2
                     ? "保持当前成交节奏，继续跟踪下月目标和新增商机储备，避免达成率回落"
-                    : "复用 %s 的经营打法和活动节奏，优先复制到同城或同车型门店".formatted(highest.dealerName());
+                    : "以 %s 为对照样本，在同城或同车型门店小范围验证可迁移动作".formatted(highest.dealerName());
             List<String> recommendations = List.of(primaryRecommendation, secondaryRecommendation);
 
             List<String> followUps = List.of(
@@ -828,9 +830,9 @@ public class RuleBasedAnalyticsService {
         );
 
         List<String> attributions = List.of(
-                "%s trails at %s (%.1f pp below average), likely due to prolonged opportunity conversion cycles.".formatted(
+                "%s trails at %s (%.1f pp below average); the current data confirms the gap but not the cause.".formatted(
                         lowest.dealerName(), formatPercent(lowest.achievementRate()), averageRate - lowest.achievementRate()),
-                "%s leads at %s, outperforming the runner-up \u2014 its campaign rhythm and follow-up model merit replication.".formatted(
+                "%s leads at %s, outperforming the runner-up; its campaign rhythm and follow-up model are useful validation samples.".formatted(
                         highest.dealerName(), formatPercent(highest.achievementRate()))
         );
 
@@ -838,7 +840,7 @@ public class RuleBasedAnalyticsService {
                 "Clear %d pending and overdue tasks for %s, targeting %.1f%% attainment within one week.".formatted(
                         Math.max(lowest.targetValue() - lowest.wonCount(), 0), lowest.dealerName(),
                         Math.min(lowest.achievementRate() + 15.0, 80.0)),
-                "Replicate %s's operating playbook and campaign cadence in same-city or same-model stores.".formatted(highest.dealerName())
+                "Use %s as a comparison sample and pilot transferable actions in same-city or same-model stores first.".formatted(highest.dealerName())
         );
 
         List<String> followUps = List.of(
@@ -1829,7 +1831,7 @@ public class RuleBasedAnalyticsService {
         String conclusion = String.format(
                 "- **%s**'s **%s** leads with **%s** attainment, far above the average.\n"
                 + "- Overall average is **%s**; %d out of %d campaigns fall below it \u2014 quality is uneven.\n"
-                + "- The winning playbook is worth replicating across similar cities and product lines.",
+                + "- Treat the leading campaign as a validation sample before transferring practices to similar cities or product lines.",
                 best.dealerName(), best.campaignType(), formatPercent(best.attainmentRate()),
                 formatPercent(averageAttainment),
                 metrics.stream().filter(m -> m.attainmentRate() < averageAttainment).count(),
@@ -1860,13 +1862,13 @@ public class RuleBasedAnalyticsService {
         );
 
         List<String> attributions = List.of(
-                "%s's %s achieved %s attainment \u2014 likely benefiting from stronger invitation and on-site conversion.".formatted(best.dealerName(), best.campaignType(), formatPercent(best.attainmentRate())),
-                "The %d below-average campaigns are concentrated in dealers with weaker execution or lead acquisition.".formatted(metrics.stream().filter(m -> m.attainmentRate() < averageAttainment).count())
+                "%s's %s achieved %s attainment; the current fields confirm the lead but do not prove the driver.".formatted(best.dealerName(), best.campaignType(), formatPercent(best.attainmentRate())),
+                "The %d below-average campaigns need lead acquisition, visit, and conversion fields checked before cause attribution.".formatted(metrics.stream().filter(m -> m.attainmentRate() < averageAttainment).count())
         );
 
         List<String> recommendations = List.of(
-                "Replicate %s's campaign playbook to similar cities or product lines \u2014 targeting a 10 pp average uplift.".formatted(best.dealerName()),
-                "Review the below-average campaigns to identify specific gaps in lead acquisition and on-site conversion."
+                "Use %s's campaign as a review sample and validate which actions are transferable before rollout.".formatted(best.dealerName()),
+                "Review the below-average campaigns after filling lead acquisition and on-site conversion gaps."
         );
 
         List<String> followUps = List.of(
@@ -2153,7 +2155,7 @@ public class RuleBasedAnalyticsService {
 
         List<String> attributions = List.of(
                 "%s has the highest volume but only %s conversion \u2014 scale does not guarantee quality.".formatted(topVolume.source(), formatPercent(topVolume.conversionRate())),
-                "%s converts at %s \u2014 its follow-up process and scripts can be codified into a repeatable playbook.".formatted(topConversion.source(), formatPercent(topConversion.conversionRate()))
+                "%s converts at %s; its follow-up process is a review sample, not yet a proven playbook for other sources.".formatted(topConversion.source(), formatPercent(topConversion.conversionRate()))
         );
 
         List<String> recommendations = List.of(
@@ -2639,7 +2641,7 @@ public class RuleBasedAnalyticsService {
             String conclusion = String.format(
                     "- 当前活动效果最好的是 **%s** 的 **%s**，达成率 **%s**，远超平均线\n"
                     + "- 整体平均达成率 **%s**，%d 场活动中有 %d 场低于平均线，活动质量分化明显\n"
-                    + "- 最佳活动打法值得复盘和横向复制，优先推广到相近城市或同车型门店",
+                    + "- 最佳活动只作为复盘样本，是否迁移到相近城市或同车型门店需要继续验证",
                     best.dealerName(), best.campaignType(), formatPercent(best.attainmentRate()),
                     formatPercent(averageAttainment),
                     metrics.size(),
@@ -2670,13 +2672,13 @@ public class RuleBasedAnalyticsService {
             );
 
             List<String> attributions = List.of(
-                    "%s 的 %s 达成率高达 %s，推测其线索邀约、现场转化流程和资源配置更优".formatted(best.dealerName(), best.campaignType(), formatPercent(best.attainmentRate())),
-                    "低于平均线的 %d 场活动主要集中在执行力度弱或线索获取能力不足的门店".formatted(metrics.stream().filter(m -> m.attainmentRate() < averageAttainment).count())
+                    "%s 的 %s 达成率为 %s，当前只能确认产出领先，具体驱动因素仍需结合邀约和现场转化数据验证".formatted(best.dealerName(), best.campaignType(), formatPercent(best.attainmentRate())),
+                    "低于平均线的 %d 场活动需要继续核对线索获取、到店和转化链路，当前字段不足以直接归因".formatted(metrics.stream().filter(m -> m.attainmentRate() < averageAttainment).count())
             );
 
             List<String> recommendations = List.of(
-                    "复用 %s 的活动打法，优先复制到相近城市或同车型门店，预计可将整体平均达成率拉升 10 个百分点".formatted(best.dealerName()),
-                    "对比低于平均线的活动，找出线索获取和现场转化的主要短板并逐项改进"
+                    "以 %s 的活动为样本复盘邀约、到店和商机产出链路，先验证哪些做法可迁移".formatted(best.dealerName()),
+                    "对比低于平均线的活动，补齐线索获取和现场转化字段后再定位主要短板"
             );
 
             List<String> followUps = List.of(
@@ -2690,7 +2692,7 @@ public class RuleBasedAnalyticsService {
         String conclusion = String.format(
                 "- **%s**'s **%s** leads with **%s** attainment, far above the average.\n"
                 + "- Overall average is **%s**; %d out of %d campaigns fall below it — quality is uneven.\n"
-                + "- The winning playbook is worth replicating across similar cities and product lines.",
+                + "- Treat the leading campaign as a validation sample before transferring practices to similar cities or product lines.",
                 best.dealerName(), best.campaignType(), formatPercent(best.attainmentRate()),
                 formatPercent(averageAttainment),
                 metrics.stream().filter(m -> m.attainmentRate() < averageAttainment).count(),
@@ -2721,13 +2723,13 @@ public class RuleBasedAnalyticsService {
         );
 
         List<String> attributions = List.of(
-                "%s's %s achieved %s attainment — likely benefiting from stronger invitation and on-site conversion.".formatted(best.dealerName(), best.campaignType(), formatPercent(best.attainmentRate())),
-                "The %d below-average campaigns are concentrated in dealers with weaker execution or lead acquisition.".formatted(metrics.stream().filter(m -> m.attainmentRate() < averageAttainment).count())
+                "%s's %s achieved %s attainment; the current fields confirm the lead but do not prove the driver.".formatted(best.dealerName(), best.campaignType(), formatPercent(best.attainmentRate())),
+                "The %d below-average campaigns need lead acquisition, visit, and conversion fields checked before cause attribution.".formatted(metrics.stream().filter(m -> m.attainmentRate() < averageAttainment).count())
         );
 
         List<String> recommendations = List.of(
-                "Replicate %s's campaign playbook to similar cities or product lines — targeting a 10 pp average uplift.".formatted(best.dealerName()),
-                "Review the below-average campaigns to identify specific gaps in lead acquisition and on-site conversion."
+                "Use %s's campaign as a review sample and validate which actions are transferable before rollout.".formatted(best.dealerName()),
+                "Review the below-average campaigns after filling lead acquisition and on-site conversion gaps."
         );
 
         List<String> followUps = List.of(
@@ -2838,12 +2840,12 @@ public class RuleBasedAnalyticsService {
 
             List<String> attributions = List.of(
                     "%s 线索量最大但转化率仅 %s，量大不一定代表质优，需要同时看线索规模和转化效率".formatted(topVolume.source(), formatPercent(topVolume.conversionRate())),
-                    "%s 转化率最高达 %s，其线索跟进的流程和话术值得提炼为可复制的打法".formatted(topConversion.source(), formatPercent(topConversion.conversionRate()))
+                    "%s 转化率最高达 %s，其线索跟进流程可作为复盘样本，但仍需验证是否适用于其他来源".formatted(topConversion.source(), formatPercent(topConversion.conversionRate()))
             );
 
             List<String> recommendations = List.of(
                     "继续放大 %s 的获客规模，同时建立转化率周度监控，确保量价齐升".formatted(topVolume.source()),
-                    "优先复盘 %s 的转化路径，提炼成可复制的线索跟进 SOP 推广到其他来源".formatted(topConversion.source())
+                    "优先复盘 %s 的转化路径，先在相近来源验证线索跟进 SOP 是否有效".formatted(topConversion.source())
             );
 
             List<String> followUps = List.of(
@@ -2888,12 +2890,12 @@ public class RuleBasedAnalyticsService {
 
         List<String> attributions = List.of(
                 "%s has the highest volume but only %s conversion — scale does not guarantee quality.".formatted(topVolume.source(), formatPercent(topVolume.conversionRate())),
-                "%s converts at %s — its follow-up process and scripts can be codified into a repeatable playbook.".formatted(topConversion.source(), formatPercent(topConversion.conversionRate()))
+                "%s converts at %s; its follow-up process is a review sample, not yet a proven playbook for other sources.".formatted(topConversion.source(), formatPercent(topConversion.conversionRate()))
         );
 
         List<String> recommendations = List.of(
                 "Keep scaling %s while instituting weekly conversion monitoring to ensure quality keeps pace.".formatted(topVolume.source()),
-                "Codify %s's conversion path into a repeatable SOP and roll it out to other sources.".formatted(topConversion.source())
+                "Review %s's conversion path and validate the follow-up SOP on similar sources before rollout.".formatted(topConversion.source())
         );
 
         List<String> followUps = List.of(
@@ -3797,7 +3799,7 @@ public class RuleBasedAnalyticsService {
                     "dealer benchmark", "Achievement rate", new ArrayList<>());
         }
         String conclusion = String.format(
-                "- **%s** is the top performer at **%s** \u2014 the benchmark for others.\n"
+                "- **%s** has the strongest achievement rate at **%s** under this metric lens.\n"
                 + "- **%s** needs the most attention at only **%s**, trailing the leader by **%s**.\n"
                 + "- %d out of %d dealers are below 75%% \u2014 operating balance needs improvement.",
                 best.dealerName(), formatPercent(best.achievementRate()),
@@ -3840,7 +3842,7 @@ public class RuleBasedAnalyticsService {
         );
 
         List<String> recommendations = List.of(
-                "Replicate %s's operating rhythm and campaign approach as the cross-dealer benchmark.".formatted(best.dealerName()),
+                "Use %s's operating rhythm and campaign approach as a review sample, then validate transferability before wider rollout.".formatted(best.dealerName()),
                 "Run a focused improvement sprint for %s to close the target and win-gap.".formatted(lowest.dealerName())
         );
 
@@ -4021,6 +4023,7 @@ public class RuleBasedAnalyticsService {
                 Workflow: %s
                 Tool Chain: %s
                 Logic Summary: %s
+                Metric Lens: %s
                 Data Quality: %s
                 Chart Suppressed: %s%s
                 Canonical fallback report:
@@ -4033,11 +4036,127 @@ public class RuleBasedAnalyticsService {
                 AnalyticsScenarioCatalog.workflowSummary(),
                 scenarioWorkflow.toolChainSummary(),
                 scenarioWorkflow.logicSummary(language),
+                metricLens(language, quality.primaryMetricLabel(), scenarioWorkflow.scenario()),
                 quality.state(),
                 quality.suppressChart(),
                 quality.suppressChart() ? " (" + quality.chartSuppressionReason() + ")" : "",
                 fallbackReply
         );
+    }
+
+    private AnalyticsMetadata buildAnalyticsMetadata(
+            AnalyticsScenarioCatalog.ScenarioWorkflow scenarioWorkflow,
+            String scopeSummary,
+            String language,
+            DataQualityContext quality
+    ) {
+        List<String> limitations = new ArrayList<>();
+        limitations.addAll(dataLimitations(language, scenarioWorkflow.scenario()));
+        if (quality.state() != DataQualityState.NORMAL) {
+            limitations.add(describeDataQualityState(language, quality));
+        }
+        if (quality.suppressChart()) {
+            limitations.add(("zh".equals(language) ? "图表隐藏：" : "Chart hidden: ")
+                    + describeChartSuppressionReason(language, quality.chartSuppressionReason()));
+        }
+        if (quality.excludedUnits() > 0) {
+            String excluded = "zh".equals(language)
+                    ? "已排除 %d 个分母或字段无效的对象".formatted(quality.excludedUnits())
+                    : "%d objects with invalid denominators or fields were excluded".formatted(quality.excludedUnits());
+            limitations.add(excluded);
+        }
+
+        return new AnalyticsMetadata(
+                scenarioWorkflow.label(language),
+                scopeSummary,
+                metricLens(language, quality.primaryMetricLabel(), scenarioWorkflow.scenario()),
+                dataSources(language, scenarioWorkflow.scenario()),
+                limitations,
+                metadataConfidence(quality, limitations)
+        );
+    }
+
+    private String metadataConfidence(DataQualityContext quality, List<String> limitations) {
+        if (quality.state() != DataQualityState.NORMAL) {
+            return "low";
+        }
+        return limitations == null || limitations.isEmpty() ? "high" : "medium";
+    }
+
+    private String metricLens(String language, String primaryMetricLabel, AnalyticsPlan.Scenario scenario) {
+        boolean isZh = "zh".equals(language);
+        return switch (primaryMetricLabel) {
+            case "Achievement rate" -> isZh
+                    ? "目标达成率 = 赢单数 ÷ 目标数"
+                    : "Target achievement rate = won deals / target";
+            case "Campaign attainment" -> isZh
+                    ? "活动达成率 = 实际产出商机 ÷ 活动目标"
+                    : "Campaign attainment = actual opportunities / campaign target";
+            case "Lead conversion" -> isZh
+                    ? "线索转化率 = 已转化线索数 ÷ 线索总量"
+                    : "Lead conversion rate = converted leads / total leads";
+            case "Opportunity count" -> isZh
+                    ? "商机信号 = 商机数量、阶段分布与赢单商机综合查看"
+                    : "Opportunity signal = opportunity volume, stage mix, and won opportunities";
+            case "Task backlog" -> isZh
+                    ? "跟进积压率 = 未完成任务数 ÷ 跟进任务总量"
+                    : "Follow-up backlog rate = open tasks / total tasks";
+            case "Follow-up activity" -> isZh
+                    ? "跟进活跃度 = 已完成任务数 ÷ 跟进任务总量"
+                    : "Follow-up activity = completed tasks / total tasks";
+            default -> scenarioMetricLens(language, scenario, primaryMetricLabel);
+        };
+    }
+
+    private String scenarioMetricLens(String language, AnalyticsPlan.Scenario scenario, String primaryMetricLabel) {
+        boolean isZh = "zh".equals(language);
+        return switch (scenario) {
+            case DEALER_BENCHMARK -> isZh
+                    ? "经销商对标 = 目标达成、商机、线索、跟进与活动信号综合比较"
+                    : "Dealer benchmark = target, opportunity, lead, follow-up, and campaign signals";
+            case DEALER_BUSINESS_ACTIVITY -> isZh
+                    ? "经营活跃度 = 目标、商机创建、赢单与数据覆盖月份综合评分"
+                    : "Business activity = score across target, created opportunities, won deals, and active months";
+            case DATA_OVERVIEW -> isZh
+                    ? "数据概况 = 各业务实体记录数汇总"
+                    : "Data overview = record counts by business entity";
+            default -> isZh ? localizeTopicLabel(language, primaryMetricLabel) : primaryMetricLabel;
+        };
+    }
+
+    private List<String> dataSources(String language, AnalyticsPlan.Scenario scenario) {
+        boolean isZh = "zh".equals(language);
+        return switch (scenario) {
+            case TARGET_ACHIEVEMENT -> List.of("AE Target Data", "Target");
+            case OPPORTUNITY_FUNNEL -> List.of("Opportunity");
+            case SALES_FOLLOW_UP -> List.of("Task", "Opportunity");
+            case CAMPAIGN_PERFORMANCE -> List.of("Campaign", "Opportunity");
+            case LEAD_SOURCE -> List.of("Lead");
+            case DEALER_BENCHMARK -> List.of("AE Target Data", "Opportunity", "Lead", "Task", "Campaign");
+            case DEALER_BUSINESS_ACTIVITY -> List.of("AE Target Data", "Opportunity");
+            case DATA_OVERVIEW -> isZh
+                    ? List.of("商机", "线索", "任务", "市场活动")
+                    : List.of("Opportunity", "Lead", "Task", "Campaign");
+        };
+    }
+
+    private List<String> dataLimitations(String language, AnalyticsPlan.Scenario scenario) {
+        boolean isZh = "zh".equals(language);
+        return switch (scenario) {
+            case CAMPAIGN_PERFORMANCE -> isZh
+                    ? List.of("活动转化字段可能不完整，不能把 0 直接解释为活动无效")
+                    : List.of("Campaign conversion fields may be incomplete; zero values should not be read as campaign failure");
+            case LEAD_SOURCE -> isZh
+                    ? List.of("部分线索缺少经销商或车型字段，按这些维度细分时需要谨慎")
+                    : List.of("Some leads have missing dealer or model fields; dimension breakdowns need caution");
+            case SALES_FOLLOW_UP -> isZh
+                    ? List.of("部分任务无法关联到当前商机明细，跟进结论以 Task 表统计为准")
+                    : List.of("Some tasks do not link to the current opportunity table; follow-up findings use Task records as the source of truth");
+            case OPPORTUNITY_FUNNEL -> isZh
+                    ? List.of("商机阶段和概率只能说明当前漏斗状态，不能单独证明流失原因")
+                    : List.of("Opportunity stages and probability describe funnel state but do not prove root causes by themselves");
+            default -> List.of();
+        };
     }
 
     private AnalyticsPlan.Scenario mapScenario(AnalysisTopic topic) {

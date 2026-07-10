@@ -264,6 +264,43 @@ FOLLOW_UP_QUESTIONS:
     expect(wrapper.vm.messages[1].streaming).toBe(false);
   });
 
+  it("attaches analysis metadata events to the active assistant message", async () => {
+    streamChatMock.mockImplementationOnce(async ({ onEvent }) => {
+      onEvent({
+        event: "analysis_metadata",
+        data: {
+          scenarioLabel: "Target Achievement Analysis",
+          scopeLabel: "the current sample dataset",
+          metricLens: "Target achievement rate = won deals / target",
+          dataSources: ["AE Target Data", "Opportunity"],
+          limitations: ["Some leads have missing dealer fields"],
+          confidence: "medium"
+        }
+      });
+      onEvent({ event: "message", data: "Visible reply" });
+      onEvent({ event: "done", data: "[DONE]" });
+    });
+    const wrapper = mountChatHarness(
+      ref({
+        apiKey: "sk-test",
+        baseUrl: "https://api.example.com",
+        model: "gpt-4.1-mini"
+      })
+    );
+
+    await wrapper.vm.submitPrompt("Which dealers have the lowest target achievement?");
+
+    expect(wrapper.vm.messages[1].analysisMetadata).toEqual({
+      scenarioLabel: "Target Achievement Analysis",
+      scopeLabel: "the current sample dataset",
+      metricLens: "Target achievement rate = won deals / target",
+      dataSources: ["AE Target Data", "Opportunity"],
+      limitations: ["Some leads have missing dealer fields"],
+      confidence: "medium"
+    });
+    expect(wrapper.vm.messages[1].content).toBe("Visible reply");
+  });
+
   it("coalesces streamed markdown rendering and flushes the final render on done", async () => {
     vi.useFakeTimers();
     const deferred = createDeferred();

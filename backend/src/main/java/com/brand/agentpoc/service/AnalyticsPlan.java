@@ -9,7 +9,8 @@ public record AnalyticsPlan(
         List<String> progressMessages,
         String visibleThinking,
         String groundedReference,
-        String fallbackReply
+        String fallbackReply,
+        AnalyticsMetadata metadata
 ) {
 
     public AnalyticsPlan {
@@ -17,6 +18,28 @@ public record AnalyticsPlan(
                 ? AnalyticsScenarioCatalog.forScenario(scenario)
                 : scenarioWorkflow;
         progressMessages = progressMessages == null ? List.of() : List.copyOf(progressMessages);
+        metadata = metadata == null ? AnalyticsMetadata.empty() : metadata;
+    }
+
+    public AnalyticsPlan(
+            Scenario scenario,
+            AnalyticsScenarioCatalog.ScenarioWorkflow scenarioWorkflow,
+            String scopeSummary,
+            List<String> progressMessages,
+            String visibleThinking,
+            String groundedReference,
+            String fallbackReply
+    ) {
+        this(
+                scenario,
+                scenarioWorkflow,
+                scopeSummary,
+                progressMessages,
+                visibleThinking,
+                groundedReference,
+                fallbackReply,
+                AnalyticsMetadata.empty()
+        );
     }
 
     public enum Scenario {
