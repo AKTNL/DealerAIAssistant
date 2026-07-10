@@ -1,14 +1,14 @@
 # Agent POC - 星曜汽车 AI 分析助手
 
-面向汽车经销商集团运营场景的 AI 分析助手 POC。系统支持用户用中文或英文自然语言查询经营数据，通过 SSE 流式返回 Markdown 分析报告，并在回答中展示分析进度、可见思考链、数据表格、图表和追问问题。
+面向汽车经销商集团运营场景的 AI 分析助手 POC。系统支持用户用中文或英文自然语言查询经营数据，通过 SSE 流式返回 Markdown 分析报告，并在回答中展示分析进度、可见思考链、分析口径、数据来源、限制说明、置信度、数据表格、图表和追问问题。
 
 ## 项目定位
 
 本项目用于验证“规则分析引擎 + 可选外部大模型”的经销商经营分析体验：
 
 - **未配置模型时**：系统使用内置规则引擎和 Excel 样板数据，直接生成可复现的经营分析结果。
-- **配置模型后**：后端先生成事实锚点和 fallback 报告，再把这些 grounded reference 交给外部模型润色，降低 KPI 被改写或幻觉扩散的风险。
-- **前端体验**：登录后进入聊天工作台，可切换中英文，使用左侧快捷问题，也可配置模型连接并发送自定义问题。
+- **配置模型后**：后端先生成事实锚点和 fallback 报告，再把这些 grounded reference 交给外部模型润色，并通过回答元数据暴露分析口径、数据限制和置信度，降低 KPI 被改写或幻觉扩散的风险。
+- **前端体验**：登录后进入聊天工作台，可切换中英文，使用左侧快捷问题，也可配置模型连接并发送自定义问题；分析类回答顶部会展示范围、指标口径、来源、限制与置信度。
 
 ## 技术栈
 
@@ -22,13 +22,14 @@
 ## 核心能力
 
 - 访问密钥登录：`POST /api/auth/verify`
-- 流式聊天：`POST /api/chat/stream` 返回 `step`、`progress`、`message`、`done`、`error` 事件
+- 流式聊天：`POST /api/chat/stream` 返回 `step`、`analysis_metadata`、`progress`、`message`、`done`、`error` 事件
 - 同步聊天：`POST /api/chat`
 - 会话清理：`DELETE /api/chat/{sessionId}`
 - 浏览器本地模型配置：`baseUrl`、`apiKey`、`model` 随聊天请求发送
 - 中英文输出：前端文案可切换，后端按用户消息语言生成回答
 - Markdown 渲染：代码高亮、HTML 表格白名单渲染、Mermaid 图表渲染、空图表状态提示
 - 思考时间线：分析过程以 `step` 事件流式推送（数据加载、过滤、计算、工具调用、模型思考、洞察），前端通过统一时间线面板展示
+- 分析元数据：分析类回答正文前推送 `analysis_metadata`，用于展示分析范围、指标口径、数据来源、关键限制和高/中/低置信度
 - 结构化数据 API：原始数据查询、指标聚合、分页详情查询
 
 ## 分析场景
@@ -44,12 +45,14 @@
 | `DEALER_BENCHMARK` | 经营对标分析 | 组合多门店指标，找出领先与落后门店的差距 |
 | `LEAD_SOURCE` | 线索来源与自然流量趋势分析 | 按来源统计线索量、转化率和来源结构 |
 
-规则分析回答通常包含：
+分析回答通常包含：
 
 - `## Conclusion`：结论摘要
 - `## Data Support`：数据表格或图表
 - `## Short Analysis`：原因拆解和行动建议
-- `FOLLOW_UP_QUESTIONS:` / `追问：`：两个可点击的后续问题
+- `FOLLOW_UP_QUESTIONS:` / `追问：`：0-2 个可点击的后续问题；答案完整时可省略，证据不足或口径会改变结论时只保留必要追问
+
+回答口径遵循“证据优先”：系统会区分样板数据已经支持的事实、需要验证的假设和当前数据缺口；低样本、零分母、字段缺失或图表被隐藏时，会在回答顶部和正文中明确说明限制。
 
 ## 项目结构
 
@@ -192,6 +195,7 @@ SSE 流式聊天事件类型：
 | 事件 | 说明 |
 | --- | --- |
 | `step` | 分析步骤事件，包含 `type`（data_load/filter/calculation/tool_call/model_thought/insight）、`status`、`label`、`detail` 等字段 |
+| `analysis_metadata` | 分析元数据事件，包含 `scenarioLabel`、`scopeLabel`、`metricLens`、`dataSources`、`limitations`、`confidence`，会在分析类回答正文前发送 |
 | `progress` | 分析进度文本，前端渲染为加载占位步骤 |
 | `message` | Markdown 文本块，模型思考内容通过 `<think>` 标签包裹 |
 | `done` | 流式传输完成 |
@@ -306,19 +310,22 @@ mvn clean install
 
 | 文件 | 职责 |
 | --- | --- |
-| `backend/src/main/java/com/brand/agentpoc/service/ChatService.java` | 聊天主流程、SSE 输出、step 事件流式推送、模型与规则引擎分流 |
+| `backend/src/main/java/com/brand/agentpoc/service/ChatService.java` | 聊天主流程、SSE 输出、step 与 analysis_metadata 事件流式推送、模型与规则引擎分流 |
+| `backend/src/main/java/com/brand/agentpoc/service/SseEventWriter.java` | SSE 事件写入工具，负责分析元数据和 Markdown 分块事件输出 |
+| `backend/src/main/java/com/brand/agentpoc/service/AnalyticsMetadata.java` | 分析元数据 record，描述场景、范围、指标口径、数据来源、限制和置信度 |
 | `backend/src/main/java/com/brand/agentpoc/service/RuleBasedAnalyticsService.java` | 规则分析引擎、fallback 报告生成、实时 step 回调 |
 | `backend/src/main/java/com/brand/agentpoc/service/analytics/AnalyticsTopicClassifier.java` | 纯文本分析主题识别，维护场景路由优先级 |
 | `backend/src/main/java/com/brand/agentpoc/service/StepEvent.java` | SSE step 事件 record（traceId、seq、type、status、label、detail、meta） |
 | `backend/src/main/java/com/brand/agentpoc/service/StepType.java` | step 类型枚举（data_load/filter/calculation/tool_call/model_thought/insight） |
 | `backend/src/main/java/com/brand/agentpoc/service/AnalyticsScenarioCatalog.java` | 分析场景目录、示例问题、工具链说明 |
 | `backend/src/main/java/com/brand/agentpoc/service/AnalyticsApiService.java` | 指标聚合与详情分页 API 逻辑 |
-| `backend/src/main/java/com/brand/agentpoc/ai/PromptFactory.java` | 系统提示词、thinking_protocol 和追问约束 |
+| `backend/src/main/java/com/brand/agentpoc/ai/PromptFactory.java` | 系统提示词、thinking_protocol、证据边界和 0-2 个追问约束 |
+| `backend/src/main/java/com/brand/agentpoc/service/ChatReplyGuard.java` | 模型回答守卫，修正过度确定、追问数量和结构化回答格式 |
 | `backend/src/main/java/com/brand/agentpoc/service/ExcelImportService.java` | Excel 样板数据导入 |
 | `backend/src/main/java/com/brand/agentpoc/config/ApiKeyFilter.java` | 受保护接口的 `X-API-Key` 校验 |
-| `frontend/src/composables/useChat.js` | 前端聊天状态、SSE 解析（step/progress/message/done/error）、`<think>` 标签流式解析、streamPhase 管理 |
+| `frontend/src/composables/useChat.js` | 前端聊天状态、SSE 解析（step/analysis_metadata/progress/message/done/error）、`<think>` 标签流式解析、streamPhase 管理 |
 | `frontend/src/utils/markdown.js` | Markdown、HTML 表格、Mermaid fence 渲染 |
-| `frontend/src/components/chat/AssistantMessage.vue` | AI 消息、统一时间线面板、追问按钮和 Mermaid 图表交互 |
+| `frontend/src/components/chat/AssistantMessage.vue` | AI 消息、分析口径横幅、统一时间线面板、追问按钮和 Mermaid 图表交互 |
 | `frontend/src/components/layout/ModelSettingsPanel.vue` | 模型连接配置面板 |
 | `frontend/src/constants/sidebarFlows.js` | 左侧快捷问题配置 |
 
@@ -326,5 +333,6 @@ mvn clean install
 
 - H2 使用内存数据库，应用重启后会重新导入 Excel 样板数据。
 - 规则引擎输出数据来自样板数据或聚合计算，外部模型只负责在事实锚点基础上润色。
+- 分析元数据由后端生成，前端只渲染 `analysis_metadata` 事件提供的字段，不从 Markdown 正文反推业务口径。
 - 前端开发时优先通过 Vite 代理访问后端；如果直接部署后端静态资源，则访问 `http://localhost:8081`。
 - 本地启动也需要显式设置访问密钥、session 签名密钥和内部 API key；不要提交真实密钥。
