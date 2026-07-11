@@ -665,7 +665,7 @@ public class RuleBasedAnalyticsService {
                         "dealerCount", validMetrics.size(),
                         "totalWonCount", primaryNumerator,
                         "totalTargetValue", primaryDenominator,
-                        "excludedZeroTargetCount", allMetrics.size() - validMetrics.size(),
+                        "excludedZeroTargetCount", filtered.size() - validMetrics.size(),
                         "sampleRows", targetMetricRows(validMetrics, 5)
                 )));
 
@@ -1701,7 +1701,10 @@ public class RuleBasedAnalyticsService {
             return noDataResult(language, scope, "campaign performance");
         }
 
-        List<CampaignMetric> allMetrics = filtered.stream()
+        List<CampaignMetric> validMetrics = filtered.stream()
+                .filter(campaign -> campaign.getActualOpportunityCount() != null)
+                .filter(campaign -> campaign.getTotalNewCustomerTarget() != null)
+                .filter(campaign -> campaign.getTotalNewCustomerTarget() > 0)
                 .map(campaign -> new CampaignMetric(
                         campaign.getCampaignId(),
                         campaign.getDealerName(),
@@ -1710,9 +1713,6 @@ public class RuleBasedAnalyticsService {
                         campaign.getTotalNewCustomerTarget(),
                         percentage(campaign.getActualOpportunityCount(), campaign.getTotalNewCustomerTarget())
                 ))
-                .toList();
-        List<CampaignMetric> validMetrics = allMetrics.stream()
-                .filter(metric -> metric.totalNewCustomerTarget() > 0)
                 .toList();
         int primaryNumerator = validMetrics.stream().mapToInt(CampaignMetric::actualOpportunityCount).sum();
         int primaryDenominator = validMetrics.stream().mapToInt(CampaignMetric::totalNewCustomerTarget).sum();
@@ -1724,7 +1724,7 @@ public class RuleBasedAnalyticsService {
                 2,
                 primaryNumerator,
                 primaryDenominator,
-                allMetrics.size() - validMetrics.size(),
+                filtered.size() - validMetrics.size(),
                 validMetrics.size() < 2 ? 0.0 : validMetrics.stream().mapToDouble(CampaignMetric::attainmentRate).max().orElse(0.0)
                         - validMetrics.stream().mapToDouble(CampaignMetric::attainmentRate).min().orElse(0.0),
                 true
@@ -1761,7 +1761,7 @@ public class RuleBasedAnalyticsService {
                         "campaignCount", validMetrics.size(),
                         "totalActualOpportunityCount", primaryNumerator,
                         "totalNewCustomerTarget", primaryDenominator,
-                        "excludedZeroTargetCount", allMetrics.size() - validMetrics.size(),
+                        "excludedZeroTargetCount", filtered.size() - validMetrics.size(),
                         "sampleRows", campaignMetricRows(validMetrics, 5)
                 )));
 
@@ -2578,21 +2578,12 @@ public class RuleBasedAnalyticsService {
                 isZh(language) ? "按分析范围过滤" : "Filter by analysis scope",
                 isZh(language) ? "匹配 " + items.size() + " 条记录" : items.size() + " matching records",
                 filterAuditMeta(scope, language, response.count(), items.size())));
-        List<CampaignMetric> allMetrics = items.stream()
-                .map(item -> new CampaignMetric(
-                        stringValue(item, "campaignId"),
-                        stringValue(item, "dealerName"),
-                        stringValue(item, "campaignType"),
-                        intValue(item, "actualOpportunityCount"),
-                        intValue(item, "totalNewCustomerTarget"),
-                        percentage(intValue(item, "actualOpportunityCount"), intValue(item, "totalNewCustomerTarget"))
-                ))
+        List<CampaignMetric> validMetrics = items.stream()
+                .map(this::campaignMetricFromItem)
+                .filter(Objects::nonNull)
                 .toList();
 
         int campaignCount = aggregateValue(response, "campaignCount");
-        List<CampaignMetric> validMetrics = allMetrics.stream()
-                .filter(metric -> metric.totalNewCustomerTarget() > 0)
-                .toList();
         int primaryNumerator = validMetrics.stream().mapToInt(CampaignMetric::actualOpportunityCount).sum();
         int primaryDenominator = validMetrics.stream().mapToInt(CampaignMetric::totalNewCustomerTarget).sum();
         DataQualityContext quality = classifyRateQuality(
@@ -2603,7 +2594,7 @@ public class RuleBasedAnalyticsService {
                 2,
                 primaryNumerator,
                 primaryDenominator,
-                allMetrics.size() - validMetrics.size(),
+                items.size() - validMetrics.size(),
                 validMetrics.size() < 2 ? 0.0 : validMetrics.stream().mapToDouble(CampaignMetric::attainmentRate).max().orElse(0.0)
                         - validMetrics.stream().mapToDouble(CampaignMetric::attainmentRate).min().orElse(0.0),
                 true
@@ -2633,7 +2624,7 @@ public class RuleBasedAnalyticsService {
                         "campaignCount", validMetrics.size(),
                         "totalActualOpportunityCount", primaryNumerator,
                         "totalNewCustomerTarget", primaryDenominator,
-                        "excludedZeroTargetCount", allMetrics.size() - validMetrics.size(),
+                        "excludedZeroTargetCount", items.size() - validMetrics.size(),
                         "sampleRows", campaignMetricRows(validMetrics, 5)
                 )));
 
@@ -2983,6 +2974,7 @@ public class RuleBasedAnalyticsService {
                     : "%s target %d, opportunity creates %d, won %d, achievement rate %s.".formatted(
                             scope.summary(language), overall.targetValue(), overall.createCount(), overall.wonCount(),
                             formatPercent(overall.achievementRate()));
+            conclusion += targetRateBasis(overall, language);
             return directAnswer(language, conclusion, targetRows(List.of(overall)),
                     "target achievement", "Achievement rate", traceSteps);
         }
@@ -3008,6 +3000,7 @@ public class RuleBasedAnalyticsService {
                     title, focus.label(), focus.targetValue(), focus.wonCount(), focus.createCount(),
                     formatPercent(focus.achievementRate()));
         }
+        conclusion += targetRateBasis(focus, language);
         return directAnswer(language, conclusion, targetRows(rows),
                 "target achievement", "Achievement rate", traceSteps);
     }
@@ -3469,7 +3462,10 @@ public class RuleBasedAnalyticsService {
 
         if (containsAny(normalized, "完成率为0", "为0")) {
             List<Campaign> zeroCampaigns = filtered.stream()
-                    .filter(campaign -> campaign.getTargetOpportunityAmount() > 0 && campaign.getActualOpportunityCount() == 0)
+                    .filter(campaign -> campaign.getTargetOpportunityAmount() != null)
+                    .filter(campaign -> campaign.getActualOpportunityCount() != null)
+                    .filter(campaign -> campaign.getTargetOpportunityAmount() > 0
+                            && campaign.getActualOpportunityCount() == 0)
                     .sorted(Comparator.comparing((Campaign campaign) -> dealerCodeSortKey(campaign.getDealerName()))
                             .thenComparing(Campaign::getDealerName)
                             .thenComparing(Comparator.comparingInt(Campaign::getTargetOpportunityAmount).reversed())
@@ -3500,16 +3496,17 @@ public class RuleBasedAnalyticsService {
 
         if (containsAny(normalized, "单个活动", "产生商机最多")) {
             Campaign top = filtered.stream()
+                    .filter(campaign -> campaign.getActualOpportunityCount() != null)
                     .max(Comparator.comparingInt(Campaign::getActualOpportunityCount))
                     .orElse(null);
             if (top == null) {
                 return null;
             }
             String conclusion = "zh".equals(language)
-                    ? "单个活动中，**%s** 产生商机最多，NumberOfOpportunities 为 %d，NumberOfWonOpportunities 为 %d。".formatted(
-                            top.getCampaignName(), top.getActualOpportunityCount(), top.getWonOpportunityCount())
-                    : "Single campaign **%s** generated the most opportunities: %d, with %d won opportunities.".formatted(
-                            top.getCampaignName(), top.getActualOpportunityCount(), top.getWonOpportunityCount());
+                    ? "单个活动中，**%s** 产生商机最多，NumberOfOpportunities 为 %d，NumberOfWonOpportunities 为 %s。".formatted(
+                            top.getCampaignName(), top.getActualOpportunityCount(), formatNullableCount(top.getWonOpportunityCount(), language))
+                    : "Single campaign **%s** generated the most opportunities: %d, with %s won opportunities.".formatted(
+                            top.getCampaignName(), top.getActualOpportunityCount(), formatNullableCount(top.getWonOpportunityCount(), language));
             return directAnswer(language, conclusion, campaignRows(List.of(top)),
                     "campaign performance", "Campaign attainment", List.of());
         }
@@ -3532,6 +3529,7 @@ public class RuleBasedAnalyticsService {
                             metric.dealerName(), metric.campaignCount(), metric.targetOpportunityAmount(),
                             metric.actualOpportunityCount(), formatPercent(metric.opportunityAttainmentRate()),
                             metric.targetOrderAmount(), metric.wonOpportunityCount());
+            conclusion += campaignRateBasis(metric, language);
             return directAnswer(language, conclusion, campaignDealerRows(List.of(metric)),
                     "campaign performance", "Campaign attainment", List.of());
         }
@@ -3554,6 +3552,7 @@ public class RuleBasedAnalyticsService {
                             metric.targetOpportunityAmount(), metric.actualOpportunityCount(),
                             formatPercent(metric.opportunityAttainmentRate()), metric.targetOrderAmount(),
                             metric.wonOpportunityCount(), formatPercent(metric.orderAttainmentRate()));
+            conclusion += campaignRateBasis(metric, language);
             return directAnswer(language, conclusion, campaignDealerRows(List.of(metric)),
                     "campaign performance", "Campaign attainment", List.of());
         }
@@ -3589,6 +3588,7 @@ public class RuleBasedAnalyticsService {
                 : "%s is **%s**: %d campaigns, target opportunities %d, actual opportunities %d, attainment %s.".formatted(
                         title, top.dealerName(), top.campaignCount(), top.targetOpportunityAmount(),
                         top.actualOpportunityCount(), formatPercent(top.opportunityAttainmentRate()));
+        conclusion += campaignRateBasis(top, language);
         return directAnswer(language, conclusion, campaignDealerRows(metrics.stream().limit(5).toList()),
                 "campaign performance", "Campaign attainment", List.of());
     }
@@ -4664,10 +4664,21 @@ public class RuleBasedAnalyticsService {
     }
 
     private TargetAggregateMetric aggregateTarget(List<Target> targets, String label) {
-        int targetValue = targets.stream().mapToInt(Target::getAsKTarget).sum();
+        List<Target> comparableTargets = targets.stream()
+                .filter(target -> target.getAsKTarget() != null)
+                .toList();
+        int targetValue = comparableTargets.stream().mapToInt(Target::getAsKTarget).sum();
         int createCount = targets.stream().mapToInt(Target::getOpportunityCreateCount).sum();
         int wonCount = targets.stream().mapToInt(Target::getOpportunityWonCount).sum();
-        return new TargetAggregateMetric(label, targetValue, createCount, wonCount, percentage(wonCount, targetValue));
+        int comparableWonCount = comparableTargets.stream().mapToInt(Target::getOpportunityWonCount).sum();
+        return new TargetAggregateMetric(
+                label,
+                targetValue,
+                createCount,
+                wonCount,
+                comparableWonCount,
+                percentage(comparableWonCount, targetValue)
+        );
     }
 
     private List<TargetAggregateMetric> aggregateTargets(List<Target> targets, Function<Target, String> classifier) {
@@ -4681,14 +4692,26 @@ public class RuleBasedAnalyticsService {
     private List<String[]> targetRows(List<TargetAggregateMetric> metrics) {
         List<String[]> rows = new ArrayList<>();
         for (TargetAggregateMetric metric : metrics) {
+            String comparableNote = targetRateBasis(metric, "zh");
             rows.add(new String[]{
                     metric.label(),
                     "目标 %d，商机创建 %d，赢单 %d，达成率 %s".formatted(
                             metric.targetValue(), metric.createCount(), metric.wonCount(),
-                            formatPercent(metric.achievementRate()))
+                            formatPercent(metric.achievementRate())) + comparableNote
             });
         }
         return rows;
+    }
+
+    private String targetRateBasis(TargetAggregateMetric metric, String language) {
+        if (metric.wonCount() == metric.comparableWonCount()) {
+            return "";
+        }
+        return "zh".equals(language)
+                ? "\uff0c\u53ef\u6bd4\u6837\u672c\u8d62\u5355 %d/%d".formatted(
+                        metric.comparableWonCount(), metric.targetValue())
+                : ", rate cohort won %d/%d".formatted(
+                        metric.comparableWonCount(), metric.targetValue());
     }
 
     private Comparator<TargetAggregateMetric> targetWonDescending() {
@@ -4808,22 +4831,52 @@ public class RuleBasedAnalyticsService {
     }
 
     private CampaignDealerMetric aggregateCampaigns(List<Campaign> campaigns, String dealerName) {
-        int targetOpportunityAmount = campaigns.stream().mapToInt(Campaign::getTargetOpportunityAmount).sum();
-        int actualOpportunityCount = campaigns.stream().mapToInt(Campaign::getActualOpportunityCount).sum();
-        int targetOrderAmount = campaigns.stream().mapToInt(Campaign::getTargetOrderAmount).sum();
-        int wonOpportunityCount = campaigns.stream().mapToInt(Campaign::getWonOpportunityCount).sum();
-        int leadCount = campaigns.stream().mapToInt(Campaign::getLeadCount).sum();
+        int targetOpportunityAmount = sumKnownCampaignValues(campaigns, Campaign::getTargetOpportunityAmount);
+        int actualOpportunityCount = sumKnownCampaignValues(campaigns, Campaign::getActualOpportunityCount);
+        int targetOrderAmount = sumKnownCampaignValues(campaigns, Campaign::getTargetOrderAmount);
+        int wonOpportunityCount = sumKnownCampaignValues(campaigns, Campaign::getWonOpportunityCount);
+        int leadCount = sumKnownCampaignValues(campaigns, Campaign::getLeadCount);
+        List<Campaign> opportunityComparable = campaigns.stream()
+                .filter(campaign -> campaign.getTargetOpportunityAmount() != null)
+                .filter(campaign -> campaign.getActualOpportunityCount() != null)
+                .filter(campaign -> campaign.getTargetOpportunityAmount() > 0)
+                .toList();
+        List<Campaign> orderComparable = campaigns.stream()
+                .filter(campaign -> campaign.getTargetOrderAmount() != null)
+                .filter(campaign -> campaign.getWonOpportunityCount() != null)
+                .filter(campaign -> campaign.getTargetOrderAmount() > 0)
+                .toList();
+        int comparableTargetOpportunityAmount = sumKnownCampaignValues(
+                opportunityComparable, Campaign::getTargetOpportunityAmount);
+        int comparableActualOpportunityCount = sumKnownCampaignValues(
+                opportunityComparable, Campaign::getActualOpportunityCount);
+        int comparableTargetOrderAmount = sumKnownCampaignValues(
+                orderComparable, Campaign::getTargetOrderAmount);
+        int comparableWonOpportunityCount = sumKnownCampaignValues(
+                orderComparable, Campaign::getWonOpportunityCount);
         return new CampaignDealerMetric(
                 dealerName,
                 campaigns.size(),
                 targetOpportunityAmount,
                 actualOpportunityCount,
-                percentage(actualOpportunityCount, targetOpportunityAmount),
+                comparableTargetOpportunityAmount,
+                comparableActualOpportunityCount,
+                percentage(comparableActualOpportunityCount, comparableTargetOpportunityAmount),
                 targetOrderAmount,
                 wonOpportunityCount,
-                percentage(wonOpportunityCount, targetOrderAmount),
+                comparableTargetOrderAmount,
+                comparableWonOpportunityCount,
+                percentage(comparableWonOpportunityCount, comparableTargetOrderAmount),
                 leadCount
         );
+    }
+
+    private int sumKnownCampaignValues(List<Campaign> campaigns, Function<Campaign, Integer> valueExtractor) {
+        return campaigns.stream()
+                .map(valueExtractor)
+                .filter(Objects::nonNull)
+                .mapToInt(Integer::intValue)
+                .sum();
     }
 
     private List<CampaignDealerMetric> aggregateCampaignsByDealer(List<Campaign> campaigns) {
@@ -4838,15 +4891,34 @@ public class RuleBasedAnalyticsService {
     private List<String[]> campaignDealerRows(List<CampaignDealerMetric> metrics) {
         List<String[]> rows = new ArrayList<>();
         for (CampaignDealerMetric metric : metrics) {
+            String comparableNote = campaignRateBasis(metric, "zh");
             rows.add(new String[]{
                     metric.dealerName(),
                     "%d 活动，目标商机 %d，实际商机 %d，完成率 %s，目标订单 %d，赢单 %d".formatted(
                             metric.campaignCount(), metric.targetOpportunityAmount(), metric.actualOpportunityCount(),
                             formatPercent(metric.opportunityAttainmentRate()), metric.targetOrderAmount(),
-                            metric.wonOpportunityCount())
+                            metric.wonOpportunityCount()) + comparableNote
             });
         }
         return rows;
+    }
+
+    private String campaignRateBasis(CampaignDealerMetric metric, String language) {
+        boolean opportunityDiffers = metric.actualOpportunityCount() != metric.comparableActualOpportunityCount()
+                || metric.targetOpportunityAmount() != metric.comparableTargetOpportunityAmount();
+        boolean orderDiffers = metric.wonOpportunityCount() != metric.comparableWonOpportunityCount()
+                || metric.targetOrderAmount() != metric.comparableTargetOrderAmount();
+        if (!opportunityDiffers && !orderDiffers) {
+            return "";
+        }
+        if ("zh".equals(language)) {
+            return "\uff0c\u5546\u673a\u8fbe\u6210\u7387\u53ef\u6bd4\u6837\u672c %d/%d\uff0c\u8ba2\u5355\u8fbe\u6210\u7387\u53ef\u6bd4\u6837\u672c %d/%d".formatted(
+                    metric.comparableActualOpportunityCount(), metric.comparableTargetOpportunityAmount(),
+                    metric.comparableWonOpportunityCount(), metric.comparableTargetOrderAmount());
+        }
+        return ", opportunity rate cohort %d/%d, order rate cohort %d/%d".formatted(
+                metric.comparableActualOpportunityCount(), metric.comparableTargetOpportunityAmount(),
+                metric.comparableWonOpportunityCount(), metric.comparableTargetOrderAmount());
     }
 
     private List<String[]> campaignRows(List<Campaign> campaigns) {
@@ -4854,12 +4926,21 @@ public class RuleBasedAnalyticsService {
         for (Campaign campaign : campaigns) {
             rows.add(new String[]{
                     campaign.getCampaignName(),
-                    "目标商机 %d，实际商机 %d，赢单 %d，类型 %s/%s".formatted(
-                            campaign.getTargetOpportunityAmount(), campaign.getActualOpportunityCount(),
-                            campaign.getWonOpportunityCount(), campaign.getEventType(), campaign.getCampaignType())
+                    "目标商机 %s，实际商机 %s，赢单 %s，类型 %s/%s".formatted(
+                            formatNullableCount(campaign.getTargetOpportunityAmount(), "zh"),
+                            formatNullableCount(campaign.getActualOpportunityCount(), "zh"),
+                            formatNullableCount(campaign.getWonOpportunityCount(), "zh"),
+                            campaign.getEventType(), campaign.getCampaignType())
             });
         }
         return rows;
+    }
+
+    private String formatNullableCount(Integer value, String language) {
+        if (value != null) {
+            return String.valueOf(value);
+        }
+        return "zh".equals(language) ? "不可用" : "unavailable";
     }
 
     private List<Campaign> representativeCampaignsByDealer(List<Campaign> campaigns, int limit) {
@@ -4906,8 +4987,11 @@ public class RuleBasedAnalyticsService {
                 .map(entry -> {
                     DealerTargetKey key = entry.getKey();
                     List<Target> dealerTargets = entry.getValue();
-                    int totalTarget = dealerTargets.stream().mapToInt(Target::getAsKTarget).sum();
-                    int totalWon = dealerTargets.stream().mapToInt(Target::getOpportunityWonCount).sum();
+                    List<Target> comparableTargets = dealerTargets.stream()
+                            .filter(target -> target.getAsKTarget() != null)
+                            .toList();
+                    int totalTarget = comparableTargets.stream().mapToInt(Target::getAsKTarget).sum();
+                    int totalWon = comparableTargets.stream().mapToInt(Target::getOpportunityWonCount).sum();
                     return new DealerTargetMetric(
                             key.dealerCode(),
                             key.dealerName(),
@@ -5003,6 +5087,22 @@ public class RuleBasedAnalyticsService {
 
     private int intValue(Map<String, Object> item, String fieldName) {
         return analyticsCalculator.intValue(item, fieldName);
+    }
+
+    private CampaignMetric campaignMetricFromItem(Map<String, Object> item) {
+        Integer actual = analyticsCalculator.nullableIntValue(item, "actualOpportunityCount");
+        Integer target = analyticsCalculator.nullableIntValue(item, "totalNewCustomerTarget");
+        if (actual == null || target == null || target <= 0) {
+            return null;
+        }
+        return new CampaignMetric(
+                stringValue(item, "campaignId"),
+                stringValue(item, "dealerName"),
+                stringValue(item, "campaignType"),
+                actual,
+                target,
+                percentage(actual, target)
+        );
     }
 
     private int toInt(Object value) {
@@ -5396,6 +5496,7 @@ public class RuleBasedAnalyticsService {
             int targetValue,
             int createCount,
             int wonCount,
+            int comparableWonCount,
             double achievementRate
     ) {
     }
@@ -5483,9 +5584,13 @@ public class RuleBasedAnalyticsService {
             int campaignCount,
             int targetOpportunityAmount,
             int actualOpportunityCount,
+            int comparableTargetOpportunityAmount,
+            int comparableActualOpportunityCount,
             double opportunityAttainmentRate,
             int targetOrderAmount,
             int wonOpportunityCount,
+            int comparableTargetOrderAmount,
+            int comparableWonOpportunityCount,
             double orderAttainmentRate,
             int leadCount
     ) {

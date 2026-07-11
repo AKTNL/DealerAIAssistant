@@ -46,22 +46,22 @@ public class Campaign {
     @Column(nullable = false)
     private LocalDate createdDate;
 
-    @Column(nullable = false)
+    @Column
     private Integer targetOpportunityAmount;
 
-    @Column(nullable = false)
+    @Column
     private Integer actualOpportunityCount;
 
-    @Column(nullable = false)
+    @Column
     private Integer targetOrderAmount;
 
-    @Column(nullable = false)
+    @Column
     private Integer wonOpportunityCount;
 
-    @Column(nullable = false)
+    @Column
     private Integer leadCount;
 
-    @Column(nullable = false)
+    @Column
     private Integer totalNewCustomerTarget;
 
     protected Campaign() {
@@ -124,23 +124,19 @@ public class Campaign {
         this.city = city;
         this.dealerGroupName = dealerGroupName;
         this.productModel = productModel;
-        this.eventType = defaultText(eventType, "0");
+        this.eventType = defaultText(eventType, "未知");
         this.campaignType = campaignType;
         this.createdDate = createdDate;
-        this.targetOpportunityAmount = defaultNumber(targetOpportunityAmount);
-        this.actualOpportunityCount = defaultNumber(actualOpportunityCount);
-        this.targetOrderAmount = defaultNumber(targetOrderAmount);
-        this.wonOpportunityCount = defaultNumber(wonOpportunityCount);
-        this.leadCount = defaultNumber(leadCount);
-        this.totalNewCustomerTarget = defaultNumber(totalNewCustomerTarget);
+        this.targetOpportunityAmount = targetOpportunityAmount;
+        this.actualOpportunityCount = actualOpportunityCount;
+        this.targetOrderAmount = targetOrderAmount;
+        this.wonOpportunityCount = wonOpportunityCount;
+        this.leadCount = leadCount;
+        this.totalNewCustomerTarget = totalNewCustomerTarget;
     }
 
     private static String defaultText(String value, String fallback) {
         return value == null || value.isBlank() ? fallback : value;
-    }
-
-    private static Integer defaultNumber(Integer value) {
-        return value == null ? 0 : value;
     }
 
     public Long getId() {

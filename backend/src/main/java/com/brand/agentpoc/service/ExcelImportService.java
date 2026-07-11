@@ -13,6 +13,7 @@ import com.brand.agentpoc.repository.LeadRepository;
 import com.brand.agentpoc.repository.OpportunityRepository;
 import com.brand.agentpoc.repository.TargetRepository;
 import com.brand.agentpoc.repository.TaskRepository;
+import com.brand.agentpoc.service.importing.ImportQualityTracker;
 import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -20,12 +21,12 @@ import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
 import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
-import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Stream;
 import org.apache.poi.ss.usermodel.Cell;
 import org.apache.poi.ss.usermodel.CellType;
@@ -37,6 +38,7 @@ import org.apache.poi.ss.usermodel.Workbook;
 import org.apache.poi.ss.usermodel.WorkbookFactory;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.ApplicationArguments;
 import org.springframework.boot.ApplicationRunner;
 import org.springframework.core.io.FileSystemResource;
@@ -49,6 +51,13 @@ import org.springframework.transaction.annotation.Transactional;
 public class ExcelImportService implements ApplicationRunner {
 
     private static final Logger log = LoggerFactory.getLogger(ExcelImportService.class);
+    private static final String TARGET_SHEET = "AE Target Data";
+    private static final String OPPORTUNITY_SHEET = "Opportunity";
+    private static final String CAMPAIGN_SHEET = "Campaign";
+    private static final String LEAD_SHEET = "Lead";
+    private static final String TASK_SHEET = "Task";
+    private static final String DEALER_SHEET = "Dealer";
+    private static final Set<String> NULL_MARKERS = Set.of("null", "n/a", "na", "-", "--");
 
     private static final DateTimeFormatter[] DATE_PATTERNS = {
             DateTimeFormatter.ISO_LOCAL_DATE,
@@ -70,10 +79,10 @@ public class ExcelImportService implements ApplicationRunner {
     private final TaskRepository taskRepository;
     private final TargetRepository targetRepository;
     private final LeadRepository leadRepository;
+    private final ImportQualityService importQualityService;
     private final DataFormatter dataFormatter = new DataFormatter();
-    private final AtomicInteger campaignRowsProcessedCount = new AtomicInteger();
-    private final AtomicInteger normalizedRowsCount = new AtomicInteger();
 
+    @Autowired
     public ExcelImportService(
             AppProperties appProperties,
             ResourceLoader resourceLoader,
@@ -82,7 +91,8 @@ public class ExcelImportService implements ApplicationRunner {
             CampaignRepository campaignRepository,
             TaskRepository taskRepository,
             TargetRepository targetRepository,
-            LeadRepository leadRepository
+            LeadRepository leadRepository,
+            ImportQualityService importQualityService
     ) {
         this.appProperties = appProperties;
         this.resourceLoader = resourceLoader;
@@ -92,6 +102,30 @@ public class ExcelImportService implements ApplicationRunner {
         this.taskRepository = taskRepository;
         this.targetRepository = targetRepository;
         this.leadRepository = leadRepository;
+        this.importQualityService = importQualityService;
+    }
+
+    ExcelImportService(
+            AppProperties appProperties,
+            ResourceLoader resourceLoader,
+            DealerRepository dealerRepository,
+            OpportunityRepository opportunityRepository,
+            CampaignRepository campaignRepository,
+            TaskRepository taskRepository,
+            TargetRepository targetRepository,
+            LeadRepository leadRepository
+    ) {
+        this(
+                appProperties,
+                resourceLoader,
+                dealerRepository,
+                opportunityRepository,
+                campaignRepository,
+                taskRepository,
+                targetRepository,
+                leadRepository,
+                new ImportQualityService()
+        );
     }
 
     @Override
@@ -99,33 +133,28 @@ public class ExcelImportService implements ApplicationRunner {
     public void run(ApplicationArguments args) {
         if (hasExistingData()) {
             log.info("Sample data already initialized, skipping startup import.");
+            publishRepositoryStatus("existing-database", false, "Existing database data is active.");
             return;
         }
 
+        ImportQualityTracker tracker = new ImportQualityTracker();
         Resource resource = resolveConfiguredResource(appProperties.getExcel().getPath());
-        boolean imported = false;
+        try {
+            if (resource == null || !resource.exists()) {
+                throw new IllegalStateException("Configured workbook was not found: " + appProperties.getExcel().getPath());
+            }
 
-        if (resource != null && resource.exists()) {
-            imported = importWorkbook(resource);
-        } else {
-            log.warn("Excel resource not found at {}. Seeding built-in sample data instead.",
-                    appProperties.getExcel().getPath());
+            ParsedWorkbook parsedWorkbook = importWorkbook(resource, tracker);
+            persistParsedWorkbook(parsedWorkbook);
+            importQualityService.publish(tracker.build(
+                    "configured-workbook",
+                    false,
+                    "Configured workbook imported successfully."
+            ));
+            logImportCompletion("configured-workbook");
+        } catch (Exception exception) {
+            handleImportFailure(tracker, exception);
         }
-
-        if (!imported) {
-            seedFallbackData();
-            log.info("Fallback sample data seeded.");
-        }
-
-        log.info(
-                "Data initialization completed. dealers={}, opportunities={}, campaigns={}, tasks={}, targets={}, leads={}",
-                dealerRepository.count(),
-                opportunityRepository.count(),
-                campaignRepository.count(),
-                taskRepository.count(),
-                targetRepository.count(),
-                leadRepository.count()
-        );
     }
 
     private boolean hasExistingData() {
@@ -155,55 +184,32 @@ public class ExcelImportService implements ApplicationRunner {
         return resourceLoader.getResource(trimmedPath);
     }
 
-    private boolean importWorkbook(Resource resource) {
+    private ParsedWorkbook importWorkbook(Resource resource, ImportQualityTracker tracker) throws Exception {
         log.info("Attempting workbook import from {}", resource);
-        campaignRowsProcessedCount.set(0);
-        normalizedRowsCount.set(0);
-
         try (InputStream inputStream = resource.getInputStream();
              Workbook workbook = WorkbookFactory.create(inputStream)) {
-            ParsedWorkbook parsedWorkbook = parseWorkbook(workbook);
+            validateRequiredSheets(workbook, tracker);
+            ParsedWorkbook parsedWorkbook = parseWorkbook(workbook, tracker);
             if (parsedWorkbook.isEmpty()) {
-                log.warn("Workbook import produced no usable rows. Falling back to built-in sample data.");
-                return false;
+                throw new IllegalStateException("Workbook import produced no usable rows.");
             }
-
-            persistParsedWorkbook(parsedWorkbook);
-
-            log.info(
-                    "Workbook import completed. dealers={}, opportunities={}, campaigns={}, tasks={}, targets={}, leads={}",
-                    parsedWorkbook.dealers().size(),
-                    parsedWorkbook.opportunities().size(),
-                    parsedWorkbook.campaigns().size(),
-                    parsedWorkbook.tasks().size(),
-                    parsedWorkbook.targets().size(),
-                    parsedWorkbook.leads().size()
-            );
-            return true;
-        } catch (Exception exception) {
-            log.error("Workbook import failed. Falling back to built-in sample data.", exception);
-            return false;
-        } finally {
-            log.info(
-                    "[Import-Normalization] Campaign import completed. Total rows processed: {}, rows with defaulted non-critical fields: {}.",
-                    campaignRowsProcessedCount.get(),
-                    normalizedRowsCount.get()
-            );
+            return parsedWorkbook;
         }
     }
 
-    private ParsedWorkbook parseWorkbook(Workbook workbook) {
+    private ParsedWorkbook parseWorkbook(Workbook workbook, ImportQualityTracker tracker) {
         // Parse AE Target Data first to extract dealer group name lookup
         Map<String, String> dealerGroupByCode = new LinkedHashMap<>();
-        List<Target> targets = parseTargetSheet(findSheet(workbook, "AE Target Data", "Target", "Targets"), dealerGroupByCode);
+        List<Target> targets = parseTargetSheet(
+                findSheet(workbook, TARGET_SHEET, "Target", "Targets"), dealerGroupByCode, tracker);
 
         // Parse sheets that have direct dealer info
         List<Opportunity> opportunities = parseOpportunitySheet(
-                findSheet(workbook, "Opportunity", "Opportunities"), dealerGroupByCode);
+                findSheet(workbook, OPPORTUNITY_SHEET, "Opportunities"), dealerGroupByCode, tracker);
         List<Campaign> campaigns = parseCampaignSheet(
-                findSheet(workbook, "Campaign", "Campaigns"), dealerGroupByCode);
+                findSheet(workbook, CAMPAIGN_SHEET, "Campaigns"), dealerGroupByCode, tracker);
         List<Lead> leads = parseLeadSheet(
-                findSheet(workbook, "Lead", "Leads"), dealerGroupByCode);
+                findSheet(workbook, LEAD_SHEET, "Leads"), dealerGroupByCode, tracker);
 
         // Task sheet has no direct dealer info — join via Opportunity
         Map<String, String[]> oppDealerInfo = new LinkedHashMap<>();
@@ -212,10 +218,80 @@ public class ExcelImportService implements ApplicationRunner {
                     new String[]{opp.getDealerCode(), opp.getDealerName(), opp.getCity(), opp.getDealerGroupName()});
         }
         List<Task> tasks = parseTaskSheet(
-                findSheet(workbook, "Task", "Tasks"), oppDealerInfo, dealerGroupByCode);
+                findSheet(workbook, TASK_SHEET, "Tasks"), oppDealerInfo, dealerGroupByCode, tracker);
 
         List<Dealer> dealers = deriveDealers(opportunities, campaigns, tasks, targets, leads);
+        tracker.imported(DEALER_SHEET, dealers.size());
         return new ParsedWorkbook(dealers, opportunities, campaigns, tasks, targets, leads);
+    }
+
+    private void validateRequiredSheets(Workbook workbook, ImportQualityTracker tracker) {
+        Map<String, String[]> requiredSheets = Map.of(
+                TARGET_SHEET, new String[]{TARGET_SHEET, "Target", "Targets"},
+                OPPORTUNITY_SHEET, new String[]{OPPORTUNITY_SHEET, "Opportunities"},
+                CAMPAIGN_SHEET, new String[]{CAMPAIGN_SHEET, "Campaigns"},
+                LEAD_SHEET, new String[]{LEAD_SHEET, "Leads"},
+                TASK_SHEET, new String[]{TASK_SHEET, "Tasks"}
+        );
+        List<String> missing = requiredSheets.entrySet().stream()
+                .filter(entry -> findSheet(workbook, entry.getValue()) == null)
+                .map(Map.Entry::getKey)
+                .sorted()
+                .toList();
+        if (!missing.isEmpty()) {
+            missing.forEach(sheet -> tracker.issue(sheet, "missing_required_sheet"));
+            throw new IllegalStateException("Workbook is missing required sheets: " + String.join(", ", missing));
+        }
+    }
+
+    private void handleImportFailure(ImportQualityTracker tracker, Exception exception) {
+        tracker.issue("Workbook", "import_failed");
+        if (!appProperties.getExcel().isFallbackEnabled()) {
+            importQualityService.publish(tracker.build(
+                    "import-failed",
+                    false,
+                    exception.getMessage()
+            ));
+            throw new IllegalStateException("Workbook import failed in strict mode.", exception);
+        }
+
+        log.error("Workbook import failed. Seeding built-in sample data because fallback is enabled.", exception);
+        seedFallbackData();
+        recordRepositoryCounts(tracker);
+        importQualityService.publish(tracker.build(
+                "built-in-sample",
+                true,
+                "Configured workbook could not be used; built-in sample data is active."
+        ));
+        logImportCompletion("built-in-sample");
+    }
+
+    private void publishRepositoryStatus(String source, boolean fallbackActive, String message) {
+        ImportQualityTracker tracker = new ImportQualityTracker();
+        recordRepositoryCounts(tracker);
+        importQualityService.publish(tracker.build(source, fallbackActive, message));
+    }
+
+    private void recordRepositoryCounts(ImportQualityTracker tracker) {
+        tracker.imported(DEALER_SHEET, Math.toIntExact(dealerRepository.count()));
+        tracker.imported(OPPORTUNITY_SHEET, Math.toIntExact(opportunityRepository.count()));
+        tracker.imported(CAMPAIGN_SHEET, Math.toIntExact(campaignRepository.count()));
+        tracker.imported(TASK_SHEET, Math.toIntExact(taskRepository.count()));
+        tracker.imported(TARGET_SHEET, Math.toIntExact(targetRepository.count()));
+        tracker.imported(LEAD_SHEET, Math.toIntExact(leadRepository.count()));
+    }
+
+    private void logImportCompletion(String source) {
+        log.info(
+                "Data initialization completed: source={}, dealers={}, opportunities={}, campaigns={}, tasks={}, targets={}, leads={}",
+                source,
+                dealerRepository.count(),
+                opportunityRepository.count(),
+                campaignRepository.count(),
+                taskRepository.count(),
+                targetRepository.count(),
+                leadRepository.count()
+        );
     }
 
     private void persistParsedWorkbook(ParsedWorkbook parsedWorkbook) {
@@ -251,7 +327,11 @@ public class ExcelImportService implements ApplicationRunner {
         return null;
     }
 
-    private List<Opportunity> parseOpportunitySheet(Sheet sheet, Map<String, String> dealerGroupByCode) {
+    private List<Opportunity> parseOpportunitySheet(
+            Sheet sheet,
+            Map<String, String> dealerGroupByCode,
+            ImportQualityTracker tracker
+    ) {
         if (sheet == null) {
             return List.of();
         }
@@ -262,11 +342,13 @@ public class ExcelImportService implements ApplicationRunner {
         }
 
         List<Opportunity> items = new ArrayList<>();
+        Set<String> seenIds = new HashSet<>();
         for (int rowIndex = headerInfo.headerRowIndex() + 1; rowIndex <= sheet.getLastRowNum(); rowIndex++) {
             Row row = sheet.getRow(rowIndex);
             if (isRowBlank(row)) {
                 continue;
             }
+            tracker.processed(OPPORTUNITY_SHEET);
 
             String opportunityId = getString(row, headerInfo.headers(), "opportunityid", "id", "商机id", "商机编号");
             String dealerCode = getString(row, headerInfo.headers(), "dealercode", "经销商代码", "门店代码");
@@ -280,26 +362,39 @@ public class ExcelImportService implements ApplicationRunner {
             LocalDate createdDate = getDate("createdDate", row, headerInfo.headers(), "createddate", "创建日期", "创建时间", "日期");
             LocalDate expectedCloseDate = getDate("expectedCloseDate", row, headerInfo.headers(), "expectedclosedate",
                     "预计成交日期", "预计关闭日期", "expectedclosedate");
-            if (expectedCloseDate == null) {
-                expectedCloseDate = createdDate != null ? createdDate.plusDays(30) : null;
-            }
             Integer probability = getInteger("probability", row, headerInfo.headers(), "probability", "成交概率", "赢单概率", "概率");
 
             if (hasBlank(opportunityId, dealerCode, dealerName, stageName)
                     || createdDate == null
-                    || expectedCloseDate == null
                     || probability == null) {
+                tracker.skipped(OPPORTUNITY_SHEET, "missing_required_field");
                 log.debug("Skipping opportunity row {} due to missing required values.", rowIndex + 1);
                 continue;
             }
+            if (!seenIds.add(opportunityId)) {
+                tracker.skipped(OPPORTUNITY_SHEET, "duplicate_opportunity_id");
+                continue;
+            }
+            if (probability < 0 || probability > 100
+                    || (expectedCloseDate != null && expectedCloseDate.isBefore(createdDate))) {
+                tracker.skipped(OPPORTUNITY_SHEET, "invalid_probability_or_date_range");
+                continue;
+            }
+
+            if (expectedCloseDate == null) {
+                tracker.issue(OPPORTUNITY_SHEET, "missing_expected_close_date");
+            }
 
             if (productModel == null) {
+                tracker.normalized(OPPORTUNITY_SHEET, "unknown_product_model");
                 productModel = "未知";
             }
             if (purchaseHorizon == null) {
+                tracker.normalized(OPPORTUNITY_SHEET, "unknown_purchase_horizon");
                 purchaseHorizon = "未知";
             }
             if (leadSource == null) {
+                tracker.normalized(OPPORTUNITY_SHEET, "unknown_lead_source");
                 leadSource = "未知";
             }
             String city = deriveCity(dealerName);
@@ -319,12 +414,17 @@ public class ExcelImportService implements ApplicationRunner {
                     expectedCloseDate,
                     probability
             ));
+            tracker.imported(OPPORTUNITY_SHEET);
         }
 
         return items;
     }
 
-    private List<Campaign> parseCampaignSheet(Sheet sheet, Map<String, String> dealerGroupByCode) {
+    private List<Campaign> parseCampaignSheet(
+            Sheet sheet,
+            Map<String, String> dealerGroupByCode,
+            ImportQualityTracker tracker
+    ) {
         if (sheet == null) {
             return List.of();
         }
@@ -335,12 +435,13 @@ public class ExcelImportService implements ApplicationRunner {
         }
 
         List<Campaign> items = new ArrayList<>();
+        Set<String> seenIds = new HashSet<>();
         for (int rowIndex = headerInfo.headerRowIndex() + 1; rowIndex <= sheet.getLastRowNum(); rowIndex++) {
             Row row = sheet.getRow(rowIndex);
             if (isRowBlank(row)) {
                 continue;
             }
-            campaignRowsProcessedCount.incrementAndGet();
+            tracker.processed(CAMPAIGN_SHEET);
 
             String campaignId = getString(row, headerInfo.headers(), "campaignid", "campaignidc", "campaignid__c",
                     "id", "活动id", "活动编号");
@@ -369,73 +470,66 @@ public class ExcelImportService implements ApplicationRunner {
                     "targetopportunityamountc", "target_opportunity_amount__c", "totalnewcustomertarget",
                     "新增客户目标", "新客户目标", "新客目标", "newcustomercountc");
 
-            boolean normalized = false;
             if (campaignName == null) {
                 campaignName = campaignId;
-                normalized = true;
+                tracker.normalized(CAMPAIGN_SHEET, "campaign_name_from_id");
                 log.debug("[Import-Normalization] Row {}: campaignName is blank, defaulting to campaignId", rowIndex + 1);
             }
             if (eventType == null) {
-                eventType = "0";
-                normalized = true;
-                log.debug("[Import-Normalization] Row {}: eventType is blank, defaulting to '0'", rowIndex + 1);
+                eventType = "未知";
+                tracker.normalized(CAMPAIGN_SHEET, "unknown_event_type");
+                log.debug("[Import-Normalization] Row {}: eventType is blank, defaulting to unknown", rowIndex + 1);
             }
             if (campaignType == null) {
-                campaignType = "0";
-                normalized = true;
-                log.debug("[Import-Normalization] Row {}: campaignType is blank, defaulting to '0'", rowIndex + 1);
+                campaignType = "未知";
+                tracker.normalized(CAMPAIGN_SHEET, "unknown_campaign_type");
+                log.debug("[Import-Normalization] Row {}: campaignType is blank, defaulting to unknown", rowIndex + 1);
             }
             if (dealerCode == null) {
                 dealerCode = "未分配";
-                normalized = true;
+                tracker.normalized(CAMPAIGN_SHEET, "unassigned_dealer_code");
                 log.debug("[Import-Normalization] Row {}: dealerCode is blank, defaulting to '未分配'", rowIndex + 1);
             }
             if (dealerName == null) {
                 dealerName = "未分配";
-                normalized = true;
+                tracker.normalized(CAMPAIGN_SHEET, "unassigned_dealer_name");
                 log.debug("[Import-Normalization] Row {}: dealerName is blank, defaulting to '未分配'", rowIndex + 1);
-            }
-            if (actualOpportunityCount == null) {
-                actualOpportunityCount = 0;
-                normalized = true;
-                log.debug("[Import-Normalization] Row {}: actualOpportunityCount is blank, defaulting to 0", rowIndex + 1);
-            }
-            if (targetOpportunityAmount == null) {
-                targetOpportunityAmount = totalNewCustomerTarget != null ? totalNewCustomerTarget : 0;
-                normalized = true;
-                log.debug("[Import-Normalization] Row {}: targetOpportunityAmount is blank, defaulting to {}", rowIndex + 1, targetOpportunityAmount);
-            }
-            if (targetOrderAmount == null) {
-                targetOrderAmount = 0;
-                normalized = true;
-                log.debug("[Import-Normalization] Row {}: targetOrderAmount is blank, defaulting to 0", rowIndex + 1);
-            }
-            if (wonOpportunityCount == null) {
-                wonOpportunityCount = 0;
-                normalized = true;
-                log.debug("[Import-Normalization] Row {}: wonOpportunityCount is blank, defaulting to 0", rowIndex + 1);
-            }
-            if (leadCount == null) {
-                leadCount = 0;
-                normalized = true;
-                log.debug("[Import-Normalization] Row {}: leadCount is blank, defaulting to 0", rowIndex + 1);
-            }
-            if (totalNewCustomerTarget == null) {
-                totalNewCustomerTarget = targetOpportunityAmount;
-                normalized = true;
-                log.debug("[Import-Normalization] Row {}: totalNewCustomerTarget is blank, defaulting to targetOpportunityAmount", rowIndex + 1);
             }
             if (productModel == null) {
                 productModel = "未知";
-                normalized = true;
+                tracker.normalized(CAMPAIGN_SHEET, "unknown_product_model");
                 log.debug("[Import-Normalization] Row {}: productModel is blank, defaulting to '未知'", rowIndex + 1);
             }
-            if (normalized) {
-                normalizedRowsCount.incrementAndGet();
-            }
+
+            targetOpportunityAmount = nonNegativeOrNull(
+                    CAMPAIGN_SHEET, "target_opportunity_amount", targetOpportunityAmount, tracker);
+            actualOpportunityCount = nonNegativeOrNull(
+                    CAMPAIGN_SHEET, "actual_opportunity_count", actualOpportunityCount, tracker);
+            targetOrderAmount = nonNegativeOrNull(
+                    CAMPAIGN_SHEET, "target_order_amount", targetOrderAmount, tracker);
+            wonOpportunityCount = nonNegativeOrNull(
+                    CAMPAIGN_SHEET, "won_opportunity_count", wonOpportunityCount, tracker);
+            leadCount = nonNegativeOrNull(CAMPAIGN_SHEET, "lead_count", leadCount, tracker);
+            totalNewCustomerTarget = nonNegativeOrNull(
+                    CAMPAIGN_SHEET, "new_customer_target", totalNewCustomerTarget, tracker);
+
+            recordMissingCampaignMetrics(
+                    tracker,
+                    targetOpportunityAmount,
+                    actualOpportunityCount,
+                    targetOrderAmount,
+                    wonOpportunityCount,
+                    leadCount,
+                    totalNewCustomerTarget
+            );
 
             if (hasBlank(campaignId) || createdDate == null) {
+                tracker.skipped(CAMPAIGN_SHEET, "missing_required_field");
                 log.debug("Skipping campaign row {} due to missing required values.", rowIndex + 1);
+                continue;
+            }
+            if (!seenIds.add(campaignId)) {
+                tracker.skipped(CAMPAIGN_SHEET, "duplicate_campaign_id");
                 continue;
             }
             String city = deriveCity(dealerName);
@@ -459,13 +553,18 @@ public class ExcelImportService implements ApplicationRunner {
                     leadCount,
                     totalNewCustomerTarget
             ));
+            tracker.imported(CAMPAIGN_SHEET);
         }
 
         return items;
     }
 
-    private List<Task> parseTaskSheet(Sheet sheet, Map<String, String[]> oppDealerInfo,
-            Map<String, String> dealerGroupByCode) {
+    private List<Task> parseTaskSheet(
+            Sheet sheet,
+            Map<String, String[]> oppDealerInfo,
+            Map<String, String> dealerGroupByCode,
+            ImportQualityTracker tracker
+    ) {
         if (sheet == null) {
             return List.of();
         }
@@ -476,11 +575,13 @@ public class ExcelImportService implements ApplicationRunner {
         }
 
         List<Task> items = new ArrayList<>();
+        Set<String> seenIds = new HashSet<>();
         for (int rowIndex = headerInfo.headerRowIndex() + 1; rowIndex <= sheet.getLastRowNum(); rowIndex++) {
             Row row = sheet.getRow(rowIndex);
             if (isRowBlank(row)) {
                 continue;
             }
+            tracker.processed(TASK_SHEET);
 
             String taskId = getString(row, headerInfo.headers(), "taskid", "id", "任务id", "任务编号");
             String opportunityId = getString(row, headerInfo.headers(), "opportunityid", "商机id", "商机编号");
@@ -504,10 +605,16 @@ public class ExcelImportService implements ApplicationRunner {
             }
 
             if (hasBlank(taskId, opportunityId, status) || createdDate == null) {
+                tracker.skipped(TASK_SHEET, "missing_required_field");
                 log.debug("Skipping task row {} due to missing required values.", rowIndex + 1);
                 continue;
             }
+            if (!seenIds.add(taskId)) {
+                tracker.skipped(TASK_SHEET, "duplicate_task_id");
+                continue;
+            }
             if (subject == null) {
+                tracker.normalized(TASK_SHEET, "unknown_subject");
                 subject = "未知";
             }
 
@@ -522,12 +629,17 @@ public class ExcelImportService implements ApplicationRunner {
                     status,
                     createdDate
             ));
+            tracker.imported(TASK_SHEET);
         }
 
         return items;
     }
 
-    private List<Target> parseTargetSheet(Sheet sheet, Map<String, String> dealerGroupByCode) {
+    private List<Target> parseTargetSheet(
+            Sheet sheet,
+            Map<String, String> dealerGroupByCode,
+            ImportQualityTracker tracker
+    ) {
         if (sheet == null) {
             return List.of();
         }
@@ -538,11 +650,13 @@ public class ExcelImportService implements ApplicationRunner {
         }
 
         List<Target> items = new ArrayList<>();
+        Set<String> seenKeys = new HashSet<>();
         for (int rowIndex = headerInfo.headerRowIndex() + 1; rowIndex <= sheet.getLastRowNum(); rowIndex++) {
             Row row = sheet.getRow(rowIndex);
             if (isRowBlank(row)) {
                 continue;
             }
+            tracker.processed(TARGET_SHEET);
 
             String dealerCode = getString(row, headerInfo.headers(), "dealercode", "经销商代码", "门店代码");
             String dealerName = getString(row, headerInfo.headers(), "dealername", "经销商名称", "门店名称",
@@ -556,23 +670,34 @@ public class ExcelImportService implements ApplicationRunner {
             Integer targetMonth = getInteger("targetMonth", row, headerInfo.headers(), "targetmonth", "目标月份", "月份", "monthc");
             Integer asKTarget = getInteger("asKTarget", row, headerInfo.headers(), "asktarget", "目标值", "销量目标", "ask目标",
                     "aaktargetc");
-            if (asKTarget == null) {
-                asKTarget = 0;
-            }
             Integer opportunityWonCount = getInteger("opportunityWonCount", row, headerInfo.headers(),
                     "opportunitywoncount", "成交商机数", "已成交商机数", "赢单数", "opportunitywoncountc");
             Integer opportunityCreateCount = getInteger("opportunityCreateCount", row, headerInfo.headers(),
                     "opportunitycreatecount", "商机创建数", "商机创建数量",
                     "opportunitycreatecountc");
-            if (opportunityCreateCount == null) {
-                opportunityCreateCount = 0;
-            }
-
             if (hasBlank(dealerCode, dealerName, productModel)
                     || targetYear == null
                     || targetMonth == null
+                    || opportunityCreateCount == null
                     || opportunityWonCount == null) {
+                tracker.skipped(TARGET_SHEET, "missing_required_target_field");
                 log.debug("Skipping target row {} due to missing required values.", rowIndex + 1);
+                continue;
+            }
+            if (targetMonth < 1 || targetMonth > 12
+                    || (asKTarget != null && asKTarget < 0)
+                    || opportunityWonCount < 0
+                    || opportunityCreateCount < 0) {
+                tracker.skipped(TARGET_SHEET, "invalid_target_value");
+                continue;
+            }
+            if (asKTarget == null) {
+                tracker.issue(TARGET_SHEET, "missing_ask_target");
+            }
+            String targetKey = String.join("|", dealerCode, productModel,
+                    targetYear.toString(), targetMonth.toString());
+            if (!seenKeys.add(targetKey)) {
+                tracker.skipped(TARGET_SHEET, "duplicate_target_key");
                 continue;
             }
 
@@ -594,12 +719,17 @@ public class ExcelImportService implements ApplicationRunner {
                     opportunityWonCount,
                     opportunityCreateCount
             ));
+            tracker.imported(TARGET_SHEET);
         }
 
         return items;
     }
 
-    private List<Lead> parseLeadSheet(Sheet sheet, Map<String, String> dealerGroupByCode) {
+    private List<Lead> parseLeadSheet(
+            Sheet sheet,
+            Map<String, String> dealerGroupByCode,
+            ImportQualityTracker tracker
+    ) {
         if (sheet == null) {
             return List.of();
         }
@@ -610,11 +740,13 @@ public class ExcelImportService implements ApplicationRunner {
         }
 
         List<Lead> items = new ArrayList<>();
+        Set<String> seenIds = new HashSet<>();
         for (int rowIndex = headerInfo.headerRowIndex() + 1; rowIndex <= sheet.getLastRowNum(); rowIndex++) {
             Row row = sheet.getRow(rowIndex);
             if (isRowBlank(row)) {
                 continue;
             }
+            tracker.processed(LEAD_SHEET);
 
             String leadId = getString(row, headerInfo.headers(), "leadid", "id", "线索id", "线索编号");
             String dealerCode = getString(row, headerInfo.headers(), "dealercode", "经销商代码", "门店代码");
@@ -629,21 +761,33 @@ public class ExcelImportService implements ApplicationRunner {
 
             if (hasBlank(leadId, stageName)
                     || converted == null) {
+                tracker.skipped(LEAD_SHEET, "missing_required_field");
                 log.debug("Skipping lead row {} due to missing required values.", rowIndex + 1);
+                continue;
+            }
+            if (!seenIds.add(leadId)) {
+                tracker.skipped(LEAD_SHEET, "duplicate_lead_id");
                 continue;
             }
 
             if (dealerCode == null) {
+                tracker.normalized(LEAD_SHEET, "unassigned_dealer_code");
                 dealerCode = "未分配";
             }
             if (dealerName == null) {
+                tracker.normalized(LEAD_SHEET, "unassigned_dealer_name");
                 dealerName = "未分配";
             }
             if (productModel == null) {
+                tracker.normalized(LEAD_SHEET, "unknown_product_model");
                 productModel = "未知";
             }
             if (leadSource == null) {
+                tracker.normalized(LEAD_SHEET, "unknown_lead_source");
                 leadSource = "未知";
+            }
+            if (createdDate == null) {
+                tracker.issue(LEAD_SHEET, "missing_optional_created_date");
             }
             String city = deriveCity(dealerName);
             String dealerGroupName = lookupDealerGroup(dealerCode, dealerGroupByCode);
@@ -660,6 +804,7 @@ public class ExcelImportService implements ApplicationRunner {
                     createdDate,
                     converted
             ));
+            tracker.imported(LEAD_SHEET);
         }
 
         return items;
@@ -730,8 +875,7 @@ public class ExcelImportService implements ApplicationRunner {
             return null;
         }
 
-        String trimmed = value.trim();
-        return trimmed.isEmpty() ? null : trimmed;
+        return normalizeCellText(value);
     }
 
     private Integer getInteger(String fieldName, Row row, Map<String, Integer> headers, String... aliases) {
@@ -749,17 +893,14 @@ public class ExcelImportService implements ApplicationRunner {
             return (int) Math.round(cell.getNumericCellValue());
         }
 
-        String text = dataFormatter.formatCellValue(cell);
+        String text = normalizeCellText(dataFormatter.formatCellValue(cell));
         if (text == null) {
             return null;
         }
 
-        String sanitized = text.trim()
+        String sanitized = text
                 .replace(",", "")
                 .replace("%", "");
-        if (sanitized.isEmpty()) {
-            return null;
-        }
 
         try {
             return (int) Math.round(Double.parseDouble(sanitized));
@@ -776,7 +917,7 @@ public class ExcelImportService implements ApplicationRunner {
             return null;
         }
 
-        String value = dataFormatter.formatCellValue(row.getCell(columnIndex));
+        String value = normalizeCellText(dataFormatter.formatCellValue(row.getCell(columnIndex)));
         if (value == null) {
             return null;
         }
@@ -808,15 +949,12 @@ public class ExcelImportService implements ApplicationRunner {
             return cell.getLocalDateTimeCellValue().toLocalDate();
         }
 
-        String value = dataFormatter.formatCellValue(cell);
+        String value = normalizeCellText(dataFormatter.formatCellValue(cell));
         if (value == null) {
             return null;
         }
 
-        String trimmed = value.trim();
-        if (trimmed.isEmpty()) {
-            return null;
-        }
+        String trimmed = value;
 
         if (trimmed.matches("\\d+(\\.0+)?")) {
             try {
@@ -901,6 +1039,56 @@ public class ExcelImportService implements ApplicationRunner {
             }
         }
         return false;
+    }
+
+    private String normalizeCellText(String value) {
+        if (value == null) {
+            return null;
+        }
+        String trimmed = value.trim();
+        if (trimmed.isEmpty() || NULL_MARKERS.contains(trimmed.toLowerCase(java.util.Locale.ROOT))) {
+            return null;
+        }
+        return trimmed;
+    }
+
+    private Integer nonNegativeOrNull(
+            String sheet,
+            String field,
+            Integer value,
+            ImportQualityTracker tracker
+    ) {
+        if (value == null) {
+            return null;
+        }
+        if (value < 0) {
+            tracker.issue(sheet, "invalid_negative_" + field);
+            return null;
+        }
+        return value;
+    }
+
+    private void recordMissingCampaignMetrics(
+            ImportQualityTracker tracker,
+            Integer targetOpportunityAmount,
+            Integer actualOpportunityCount,
+            Integer targetOrderAmount,
+            Integer wonOpportunityCount,
+            Integer leadCount,
+            Integer totalNewCustomerTarget
+    ) {
+        recordMissingMetric(tracker, "missing_target_opportunity_amount", targetOpportunityAmount);
+        recordMissingMetric(tracker, "missing_actual_opportunity_count", actualOpportunityCount);
+        recordMissingMetric(tracker, "missing_target_order_amount", targetOrderAmount);
+        recordMissingMetric(tracker, "missing_won_opportunity_count", wonOpportunityCount);
+        recordMissingMetric(tracker, "missing_lead_count", leadCount);
+        recordMissingMetric(tracker, "missing_new_customer_target", totalNewCustomerTarget);
+    }
+
+    private void recordMissingMetric(ImportQualityTracker tracker, String reason, Integer value) {
+        if (value == null) {
+            tracker.issue(CAMPAIGN_SHEET, reason);
+        }
     }
 
     private String deriveCity(String dealerName) {

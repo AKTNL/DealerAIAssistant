@@ -20,6 +20,14 @@ class ApiKeyFilterTest {
     }
 
     @Test
+    void skipsInternalApiKeyForDataStatusBecauseSessionFilterProtectsIt() throws Exception {
+        MockHttpServletResponse response = doFilter(
+                "GET", "/api/data-status", null, appProperties("configured-api-key"));
+
+        assertThat(response.getStatus()).isEqualTo(HttpServletResponse.SC_NO_CONTENT);
+    }
+
+    @Test
     void allowsProtectedRequestsWithTheConfiguredInternalApiKey() throws Exception {
         MockHttpServletResponse response = doFilter("POST", "/api/v1/data/dealers", "configured-api-key", appProperties("configured-api-key"));
 

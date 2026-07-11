@@ -36,7 +36,7 @@ public class Target {
     @Column(nullable = false)
     private Integer targetMonth;
 
-    @Column(nullable = false)
+    @Column
     private Integer asKTarget;
 
     @Column(nullable = false)

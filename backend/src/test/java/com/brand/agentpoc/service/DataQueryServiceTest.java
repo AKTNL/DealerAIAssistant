@@ -155,6 +155,32 @@ class DataQueryServiceTest {
     }
 
     @Test
+    void queryOpportunitiesReturnsNullExpectedCloseDate() {
+        Opportunity opportunity = new Opportunity("O1", "D001", "Dealer A", "Beijing", "Group A", "Model X",
+                "Negotiation", "Website", LocalDate.of(2026, 5, 1), null, 80);
+        when(opportunityRepository.findAll()).thenReturn(List.of(opportunity));
+
+        DataQueryResponse response = service.query("opportunities", Map.of());
+
+        assertThat(response.items()).singleElement().satisfies(item ->
+                assertThat(item).containsEntry("expectedCloseDate", null));
+    }
+
+    @Test
+    void queryTargetsPreservesUnavailableTargetAndObservedCounts() {
+        when(targetRepository.findAll()).thenReturn(List.of(
+                new Target("D001", "Dealer A", "Beijing", "Group A", "Model X", 2026, 5, null, 8, 11)
+        ));
+
+        DataQueryResponse response = service.query("targets", Map.of());
+
+        assertThat(response.items()).singleElement().satisfies(item -> assertThat(item)
+                .containsEntry("asKTarget", null)
+                .containsEntry("opportunityWonCount", 8)
+                .containsEntry("opportunityCreateCount", 11));
+    }
+
+    @Test
     void queryTasksUsesDealerCodeRepositoryFilter() {
         Task task = new Task("T1", "D001", "Dealer A", "Beijing", "Group A", "O1", "Open",
                 LocalDate.of(2026, 5, 1));

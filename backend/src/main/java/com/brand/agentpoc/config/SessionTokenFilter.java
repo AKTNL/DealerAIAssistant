@@ -23,6 +23,7 @@ public class SessionTokenFilter extends OncePerRequestFilter {
     public static final String TOKEN_SUBJECT_ATTRIBUTE = SessionTokenFilter.class.getName() + ".tokenSubject";
     private static final List<String> PROTECTED_PATHS = List.of(
             "/api/chat/**",
+            "/api/data-status",
             "/api/model-config/**"
     );
 

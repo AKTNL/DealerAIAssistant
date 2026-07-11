@@ -419,7 +419,7 @@ public class DataQueryService {
         item.put("stageName", opportunity.getStageName());
         item.put("leadSource", opportunity.getLeadSource());
         item.put("createdDate", opportunity.getCreatedDate().toString());
-        item.put("expectedCloseDate", opportunity.getExpectedCloseDate().toString());
+        item.put("expectedCloseDate", formatDate(opportunity.getExpectedCloseDate()));
         item.put("probability", opportunity.getProbability());
         return item;
     }
@@ -470,6 +470,7 @@ public class DataQueryService {
         item.put("targetMonth", target.getTargetMonth());
         item.put("asKTarget", target.getAsKTarget());
         item.put("opportunityWonCount", target.getOpportunityWonCount());
+        item.put("opportunityCreateCount", target.getOpportunityCreateCount());
         return item;
     }
 

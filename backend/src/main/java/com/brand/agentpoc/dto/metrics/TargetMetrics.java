@@ -4,6 +4,7 @@ public record TargetMetrics(
         int totalDealers,
         int totalAsKTarget,
         int totalOpportunityWon,
+        int comparableOpportunityWon,
         double averageAchievementRate,
         DealerMetric lowestDealer,
         DealerMetric highestDealer

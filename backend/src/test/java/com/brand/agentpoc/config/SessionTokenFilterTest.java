@@ -63,6 +63,13 @@ class SessionTokenFilterTest {
     }
 
     @Test
+    void protectsDataStatusWithTheSessionToken() throws Exception {
+        MockHttpServletResponse missingToken = doFilter("GET", "/api/data-status", null);
+
+        assertThat(missingToken.getStatus()).isEqualTo(HttpServletResponse.SC_UNAUTHORIZED);
+    }
+
+    @Test
     void skipsAuthAndHealthEndpoints() throws Exception {
         MockHttpServletResponse response = doFilter("POST", "/api/auth/verify", null);
 

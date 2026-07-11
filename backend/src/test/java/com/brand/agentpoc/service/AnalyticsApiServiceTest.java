@@ -64,6 +64,7 @@ class AnalyticsApiServiceTest {
         assertThat(m.totalDealers()).isEqualTo(0);
         assertThat(m.totalAsKTarget()).isEqualTo(0);
         assertThat(m.totalOpportunityWon()).isEqualTo(0);
+        assertThat(m.comparableOpportunityWon()).isEqualTo(0);
         assertThat(m.averageAchievementRate()).isEqualTo(0.0);
         assertThat(m.lowestDealer()).isNull();
         assertThat(m.highestDealer()).isNull();
@@ -86,9 +87,30 @@ class AnalyticsApiServiceTest {
         assertThat(m.totalDealers()).isEqualTo(2);
         assertThat(m.totalAsKTarget()).isEqualTo(350);
         assertThat(m.totalOpportunityWon()).isEqualTo(245);
+        assertThat(m.comparableOpportunityWon()).isEqualTo(245);
         assertThat(m.averageAchievementRate()).isCloseTo(70.0, org.assertj.core.data.Offset.offset(0.1));
         assertThat(m.lowestDealer().dealerCode()).isEqualTo("D002");
         assertThat(m.highestDealer().dealerCode()).isEqualTo("D001");
+    }
+
+    @Test
+    void getTargetMetricsKeepsObservedWinsOutOfIncompleteRateCohort() {
+        Target comparable = new Target("D001", "Store A", "Beijing", "Group1",
+                "ModelX", 2026, 5, 10, 5, 7);
+        Target unavailableTarget = new Target("D001", "Store A", "Beijing", "Group1",
+                "ModelY", 2026, 5, null, 10, 12);
+        when(targetRepository.findByTargetYearAndTargetMonth(2026, 5))
+                .thenReturn(List.of(comparable, unavailableTarget));
+
+        ApiResult<TargetMetrics> result = service.getTargetMetrics(2026, 5, null, null);
+
+        TargetMetrics metrics = result.data();
+        assertThat(metrics.totalAsKTarget()).isEqualTo(10);
+        assertThat(metrics.totalOpportunityWon()).isEqualTo(15);
+        assertThat(metrics.comparableOpportunityWon()).isEqualTo(5);
+        assertThat(metrics.averageAchievementRate()).isEqualTo(50.0);
+        assertThat(metrics.lowestDealer().achievementRate()).isEqualTo(50.0);
+        assertThat(metrics.highestDealer().achievementRate()).isEqualTo(50.0);
     }
 
     @Test
@@ -204,6 +226,29 @@ class AnalyticsApiServiceTest {
         assertThat(result.data().totalCampaigns()).isEqualTo(1);
         verify(campaignRepository).findByCampaignTypeIgnoreCase("Roadshow");
         verify(campaignRepository, never()).findAll();
+    }
+
+    @Test
+    void getCampaignMetricsExcludesUnavailableDenominatorsFromAttainment() {
+        when(campaignRepository.findByCampaignTypeIgnoreCase("Roadshow"))
+                .thenReturn(List.of(
+                        new Campaign("C1", "D001", "Store A", "Beijing", "Group1",
+                                "ModelX", "Roadshow", LocalDate.of(2026, 5, 1), 4, 10),
+                        new Campaign(
+                                "C2", "Campaign 2", "D002", "Store B", "Beijing", "Group1",
+                                "ModelX", "Event", "Roadshow", LocalDate.of(2026, 5, 2),
+                                null, 8, null, 2, 3, null)
+                ));
+
+        CampaignMetrics metrics = service.getCampaignMetrics("Roadshow").data();
+
+        assertThat(metrics.totalCampaigns()).isEqualTo(2);
+        assertThat(metrics.averageAttainment()).isEqualTo(40.0);
+        assertThat(metrics.totalActualOpportunities()).isEqualTo(12);
+        assertThat(metrics.totalTarget()).isEqualTo(10);
+        assertThat(metrics.comparableActualOpportunities()).isEqualTo(4);
+        assertThat(metrics.comparableTarget()).isEqualTo(10);
+        assertThat(metrics.bestCampaign().campaignId()).isEqualTo("C1");
     }
 
     @Test

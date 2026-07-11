@@ -440,6 +440,32 @@ class RuleBasedAnalyticsServiceTest {
     }
 
     @Test
+    void campaignPerformanceExcludesUnavailableTargetsWithoutTreatingThemAsZero() {
+        when(campaignRepository.findAll()).thenReturn(List.of(
+                new Campaign("C1", "D001", "Dealer A", "Beijing", "Group A", "Model X",
+                        "Launch", LocalDate.of(2026, 5, 1), 4, 10),
+                new Campaign("C2", "D002", "Dealer B", "Beijing", "Group A", "Model X",
+                        "Roadshow", LocalDate.of(2026, 5, 2), 6, 12),
+                new Campaign(
+                        "C3", "Campaign 3", "D003", "Dealer C", "Beijing", "Group A", "Model X",
+                        "Event", "Roadshow", LocalDate.of(2026, 5, 3), null, 9, null, 1, 2, null)
+        ));
+        List<StepEvent> capturedSteps = new ArrayList<>();
+
+        service.plan("campaign performance for Beijing", "en", "trace-missing-target", capturedSteps::add);
+
+        StepEvent calculation = capturedSteps.stream()
+                .filter(step -> step.type() == StepType.calculation)
+                .filter(step -> step.meta().containsKey("excludedZeroTargetCount"))
+                .findFirst()
+                .orElseThrow();
+        assertThat(calculation.meta()).containsEntry("campaignCount", 2);
+        assertThat(calculation.meta()).containsEntry("excludedZeroTargetCount", 1);
+        assertThat(calculation.meta()).containsEntry("totalActualOpportunityCount", 10);
+        assertThat(calculation.meta()).containsEntry("totalNewCustomerTarget", 22);
+    }
+
+    @Test
     void campaignDirectDealerQuestionMatchesByDealerNameWhenCampaignCodeUsesExternalId() {
         String dealerName = "\u7ecf\u9500\u5546C(\u6df1\u5733\u5357\u5c71)";
         when(dealerRepository.findAll()).thenReturn(List.of(
@@ -497,6 +523,44 @@ class RuleBasedAnalyticsServiceTest {
         assertThat(dealerPlan.fallbackReply()).contains("经销商目标达成率最高");
         assertThat(dealerPlan.fallbackReply()).contains("经销商B");
         assertThat(dealerPlan.fallbackReply()).contains("90.0%");
+    }
+
+    @Test
+    void targetOverviewPreservesObservedWinsAndUsesComparableRateRows() {
+        when(targetRepository.findAll()).thenReturn(List.of(
+                new Target("D001", "Dealer A", "Shanghai", "Group 1", "Aurora S", 2026, 5, 10, 5, 7),
+                new Target("D001", "Dealer A", "Shanghai", "Group 1", "Nova X", 2026, 5, null, 10, 12),
+                new Target("D002", "Dealer B", "Shanghai", "Group 1", "Aurora S", 2026, 5, 10, 8, 9)
+        ));
+
+        AnalyticsPlan plan = service.plan("highest achievement", "zh");
+
+        assertThat(plan.fallbackReply()).contains("15");
+        assertThat(plan.fallbackReply()).contains("50.0%");
+        assertThat(plan.fallbackReply()).contains("5/10");
+        assertThat(plan.fallbackReply()).doesNotContain("150.0%");
+    }
+
+    @Test
+    void campaignOverviewShowsObservedAndComparableActuals() {
+        when(campaignRepository.findAll()).thenReturn(List.of(
+                new Campaign("C1", "Campaign 1", "D001", "Dealer A", "Shanghai", "Group 1",
+                        "Aurora S", "Event", "Roadshow", LocalDate.of(2026, 5, 1),
+                        10, 4, 5, 2, 3, 10),
+                new Campaign("C2", "Campaign 2", "D001", "Dealer A", "Shanghai", "Group 1",
+                        "Aurora S", "Event", "Roadshow", LocalDate.of(2026, 5, 2),
+                        null, 8, null, 3, 4, null)
+        ));
+
+        AnalyticsPlan plan = service.plan(
+                "\u5e02\u573a\u6d3b\u52a8\u603b\u4f53\u5546\u673a\u76ee\u6807\u5b8c\u6210\u60c5\u51b5",
+                "zh"
+        );
+
+        assertThat(plan.fallbackReply()).contains("12");
+        assertThat(plan.fallbackReply()).contains("4/10");
+        assertThat(plan.fallbackReply()).contains("40.0%");
+        assertThat(plan.fallbackReply()).doesNotContain("120.0%");
     }
 
     @Test

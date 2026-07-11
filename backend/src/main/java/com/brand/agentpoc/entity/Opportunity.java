@@ -46,7 +46,7 @@ public class Opportunity {
     @Column(nullable = false)
     private LocalDate createdDate;
 
-    @Column(nullable = false)
+    @Column
     private LocalDate expectedCloseDate;
 
     @Column(nullable = false)

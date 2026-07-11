@@ -64,38 +64,48 @@ public class AnalyticsApiService {
         List<Target> all = filterTargets(year, month, productModel, dealerCode, city, dealerName, dealerGroupName);
 
         if (all.isEmpty()) {
-            return ApiResult.success(new TargetMetrics(0, 0, 0, 0.0, null, null));
+            return ApiResult.success(new TargetMetrics(0, 0, 0, 0, 0.0, null, null));
         }
 
         Map<String, List<Target>> byDealer = all.stream()
                 .collect(Collectors.groupingBy(Target::getDealerCode));
 
         int totalAsKTarget = 0;
-        int totalWon = 0;
+        int totalObservedWon = 0;
+        int totalComparableWon = 0;
         TargetMetrics.DealerMetric lowest = null;
         TargetMetrics.DealerMetric highest = null;
 
         for (var entry : byDealer.entrySet()) {
             String code = entry.getKey();
             List<Target> rows = entry.getValue();
-            int sumTarget = rows.stream().mapToInt(Target::getAsKTarget).sum();
-            int sumWon = rows.stream().mapToInt(Target::getOpportunityWonCount).sum();
-            double rate = sumTarget == 0 ? 0.0 : (double) sumWon / sumTarget * 100.0;
+            List<Target> comparableRows = rows.stream()
+                    .filter(target -> target.getAsKTarget() != null)
+                    .toList();
+            int sumObservedWon = rows.stream().mapToInt(Target::getOpportunityWonCount).sum();
+            int sumTarget = comparableRows.stream().mapToInt(Target::getAsKTarget).sum();
+            int sumComparableWon = comparableRows.stream().mapToInt(Target::getOpportunityWonCount).sum();
             String name = rows.getFirst().getDealerName();
 
             totalAsKTarget += sumTarget;
-            totalWon += sumWon;
+            totalObservedWon += sumObservedWon;
+            totalComparableWon += sumComparableWon;
 
+            if (sumTarget <= 0) {
+                continue;
+            }
+
+            double rate = (double) sumComparableWon / sumTarget * 100.0;
             TargetMetrics.DealerMetric dm = new TargetMetrics.DealerMetric(code, name, Math.round(rate * 10.0) / 10.0);
             if (lowest == null || dm.achievementRate() < lowest.achievementRate()) lowest = dm;
             if (highest == null || dm.achievementRate() > highest.achievementRate()) highest = dm;
         }
 
         double avgRate = totalAsKTarget == 0 ? 0.0
-                : Math.round((double) totalWon / totalAsKTarget * 1000.0) / 10.0;
+                : Math.round((double) totalComparableWon / totalAsKTarget * 1000.0) / 10.0;
 
         return ApiResult.success(new TargetMetrics(
-                byDealer.size(), totalAsKTarget, totalWon, avgRate, lowest, highest));
+                byDealer.size(), totalAsKTarget, totalObservedWon, totalComparableWon, avgRate, lowest, highest));
     }
 
     @Transactional(readOnly = true)
@@ -325,25 +335,41 @@ public class AnalyticsApiService {
                 .toList();
 
         if (all.isEmpty()) {
-            return ApiResult.success(new CampaignMetrics(0, 0.0, null, 0, 0));
+            return ApiResult.success(new CampaignMetrics(0, 0.0, null, 0, 0, 0, 0));
         }
 
-        int totalTarget = all.stream().mapToInt(Campaign::getTotalNewCustomerTarget).sum();
-        int totalActual = all.stream().mapToInt(Campaign::getActualOpportunityCount).sum();
-        double avgAttainment = totalTarget == 0 ? 0.0
-                : Math.round((double) totalActual / totalTarget * 1000.0) / 10.0;
+        List<Campaign> comparable = all.stream()
+                .filter(campaign -> campaign.getTotalNewCustomerTarget() != null)
+                .filter(campaign -> campaign.getActualOpportunityCount() != null)
+                .filter(campaign -> campaign.getTotalNewCustomerTarget() > 0)
+                .toList();
+        int totalTarget = all.stream()
+                .map(Campaign::getTotalNewCustomerTarget)
+                .filter(Objects::nonNull)
+                .mapToInt(Integer::intValue)
+                .sum();
+        int totalActual = all.stream()
+                .map(Campaign::getActualOpportunityCount)
+                .filter(Objects::nonNull)
+                .mapToInt(Integer::intValue)
+                .sum();
+        int comparableTarget = comparable.stream().mapToInt(Campaign::getTotalNewCustomerTarget).sum();
+        int comparableActual = comparable.stream().mapToInt(Campaign::getActualOpportunityCount).sum();
+        double avgAttainment = comparableTarget == 0 ? 0.0
+                : Math.round((double) comparableActual / comparableTarget * 1000.0) / 10.0;
 
-        CampaignMetrics.BestCampaign best = all.stream()
+        CampaignMetrics.BestCampaign best = comparable.stream()
                 .map(c -> {
-                    double rate = c.getTotalNewCustomerTarget() == 0 ? 0.0
-                            : (double) c.getActualOpportunityCount() / c.getTotalNewCustomerTarget() * 100.0;
+                    double rate = (double) c.getActualOpportunityCount()
+                            / c.getTotalNewCustomerTarget() * 100.0;
                     return new CampaignMetrics.BestCampaign(c.getCampaignId(), c.getCampaignId(),
                             Math.round(rate * 10.0) / 10.0);
                 })
                 .max(Comparator.comparing(CampaignMetrics.BestCampaign::attainmentRate))
                 .orElse(null);
 
-        return ApiResult.success(new CampaignMetrics(all.size(), avgAttainment, best, totalActual, totalTarget));
+        return ApiResult.success(new CampaignMetrics(
+                all.size(), avgAttainment, best, totalActual, totalTarget, comparableActual, comparableTarget));
     }
 
     @Transactional(readOnly = true)
@@ -498,7 +524,10 @@ public class AnalyticsApiService {
         Comparator<Target> cmp = switch (sortBy != null ? sortBy : "dealerCode") {
             case "targetYear" -> Comparator.comparing(Target::getTargetYear);
             case "targetMonth" -> Comparator.comparing(Target::getTargetMonth);
-            case "asKTarget" -> Comparator.comparing(Target::getAsKTarget);
+            case "asKTarget" -> Comparator.comparing(
+                    Target::getAsKTarget,
+                    Comparator.nullsFirst(Comparator.naturalOrder())
+            );
             default -> Comparator.comparing(Target::getDealerCode);
         };
         if (!"asc".equalsIgnoreCase(sortOrder)) cmp = cmp.reversed();
@@ -550,7 +579,7 @@ public class AnalyticsApiService {
     private TargetDetail toTargetDetail(Target t) {
         return new TargetDetail(t.getDealerCode(), t.getDealerName(), t.getCity(),
                 t.getDealerGroupName(), t.getProductModel(), t.getTargetYear(), t.getTargetMonth(),
-                t.getAsKTarget(), t.getOpportunityWonCount());
+                t.getAsKTarget(), t.getOpportunityWonCount(), t.getOpportunityCreateCount());
     }
 
     private OpportunityDetail toOpportunityDetail(Opportunity o) {

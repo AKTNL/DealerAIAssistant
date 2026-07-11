@@ -5,7 +5,9 @@ public record CampaignMetrics(
         double averageAttainment,
         BestCampaign bestCampaign,
         int totalActualOpportunities,
-        int totalTarget
+        int totalTarget,
+        int comparableActualOpportunities,
+        int comparableTarget
 ) {
     public record BestCampaign(String campaignId, String campaignName, double attainmentRate) {}
 }

@@ -1,6 +1,7 @@
 package com.brand.agentpoc.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -9,6 +10,7 @@ import com.brand.agentpoc.config.AppProperties;
 import com.brand.agentpoc.entity.Campaign;
 import com.brand.agentpoc.entity.Dealer;
 import com.brand.agentpoc.entity.Lead;
+import com.brand.agentpoc.entity.Opportunity;
 import com.brand.agentpoc.entity.Target;
 import com.brand.agentpoc.repository.CampaignRepository;
 import com.brand.agentpoc.repository.DealerRepository;
@@ -36,20 +38,25 @@ class ExcelImportServiceTest {
 
     @TempDir
     private Path tempDir;
+    private ImportQualityService importQualityService;
 
     @Test
-    void importsTargetRowsWithBlankAskTargetAsZero() throws Exception {
+    void retainsTargetRowsWithBlankAskTarget() throws Exception {
         TargetRepository targetRepository = mock(TargetRepository.class);
         ExcelImportService service = importService(targetRepository, workbookWithTargetRows(List.<Object[]>of(
-                targetRow("经销商AG(济南)", 7033, null, 2, "Aurora S", 2024, 1, "经销商集团O")
+                targetRow("经销商AG(济南)", 7033, null, 2, "Aurora S", 2024, 1, "经销商集团O"),
+                targetRow("经销商AH(青岛)", 7034, 10, 3, "Aurora S", 2024, 1, "经销商集团O")
         )));
 
         service.run(mock(ApplicationArguments.class));
 
         List<Target> savedTargets = captureSavedTargets(targetRepository);
-        assertThat(savedTargets).hasSize(1);
-        assertThat(savedTargets.getFirst().getAsKTarget()).isZero();
+        assertThat(savedTargets).hasSize(2);
+        assertThat(savedTargets.getFirst().getAsKTarget()).isNull();
         assertThat(savedTargets.getFirst().getOpportunityWonCount()).isEqualTo(2);
+        assertThat(importQualityService.getLatest().sheets().get("AE Target Data").skippedRows()).isZero();
+        assertThat(importQualityService.getLatest().sheets().get("AE Target Data").issues())
+                .containsEntry("missing_ask_target", 1);
     }
 
     @Test
@@ -84,7 +91,7 @@ class ExcelImportServiceTest {
     }
 
     @Test
-    void importsCampaignRowsWithBlankNonCriticalFieldsUsingDefaults() throws Exception {
+    void importsCampaignRowsWithoutInventingMissingNumericValues() throws Exception {
         TargetRepository targetRepository = mock(TargetRepository.class);
         DealerRepository dealerRepository = mock(DealerRepository.class);
         CampaignRepository campaignRepository = mock(CampaignRepository.class);
@@ -103,12 +110,15 @@ class ExcelImportServiceTest {
         assertThat(savedCampaigns).hasSize(1);
         Campaign campaign = savedCampaigns.getFirst();
         assertThat(campaign.getCampaignId()).isEqualTo("CAM-001");
-        assertThat(campaign.getCampaignType()).isEqualTo("0");
+        assertThat(campaign.getCampaignType()).isEqualTo("未知");
         assertThat(campaign.getDealerCode()).isEqualTo("未分配");
         assertThat(campaign.getDealerName()).isEqualTo("未分配");
         assertThat(campaign.getProductModel()).isEqualTo("未知");
-        assertThat(campaign.getActualOpportunityCount()).isZero();
-        assertThat(campaign.getTotalNewCustomerTarget()).isZero();
+        assertThat(campaign.getActualOpportunityCount()).isNull();
+        assertThat(campaign.getTotalNewCustomerTarget()).isNull();
+        assertThat(importQualityService.getLatest().sheets().get("Campaign").issues())
+                .containsEntry("missing_actual_opportunity_count", 1)
+                .containsEntry("missing_new_customer_target", 1);
     }
 
     @Test
@@ -131,7 +141,7 @@ class ExcelImportServiceTest {
 
             List<Campaign> savedCampaigns = captureSavedCampaigns(campaignRepository);
             assertThat(savedCampaigns).hasSize(1);
-            assertThat(savedCampaigns.getFirst().getActualOpportunityCount()).isZero();
+            assertThat(savedCampaigns.getFirst().getActualOpportunityCount()).isNull();
             assertThat(logs.messages()).anySatisfy(message -> assertThat(message)
                     .contains("actualOpportunityCount", "not-a-number", "NumberFormatException"));
         }
@@ -175,6 +185,63 @@ class ExcelImportServiceTest {
         assertThat(savedLead.getCreatedDate()).isNull();
     }
 
+    @Test
+    void importsOpportunityRowsWithBlankExpectedCloseDate() throws Exception {
+        TargetRepository targetRepository = mock(TargetRepository.class);
+        DealerRepository dealerRepository = mock(DealerRepository.class);
+        CampaignRepository campaignRepository = mock(CampaignRepository.class);
+        LeadRepository leadRepository = mock(LeadRepository.class);
+        OpportunityRepository opportunityRepository = mock(OpportunityRepository.class);
+        ExcelImportService service = importService(
+                targetRepository,
+                dealerRepository,
+                campaignRepository,
+                leadRepository,
+                opportunityRepository,
+                workbookWithOpportunityRows(List.<Object[]>of(new Object[]{
+                        "OPP-001", 7035, "Dealer A", "Aurora S", "Within 3 months",
+                        "Negotiation", "Website", "2026-05-01", null, 80
+                }))
+        );
+
+        service.run(mock(ApplicationArguments.class));
+
+        List<Opportunity> savedOpportunities = captureSavedOpportunities(opportunityRepository);
+        assertThat(savedOpportunities).hasSize(1);
+        assertThat(savedOpportunities.getFirst().getExpectedCloseDate()).isNull();
+        assertThat(importQualityService.getLatest().sheets().get("Opportunity").skippedRows()).isZero();
+        assertThat(importQualityService.getLatest().sheets().get("Opportunity").issues())
+                .containsEntry("missing_expected_close_date", 1);
+    }
+
+    @Test
+    void failsStartupWhenFallbackIsDisabledAndWorkbookIsMissing() {
+        AppProperties properties = new AppProperties();
+        properties.getExcel().setPath(tempDir.resolve("missing.xlsx").toString());
+        properties.getExcel().setFallbackEnabled(false);
+        ImportQualityService qualityService = new ImportQualityService();
+        ExcelImportService service = importService(properties, qualityService);
+
+        assertThatThrownBy(() -> service.run(mock(ApplicationArguments.class)))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("strict mode");
+        assertThat(qualityService.getLatest().source()).isEqualTo("import-failed");
+        assertThat(qualityService.getLatest().fallbackActive()).isFalse();
+    }
+
+    @Test
+    void reportsFallbackSourceWhenWorkbookIsMissingInDemoMode() {
+        AppProperties properties = new AppProperties();
+        properties.getExcel().setPath(tempDir.resolve("missing.xlsx").toString());
+        ImportQualityService qualityService = new ImportQualityService();
+        ExcelImportService service = importService(properties, qualityService);
+
+        service.run(mock(ApplicationArguments.class));
+
+        assertThat(qualityService.getLatest().source()).isEqualTo("built-in-sample");
+        assertThat(qualityService.getLatest().fallbackActive()).isTrue();
+    }
+
     private ExcelImportService importService(TargetRepository targetRepository, Path workbookPath) {
         return importService(targetRepository, mock(DealerRepository.class), workbookPath);
     }
@@ -203,10 +270,54 @@ class ExcelImportServiceTest {
             LeadRepository leadRepository,
             Path workbookPath
     ) {
+        return importService(
+                targetRepository,
+                dealerRepository,
+                campaignRepository,
+                leadRepository,
+                mock(OpportunityRepository.class),
+                workbookPath
+        );
+    }
+
+    private ExcelImportService importService(
+            TargetRepository targetRepository,
+            DealerRepository dealerRepository,
+            CampaignRepository campaignRepository,
+            LeadRepository leadRepository,
+            OpportunityRepository opportunityRepository,
+            Path workbookPath
+    ) {
         AppProperties properties = new AppProperties();
         properties.getExcel().setPath(workbookPath.toString());
 
-        OpportunityRepository opportunityRepository = mock(OpportunityRepository.class);
+        importQualityService = new ImportQualityService();
+
+        return importService(properties, importQualityService,
+                targetRepository, dealerRepository, campaignRepository, leadRepository, opportunityRepository);
+    }
+
+    private ExcelImportService importService(AppProperties properties, ImportQualityService qualityService) {
+        return importService(
+                properties,
+                qualityService,
+                mock(TargetRepository.class),
+                mock(DealerRepository.class),
+                mock(CampaignRepository.class),
+                mock(LeadRepository.class),
+                mock(OpportunityRepository.class)
+        );
+    }
+
+    private ExcelImportService importService(
+            AppProperties properties,
+            ImportQualityService qualityService,
+            TargetRepository targetRepository,
+            DealerRepository dealerRepository,
+            CampaignRepository campaignRepository,
+            LeadRepository leadRepository,
+            OpportunityRepository opportunityRepository
+    ) {
         TaskRepository taskRepository = mock(TaskRepository.class);
 
         when(dealerRepository.count()).thenReturn(0L);
@@ -224,8 +335,52 @@ class ExcelImportServiceTest {
                 campaignRepository,
                 taskRepository,
                 targetRepository,
-                leadRepository
+                leadRepository,
+                qualityService
         );
+    }
+
+    private Path workbookWithOpportunityRows(List<Object[]> opportunityRows) throws Exception {
+        Path workbookPath = tempDir.resolve("opportunities.xlsx");
+        try (Workbook workbook = new XSSFWorkbook()) {
+            Sheet sheet = workbook.createSheet("Opportunity");
+            Row header = sheet.createRow(0);
+            String[] headers = {
+                    "Id",
+                    "SalesRetailer__r.DealerCode__c",
+                    "SalesRetailer__r.Name",
+                    "Model__c",
+                    "Purchase_Horizon__c",
+                    "StageName",
+                    "LeadSource",
+                    "CreatedDate",
+                    "ExpectedCloseDate",
+                    "Probability"
+            };
+            for (int column = 0; column < headers.length; column++) {
+                header.createCell(column).setCellValue(headers[column]);
+            }
+
+            for (int i = 0; i < opportunityRows.size(); i++) {
+                Object[] values = opportunityRows.get(i);
+                Row row = sheet.createRow(i + 1);
+                for (int column = 0; column < values.length; column++) {
+                    Object value = values[column];
+                    if (value instanceof Number number) {
+                        row.createCell(column).setCellValue(number.doubleValue());
+                    } else if (value != null) {
+                        row.createCell(column).setCellValue(String.valueOf(value));
+                    }
+                }
+            }
+
+            addRequiredSheetStubs(workbook);
+
+            try (OutputStream outputStream = Files.newOutputStream(workbookPath)) {
+                workbook.write(outputStream);
+            }
+        }
+        return workbookPath;
     }
 
     private Path workbookWithCampaignRows(List<Object[]> campaignRows) throws Exception {
@@ -259,6 +414,8 @@ class ExcelImportServiceTest {
                     }
                 }
             }
+
+            addRequiredSheetStubs(workbook);
 
             try (OutputStream outputStream = Files.newOutputStream(workbookPath)) {
                 workbook.write(outputStream);
@@ -298,6 +455,8 @@ class ExcelImportServiceTest {
                     }
                 }
             }
+
+            addRequiredSheetStubs(workbook);
 
             try (OutputStream outputStream = Files.newOutputStream(workbookPath)) {
                 workbook.write(outputStream);
@@ -342,6 +501,8 @@ class ExcelImportServiceTest {
                 }
             }
 
+            addRequiredSheetStubs(workbook);
+
             try (OutputStream outputStream = Files.newOutputStream(workbookPath)) {
                 workbook.write(outputStream);
             }
@@ -375,6 +536,19 @@ class ExcelImportServiceTest {
         };
     }
 
+    private void addRequiredSheetStubs(Workbook workbook) {
+        for (String sheetName : List.of("AE Target Data", "Opportunity", "Lead", "Task", "Campaign")) {
+            if (workbook.getSheet(sheetName) != null) {
+                continue;
+            }
+            Sheet sheet = workbook.createSheet(sheetName);
+            Row header = sheet.createRow(0);
+            header.createCell(0).setCellValue("Id");
+            header.createCell(1).setCellValue("Status");
+            header.createCell(2).setCellValue("CreatedDate");
+        }
+    }
+
     @SuppressWarnings({"unchecked", "rawtypes"})
     private List<Target> captureSavedTargets(TargetRepository targetRepository) {
         ArgumentCaptor<Iterable<Target>> captor = ArgumentCaptor.forClass(Iterable.class);
@@ -382,6 +556,15 @@ class ExcelImportServiceTest {
         List<Target> savedTargets = new ArrayList<>();
         captor.getValue().forEach(savedTargets::add);
         return savedTargets;
+    }
+
+    @SuppressWarnings({"unchecked", "rawtypes"})
+    private List<Opportunity> captureSavedOpportunities(OpportunityRepository opportunityRepository) {
+        ArgumentCaptor<Iterable<Opportunity>> captor = ArgumentCaptor.forClass(Iterable.class);
+        verify(opportunityRepository).saveAll(captor.capture());
+        List<Opportunity> savedOpportunities = new ArrayList<>();
+        captor.getValue().forEach(savedOpportunities::add);
+        return savedOpportunities;
     }
 
     @SuppressWarnings({"unchecked", "rawtypes"})

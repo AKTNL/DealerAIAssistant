@@ -33,7 +33,7 @@ class AnalyticsApiControllerTest {
     void getTargetMetricsReturnsResultWrapper() throws Exception {
         when(analyticsApiService.getTargetMetrics(any(), any(), any(), any(), any(), any(), any()))
                 .thenReturn(ApiResult.success(
-                        new TargetMetrics(5, 1000, 800, 80.0,
+                        new TargetMetrics(5, 1000, 800, 800, 80.0,
                                 new TargetMetrics.DealerMetric("D001", "Low", 60.0),
                                 new TargetMetrics.DealerMetric("D005", "High", 95.0))));
 
@@ -53,7 +53,7 @@ class AnalyticsApiControllerTest {
                 .thenReturn(ApiResult.success(
                         ApiPage.of(List.of(
                                 new TargetDetail("D001", "Store A", "Beijing", "Group1",
-                                        "ModelX", 2026, 5, 100, 80)),
+                                        "ModelX", 2026, 5, 100, 80, 90)),
                                 1, 1, 50)));
 
         mockMvc.perform(get("/api/targets/details?page=1&pageSize=50"))

@@ -33,6 +33,10 @@ public class AnalyticsCalculator {
         return toInt(item.get(fieldName));
     }
 
+    public Integer nullableIntValue(Map<String, Object> item, String fieldName) {
+        return toNullableInt(item.get(fieldName));
+    }
+
     public int toInt(Object value) {
         if (value instanceof Number number) {
             return number.intValue();
@@ -44,6 +48,20 @@ public class AnalyticsCalculator {
             return Integer.parseInt(String.valueOf(value));
         } catch (NumberFormatException ignored) {
             return 0;
+        }
+    }
+
+    public Integer toNullableInt(Object value) {
+        if (value instanceof Number number) {
+            return number.intValue();
+        }
+        if (value == null || String.valueOf(value).isBlank()) {
+            return null;
+        }
+        try {
+            return Integer.parseInt(String.valueOf(value));
+        } catch (NumberFormatException ignored) {
+            return null;
         }
     }
 

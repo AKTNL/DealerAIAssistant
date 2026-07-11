@@ -94,6 +94,7 @@ public class AppProperties {
 
     public static class Excel {
         private String path = "classpath:Sample Data.xlsx";
+        private boolean fallbackEnabled = true;
 
         public String getPath() {
             return path;
@@ -101,6 +102,14 @@ public class AppProperties {
 
         public void setPath(String path) {
             this.path = path;
+        }
+
+        public boolean isFallbackEnabled() {
+            return fallbackEnabled;
+        }
+
+        public void setFallbackEnabled(boolean fallbackEnabled) {
+            this.fallbackEnabled = fallbackEnabled;
         }
     }
 

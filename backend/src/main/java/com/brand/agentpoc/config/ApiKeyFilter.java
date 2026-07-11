@@ -27,6 +27,7 @@ public class ApiKeyFilter extends OncePerRequestFilter {
             "/favicon.ico",
             "/api/auth/**",
             "/api/chat/**",
+            "/api/data-status",
             "/api/model-config/**",
             "/openapi.json",
             "/swagger-ui.html",

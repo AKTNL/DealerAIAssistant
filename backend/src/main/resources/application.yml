@@ -29,6 +29,7 @@ app:
     allowed-origins: ${APP_CORS_ALLOWED_ORIGINS:http://localhost:5173,http://127.0.0.1:5173}
   excel:
     path: ${APP_EXCEL_PATH:classpath:Sample Data.xlsx}
+    fallback-enabled: ${APP_EXCEL_FALLBACK_ENABLED:true}
   model:
     base-url: ${APP_MODEL_BASE_URL:}
     api-key: ${APP_MODEL_API_KEY:}
