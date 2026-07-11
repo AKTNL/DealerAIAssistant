@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 14
+- **Total Sessions**: 15
 - **Last Active**: 2026-07-11
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~473 | Active |
+| `journal-1.md` | ~508 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 15 | 2026-07-11 | Field-aware import quality and missing-data semantics | `8506942`, `4d22608`, `4c84c4c` | `main` |
 | 14 | 2026-07-11 | Align POC requirements | `4bc9d7d` | `main` |
 | 13 | 2026-07-10 | README analytics metadata docs | `5fa2a5b` | `main` |
 | 12 | 2026-07-10 | Improve dealer QA confidence metadata | `903c521` | `main` |

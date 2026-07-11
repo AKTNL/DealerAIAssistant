@@ -471,3 +471,38 @@ Aligned acceptance-critical POC behavior with the requirements document: collaps
 ### Next Steps
 
 - None - task complete
+
+
+## Session 15: Field-aware import quality and missing-data semantics
+
+**Date**: 2026-07-11
+**Task**: Field-aware import quality and missing-data semantics
+**Branch**: `main`
+
+### Summary
+
+Implemented field-aware Excel cleaning, explicit demo/strict fallback behavior, import-quality status reporting, nullable target and opportunity fields, comparable-cohort analytics, frontend fallback warnings, corrected accuracy baselines, and updated project/spec documentation. PMD, 286 backend tests, frontend lint, 210 frontend tests, and production build all passed.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `8506942` | (see git log) |
+| `4d22608` | (see git log) |
+| `4c84c4c` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
