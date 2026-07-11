@@ -55,6 +55,15 @@ class ChatServiceTest {
         modelConfigService = mock(ModelConfigService.class);
         dealerRepository = mock(DealerRepository.class);
 
+        when(modelConfigService.hasConfiguredModelSettings(any(ChatRequest.class)))
+                .thenAnswer(invocation -> {
+                    ChatRequest request = invocation.getArgument(0);
+                    return request != null
+                            && hasText(request.baseUrl())
+                            && hasText(request.apiKey())
+                            && hasText(request.model());
+                });
+
         chatService = new ChatService(
                 sessionMemoryService,
                 languageDetector,
@@ -259,7 +268,8 @@ class ChatServiceTest {
         assertThat(reply).contains("555");
         assertThat(reply).doesNotContain("\u672a\u627e\u5230");
         verify(analyticsService).plan(message, "zh");
-        verifyNoInteractions(modelConfigService);
+        verify(modelConfigService).hasConfiguredModelSettings(request);
+        verify(modelConfigService, never()).createChatModel(any(ChatRequest.class));
     }
 
     @Test
@@ -360,7 +370,8 @@ class ChatServiceTest {
 
         List<String> progressEvents = extractEventData(outputStream.toString(StandardCharsets.UTF_8), "progress");
         assertThat(progressEvents).containsExactly("Checking the chat model configuration");
-        verifyNoInteractions(modelConfigService);
+        verify(modelConfigService).hasConfiguredModelSettings(request);
+        verify(modelConfigService, never()).createChatModel(any(ChatRequest.class));
         verifyNoInteractions(analyticsService);
     }
 
@@ -401,7 +412,8 @@ class ChatServiceTest {
                 .contains("\"limitations\":[\"Lead rows with missing dealer are excluded from dealer ranking\"]")
                 .contains("\"confidence\":\"medium\"");
         assertThat(extractEventData(payload, "message")).containsExactly(plan.fallbackReply().trim());
-        verifyNoInteractions(modelConfigService);
+        verify(modelConfigService).hasConfiguredModelSettings(request);
+        verify(modelConfigService, never()).createChatModel(any(ChatRequest.class));
     }
 
     @Test
@@ -440,7 +452,8 @@ class ChatServiceTest {
 
         assertThat(reply).isEqualTo(plan.fallbackReply().trim());
         verify(analyticsService).plan(request.message(), "en");
-        verifyNoInteractions(modelConfigService);
+        verify(modelConfigService).hasConfiguredModelSettings(request);
+        verify(modelConfigService, never()).createChatModel(any(ChatRequest.class));
     }
 
     @Test
@@ -470,7 +483,8 @@ class ChatServiceTest {
         assertThat(reply).contains("More than 10 Months");
         assertThat(reply).doesNotContain("\u8d85\u51fa\u7ecf\u9500\u5546 AI \u5206\u6790\u52a9\u624b\u7684\u4e1a\u52a1\u8303\u56f4");
         verify(analyticsService).plan(message, "zh");
-        verifyNoInteractions(modelConfigService);
+        verify(modelConfigService).hasConfiguredModelSettings(request);
+        verify(modelConfigService, never()).createChatModel(any(ChatRequest.class));
     }
 
     @Test
@@ -500,7 +514,8 @@ class ChatServiceTest {
         assertThat(reply).contains("车型赢单最多");
         assertThat(reply).doesNotContain("超出经销商 AI 分析助手的业务范围");
         verify(analyticsService).plan(message, "zh");
-        verifyNoInteractions(modelConfigService);
+        verify(modelConfigService).hasConfiguredModelSettings(request);
+        verify(modelConfigService, never()).createChatModel(any(ChatRequest.class));
     }
 
     @Test
@@ -528,6 +543,28 @@ class ChatServiceTest {
         verify(modelConfigService).createChatModel(request);
         verify(sessionMemoryService).addUserMessage("s1", GENERAL_MESSAGE);
         verify(sessionMemoryService).addAssistantMessage(eq("s1"), eq(reply));
+        verifyNoInteractions(analyticsService);
+    }
+
+    @Test
+    void usesBackendDefaultModelConfigurationWhenRequestScopedSettingsAreBlank() {
+        ChatRequest request = new ChatRequest("s1", GENERAL_MESSAGE, "", "", "");
+        ChatModel chatModel = mock(ChatModel.class);
+
+        when(languageDetector.detectLanguage(GENERAL_MESSAGE)).thenReturn("en");
+        when(modelConfigService.hasConfiguredModelSettings(request)).thenReturn(true);
+        when(modelConfigService.createChatModel(request)).thenReturn(chatModel);
+        when(promptFactory.buildConversationModelPrompt("en", GENERAL_MESSAGE, "None")).thenReturn("Prompt body");
+        when(promptFactory.buildSystemPrompt("en")).thenReturn("System prompt");
+        when(chatModel.call(any(Prompt.class))).thenReturn(new ChatResponse(List.of(
+                new Generation(new AssistantMessage("Backend default reply"))
+        )));
+
+        String reply = chatService.chat(request);
+
+        assertThat(reply).contains("Backend default reply");
+        verify(modelConfigService).hasConfiguredModelSettings(request);
+        verify(modelConfigService).createChatModel(request);
         verifyNoInteractions(analyticsService);
     }
 
@@ -1856,5 +1893,9 @@ class ChatServiceTest {
                 1. a
                 2. b
                 """;
+    }
+
+    private static boolean hasText(String value) {
+        return value != null && !value.isBlank();
     }
 }

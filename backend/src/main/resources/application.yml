@@ -30,6 +30,9 @@ app:
   excel:
     path: ${APP_EXCEL_PATH:classpath:Sample Data.xlsx}
   model:
+    base-url: ${APP_MODEL_BASE_URL:}
+    api-key: ${APP_MODEL_API_KEY:}
+    name: ${APP_MODEL_NAME:}
     allowed-hosts: ${APP_MODEL_ALLOWED_HOSTS:}
     allow-private-hosts: ${APP_MODEL_ALLOW_PRIVATE_HOSTS:false}
 

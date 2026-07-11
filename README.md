@@ -25,7 +25,7 @@
 - 流式聊天：`POST /api/chat/stream` 返回 `step`、`analysis_metadata`、`progress`、`message`、`done`、`error` 事件
 - 同步聊天：`POST /api/chat`
 - 会话清理：`DELETE /api/chat/{sessionId}`
-- 浏览器本地模型配置：`baseUrl`、`apiKey`、`model` 随聊天请求发送
+- 模型连接配置：后端可提供默认 `baseUrl`、`apiKey`、`model`，浏览器本地设置可随聊天请求发送并覆盖默认值
 - 中英文输出：前端文案可切换，后端按用户消息语言生成回答
 - Markdown 渲染：代码高亮、HTML 表格白名单渲染、Mermaid 图表渲染、空图表状态提示
 - 思考时间线：分析过程以 `step` 事件流式推送（数据加载、过滤、计算、工具调用、模型思考、洞察），前端通过统一时间线面板展示
@@ -167,15 +167,18 @@ npm run dev
 | `app.security.api-key` | `APP_API_KEY` | 空 | 受保护后端接口的 `X-API-Key`；为空时内部 API key 校验失败 |
 | `app.cors.allowed-origins` | `APP_CORS_ALLOWED_ORIGINS` | `http://localhost:5173,http://127.0.0.1:5173` | CORS 允许来源，逗号分隔 |
 | `app.excel.path` | `APP_EXCEL_PATH` | `classpath:Sample Data.xlsx` | 启动时导入的 Excel 数据源 |
+| `app.model.base-url` | `APP_MODEL_BASE_URL` | 空 | 可选默认模型服务地址，兼容 OpenAI Chat Completions |
+| `app.model.api-key` | `APP_MODEL_API_KEY` | 空 | 可选默认模型 API Key；不会写入日志 |
+| `app.model.name` | `APP_MODEL_NAME` | 空 | 可选默认模型名称 |
 | `app.model.allowed-hosts` | `APP_MODEL_ALLOWED_HOSTS` | 空 | 可选模型 Base URL 主机允许列表，支持 `api.example.com,*.example.com` |
 | `app.model.allow-private-hosts` | `APP_MODEL_ALLOW_PRIVATE_HOSTS` | `false` | 是否允许模型 Base URL 指向 localhost 或内网地址 |
 
 安全边界说明：
 
 - `/api/auth/**`、静态资源、H2 Console 和健康检查保持演示白名单行为。
-- `/api/chat/**` 与 `/api/model-config/**` 需要登录后返回的 `Authorization: Bearer <sessionToken>`。
+- `/api/chat/**` 与 `/api/model-config/**` 需要登录后返回的 `Authorization: Bearer <sessionToken>`；这是相对原始 `X-API-Key` POC 方案的安全增强，避免浏览器直接持有内部 API key。
 - `/api/v1/data/**` 与 `/api/*/metrics`、`/api/*/details` 仍需要请求头 `X-API-Key`。
-- 模型 API Key 保存在浏览器 `localStorage` 中，适合本地演示，不适合作为生产密钥托管方案。
+- 可通过 `APP_MODEL_BASE_URL`、`APP_MODEL_API_KEY`、`APP_MODEL_NAME` 配置后端默认模型连接；浏览器 `localStorage` 中的模型设置会随聊天请求发送，并优先覆盖后端默认值。
 - 模型 `Base URL` 会拒绝 localhost、内网地址和未进入允许列表的主机，允许列表可通过 `APP_MODEL_ALLOWED_HOSTS` 配置。
 
 ## API 概览

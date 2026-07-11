@@ -133,6 +133,7 @@ describe("Workspace chrome editorial hooks", () => {
     expect(sidebar.find(".sidebar-group-list").exists()).toBe(true);
     expect(chatInput.find(".composer-dock").exists()).toBe(true);
     expect(chatView.find(".workspace-shell").exists()).toBe(true);
+    expect(chatView.find(".workspace-shell").classes()).toContain("sidebar-collapsed");
     expect(chatView.find(".workspace-stage").exists()).toBe(true);
   });
 
@@ -233,8 +234,9 @@ describe("Workspace chrome editorial hooks", () => {
     expect(chatView.find(".model-settings-panel-stub").attributes("data-open")).toBe("false");
   });
 
-  test("submits a sidebar question through the direct-submit event and closes the mobile sidebar", async () => {
+  test("selects a sidebar question into the composer without submitting and closes the mobile sidebar", async () => {
     const closeMobileSidebar = vi.fn();
+    const promptInput = ref("");
     const submitPrompt = vi.fn();
     const question = "What changed in conversion this week?";
 
@@ -249,7 +251,7 @@ describe("Workspace chrome editorial hooks", () => {
       jumpToLatest: vi.fn(),
       messages: ref([]),
       openMobileSidebar: vi.fn(),
-      promptInput: ref(""),
+      promptInput,
       requestError: "",
       scrollContainer: ref(null),
       showMobileSidebar: true,
@@ -279,7 +281,7 @@ describe("Workspace chrome editorial hooks", () => {
               <button
                 class="sidebar-question-stub"
                 type="button"
-                @click="$emit('submit-prompt', '${question}')"
+                @click="$emit('select-prompt', '${question}')"
               >
                 prompt
               </button>
@@ -298,8 +300,8 @@ describe("Workspace chrome editorial hooks", () => {
     await chatView.find(".sidebar-question-stub").trigger("click");
 
     expect(closeMobileSidebar).toHaveBeenCalledTimes(1);
-    expect(submitPrompt).toHaveBeenCalledTimes(1);
-    expect(submitPrompt).toHaveBeenCalledWith(question);
+    expect(promptInput.value).toBe(question);
+    expect(submitPrompt).not.toHaveBeenCalled();
   });
 
   test("passes connection test state through to the model settings panel", async () => {

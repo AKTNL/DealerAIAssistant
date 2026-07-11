@@ -1,5 +1,5 @@
 <script setup>
-import { ref, watch } from "vue";
+import { ref } from "vue";
 
 const props = defineProps({
   dictionary: {
@@ -16,10 +16,9 @@ const props = defineProps({
   }
 });
 
-const emit = defineEmits(["close", "new-chat", "submit-prompt", "toggle-sidebar"]);
+const emit = defineEmits(["close", "new-chat", "select-prompt", "toggle-sidebar"]);
 
 const expandedModuleId = ref(null);
-const pendingQuestionKey = ref("");
 
 function getModuleId(module, moduleIndex) {
   return module.id ?? `module-${moduleIndex}`;
@@ -30,27 +29,13 @@ function toggleModule(module, moduleIndex) {
   expandedModuleId.value = expandedModuleId.value === moduleId ? null : moduleId;
 }
 
-function buildQuestionKey(module, moduleIndex, questionIndex) {
-  return `${getModuleId(module, moduleIndex)}:${questionIndex}`;
-}
-
-function handleQuestionClick(question, module, moduleIndex, questionIndex) {
-  if (props.isSending || pendingQuestionKey.value) {
+function handleQuestionClick(question) {
+  if (props.isSending) {
     return;
   }
 
-  pendingQuestionKey.value = buildQuestionKey(module, moduleIndex, questionIndex);
-  emit("submit-prompt", question);
+  emit("select-prompt", question);
 }
-
-watch(
-  () => props.isSending,
-  (isSending) => {
-    if (!isSending) {
-      pendingQuestionKey.value = "";
-    }
-  }
-);
 </script>
 
 <template>
@@ -117,23 +102,12 @@ watch(
             <button
               v-for="(question, questionIndex) in module.questions"
               :key="questionIndex"
-              :class="[
-                'prompt-card',
-                'sidebar-module-question',
-                {
-                  'is-pending': pendingQuestionKey === buildQuestionKey(module, moduleIndex, questionIndex)
-                }
-              ]"
+              class="prompt-card sidebar-module-question"
               type="button"
-              :disabled="isSending || Boolean(pendingQuestionKey)"
-              @click="handleQuestionClick(question, module, moduleIndex, questionIndex)"
+              :disabled="isSending"
+              @click="handleQuestionClick(question)"
             >
               <span>{{ question }}</span>
-              <span
-                v-if="pendingQuestionKey === buildQuestionKey(module, moduleIndex, questionIndex)"
-                class="sidebar-question-spinner"
-                aria-hidden="true"
-              ></span>
             </button>
           </div>
         </div>

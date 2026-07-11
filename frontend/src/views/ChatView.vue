@@ -38,7 +38,7 @@ const connectionMessage = ref("");
 const connectionStatus = ref("");
 const isTestingConnection = ref(false);
 const modelSettingsPanelOpen = ref(false);
-const sidebarCollapsed = ref(false);
+const sidebarCollapsed = ref(true);
 const savedModelSettings = ref(readModelSettings() ?? createEmptyModelSettings());
 const {
   closeMobileSidebar,
@@ -67,9 +67,9 @@ const {
   onAuthExpired: () => emit("sign-out")
 });
 
-async function handleSubmitSidebarPrompt(prompt) {
+function handleSelectSidebarPrompt(prompt) {
+  promptInput.value = prompt;
   closeMobileSidebar();
-  await submitPrompt(prompt);
 }
 
 function createEmptyModelSettings() {
@@ -164,7 +164,7 @@ async function handleTestConnection(settings) {
       :is-sending="isSending"
       :show-mobile-sidebar="showMobileSidebar"
       @close="closeMobileSidebar"
-      @submit-prompt="handleSubmitSidebarPrompt"
+      @select-prompt="handleSelectSidebarPrompt"
       @new-chat="startNewChat"
       @toggle-sidebar="sidebarCollapsed = !sidebarCollapsed"
     />

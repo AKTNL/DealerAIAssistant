@@ -106,10 +106,10 @@ describe("ExampleSidebar", () => {
     expect(headers[1].attributes("aria-expanded")).toBe("true");
     expect(wrapper.text()).not.toContain(zhDictionary.promptModules[0].questions[0]);
     expect(wrapper.text()).toContain(zhDictionary.promptModules[1].questions[0]);
-    expect(wrapper.emitted("submit-prompt")).toBeUndefined();
+    expect(wrapper.emitted("select-prompt")).toBeUndefined();
   });
 
-  test("shows local pending state on the clicked question and clears it when sending finishes", async () => {
+  test("emits the selected question without starting a local pending state", async () => {
     const wrapper = mount(ExampleSidebar, {
       props: {
         dictionary: zhDictionary,
@@ -126,22 +126,22 @@ describe("ExampleSidebar", () => {
     await questions[0].trigger("click");
     await questions[0].trigger("click");
 
-    expect(wrapper.emitted("submit-prompt")).toEqual([[zhDictionary.promptModules[0].questions[0]]]);
-    expect(wrapper.find(".sidebar-module-question.is-pending").exists()).toBe(true);
-    expect(wrapper.find(".sidebar-module-question.is-pending").text()).toContain(
-      zhDictionary.promptModules[0].questions[0]
-    );
-    expect(wrapper.find(".sidebar-question-spinner").exists()).toBe(true);
-    expect(wrapper.findAll(".sidebar-module-question").every((question) => question.attributes("disabled") !== undefined)).toBe(true);
+    expect(wrapper.emitted("select-prompt")).toEqual([
+      [zhDictionary.promptModules[0].questions[0]],
+      [zhDictionary.promptModules[0].questions[0]]
+    ]);
+    expect(wrapper.find(".sidebar-module-question.is-pending").exists()).toBe(false);
+    expect(wrapper.find(".sidebar-question-spinner").exists()).toBe(false);
+    expect(wrapper.findAll(".sidebar-module-question").every((question) => question.attributes("disabled") === undefined)).toBe(true);
 
     await wrapper.setProps({ isSending: true });
 
     expect(wrapper.findAll(".sidebar-module-question").every((question) => question.attributes("disabled") !== undefined)).toBe(true);
+    await questions[1].trigger("click");
+    expect(wrapper.emitted("select-prompt")).toHaveLength(2);
 
     await wrapper.setProps({ isSending: false });
-
-    expect(wrapper.find(".sidebar-module-question.is-pending").exists()).toBe(false);
-    expect(wrapper.find(".sidebar-question-spinner").exists()).toBe(false);
+    expect(wrapper.findAll(".sidebar-module-question").every((question) => question.attributes("disabled") === undefined)).toBe(true);
   });
 
   test("preserves the expanded module across locale switching", async () => {

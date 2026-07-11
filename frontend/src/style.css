@@ -2322,26 +2322,6 @@ textarea::placeholder {
   line-height: 1.45;
 }
 
-.sidebar-module-question.is-pending {
-  border-color: var(--border-focus);
-  background: var(--brand-primary-soft);
-  color: var(--text-strong);
-}
-
-.sidebar-module-question.is-pending:disabled {
-  opacity: 1;
-}
-
-.sidebar-question-spinner {
-  width: 0.9rem;
-  height: 0.9rem;
-  flex: none;
-  border: 2px solid rgba(47, 125, 168, 0.18);
-  border-top-color: var(--accent-info);
-  border-radius: 50%;
-  animation: spin 0.8s linear infinite;
-}
-
 /* =============================================
    Input area — char counter + stop button
    ============================================= */

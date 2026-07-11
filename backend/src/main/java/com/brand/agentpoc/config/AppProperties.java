@@ -105,8 +105,35 @@ public class AppProperties {
     }
 
     public static class Model {
+        private String baseUrl = "";
+        private String apiKey = "";
+        private String name = "";
         private List<String> allowedHosts = List.of();
         private boolean allowPrivateHosts = false;
+
+        public String getBaseUrl() {
+            return baseUrl;
+        }
+
+        public void setBaseUrl(String baseUrl) {
+            this.baseUrl = baseUrl == null ? "" : baseUrl.trim();
+        }
+
+        public String getApiKey() {
+            return apiKey;
+        }
+
+        public void setApiKey(String apiKey) {
+            this.apiKey = apiKey == null ? "" : apiKey.trim();
+        }
+
+        public String getName() {
+            return name;
+        }
+
+        public void setName(String name) {
+            this.name = name == null ? "" : name.trim();
+        }
 
         public List<String> getAllowedHosts() {
             return allowedHosts;

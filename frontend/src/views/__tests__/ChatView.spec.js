@@ -86,4 +86,72 @@ describe("ChatView", () => {
     expect(useChatMock).toHaveBeenCalledTimes(1);
     expect(useChatMock.mock.calls[0][0].authVerified.value).toBe(false);
   });
+
+  it("starts with the example sidebar collapsed", () => {
+    const wrapper = mountChatView({ authVerified: true });
+
+    expect(wrapper.find(".workspace-shell").classes()).toContain("sidebar-collapsed");
+  });
+
+  it("fills the composer when a sidebar prompt is selected without submitting", async () => {
+    const closeMobileSidebar = vi.fn();
+    const promptInput = ref("");
+    const submitPrompt = vi.fn();
+    const question = "Which dealers have low target achievement?";
+
+    useChatMock.mockReturnValueOnce({
+      closeMobileSidebar,
+      handleClearSession: vi.fn(),
+      handleScroll: vi.fn(),
+      hasUnreadContent: false,
+      isSending: false,
+      jumpToLatest: vi.fn(),
+      messages: ref([]),
+      openMobileSidebar: vi.fn(),
+      promptInput,
+      requestError: "",
+      scrollContainer: ref(null),
+      showMobileSidebar: true,
+      startNewChat: vi.fn(),
+      statusMessage: "Guest",
+      stopGenerating: vi.fn(),
+      streamPhase: ref("idle"),
+      submitPrompt,
+      toastMessage: ""
+    });
+
+    const wrapper = mount(ChatView, {
+      props: {
+        authVerified: true,
+        dictionary,
+        locale: "en"
+      },
+      global: {
+        stubs: {
+          ChatInput: {
+            template: "<div class='chat-input-stub'></div>"
+          },
+          ChatMessageList: {
+            template: "<div class='chat-message-list-stub'></div>"
+          },
+          ExampleSidebar: {
+            template: `
+              <button class="sidebar-question-stub" type="button" @click="$emit('select-prompt', '${question}')">
+                prompt
+              </button>
+            `
+          },
+          ModelSettingsPanel: {
+            template: "<div class='model-settings-panel-stub'></div>"
+          }
+        }
+      }
+    });
+
+    await wrapper.find(".sidebar-question-stub").trigger("click");
+
+    expect(promptInput.value).toBe(question);
+    expect(closeMobileSidebar).toHaveBeenCalledTimes(1);
+    expect(submitPrompt).not.toHaveBeenCalled();
+  });
 });

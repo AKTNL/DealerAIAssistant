@@ -180,11 +180,6 @@ describe("blue gray enterprise style tokens", () => {
       "border-color: rgba(63, 111, 159, 0.24);"
     ]);
 
-    expectSelectorInRule(".sidebar-module-question.is-pending", [
-      "border-color: var(--border-focus);",
-      "background: var(--brand-primary-soft);"
-    ]);
-
     expectSelectorInRule(".sidebar-backdrop", [
       "background: rgba(23, 50, 77, 0.1);"
     ]);

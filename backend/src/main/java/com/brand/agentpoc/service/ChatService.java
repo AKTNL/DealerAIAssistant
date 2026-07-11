@@ -114,7 +114,6 @@ public class ChatService {
                 directReply = buildOutOfScopeReply(language);
             }
         }
-        boolean configuredModel = hasConfiguredModelSettings(request);
         String traceId = java.util.UUID.randomUUID().toString().replace("-", "").substring(0, 8);
         sessionMemoryService.addUserMessage(request.sessionId(), request.message());
 
@@ -137,6 +136,7 @@ public class ChatService {
                     return;
                 }
 
+                boolean configuredModel = hasConfiguredModelSettings(request);
                 AnalyticsPlan analyticsPlan = analyticsRequested
                         ? analyticsService.plan(request.message(), language, traceId, onStep)
                         : null;
@@ -158,7 +158,11 @@ public class ChatService {
                                     analyticsPlan.progressMessages(),
                                     analyticsPlan.visibleThinking()
                             )
-                            : generateReply(request, language, false);
+                            : new GeneratedReply(
+                                    buildModelNotConfiguredReply(language),
+                                    buildConfigurationProgressMessages(language),
+                                    buildConfigurationThinking(language)
+                            );
                     sseEventWriter.writeChunkedEvent(writer, "message", generatedReply.reply());
                     sessionMemoryService.addAssistantMessage(request.sessionId(), generatedReply.reply());
                     sseEventWriter.writeEvent(writer, "done", "[DONE]");
@@ -776,10 +780,7 @@ public class ChatService {
     }
 
     private boolean hasConfiguredModelSettings(ChatRequest request) {
-        return request != null
-                && hasText(request.baseUrl())
-                && hasText(request.apiKey())
-                && hasText(request.model());
+        return modelConfigService.hasConfiguredModelSettings(request);
     }
 
     private boolean hasText(String value) {

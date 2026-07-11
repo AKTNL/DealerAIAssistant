@@ -42,7 +42,7 @@ public class ModelConfigService {
     }
 
     public ChatModel createChatModel(ChatRequest request) {
-        return createChatModel(new ModelConfigRequest(request.baseUrl(), request.apiKey(), request.model()));
+        return createChatModel(resolveModelConfig(request));
     }
 
     public ChatModel createChatModel(ModelConfigRequest request) {
@@ -71,6 +71,30 @@ public class ModelConfigService {
                 .retryTemplate(retryTemplate)
                 .observationRegistry(observationRegistry)
                 .build();
+    }
+
+    public boolean hasConfiguredModelSettings(ChatRequest request) {
+        ModelConfigRequest resolved = resolveModelConfig(request);
+        return hasText(resolved.baseUrl()) && hasText(resolved.apiKey()) && hasText(resolved.model());
+    }
+
+    private ModelConfigRequest resolveModelConfig(ChatRequest request) {
+        AppProperties.Model defaults = appProperties.getModel();
+        return new ModelConfigRequest(
+                firstText(request == null ? null : request.baseUrl(), defaults.getBaseUrl()),
+                firstText(request == null ? null : request.apiKey(), defaults.getApiKey()),
+                firstText(request == null ? null : request.model(), defaults.getName())
+        );
+    }
+
+    private String firstText(String preferred, String fallback) {
+        if (hasText(preferred)) {
+            return preferred.trim();
+        }
+        if (hasText(fallback)) {
+            return fallback.trim();
+        }
+        return "";
     }
 
     private String resolveCompletionsPath(String baseUrl) {
