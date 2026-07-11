@@ -4,6 +4,12 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import TopNav from "../../components/layout/TopNav.vue";
 import ChatView from "../ChatView.vue";
 
+const getDataStatusMock = vi.fn();
+
+vi.mock("../../api/dataStatus", () => ({
+  getDataStatus: () => getDataStatusMock()
+}));
+
 const useChatMock = vi.fn(() => ({
   closeMobileSidebar: vi.fn(),
   handleClearSession: vi.fn(),
@@ -44,6 +50,7 @@ const dictionary = {
   modelSettingsTitle: "Model settings",
   newChat: "New chat",
   settingsButton: "Settings",
+  sampleDataWarning: "Built-in sample data is active.",
   switchLanguage: "Switch language"
 };
 
@@ -76,6 +83,8 @@ function mountChatView(props = {}) {
 
 beforeEach(() => {
   useChatMock.mockClear();
+  getDataStatusMock.mockReset();
+  getDataStatusMock.mockResolvedValue({ fallbackActive: false, source: "configured-workbook" });
 });
 
 describe("ChatView", () => {
@@ -91,6 +100,15 @@ describe("ChatView", () => {
     const wrapper = mountChatView({ authVerified: true });
 
     expect(wrapper.find(".workspace-shell").classes()).toContain("sidebar-collapsed");
+  });
+
+  it("shows a warning when the backend reports fallback sample data", async () => {
+    getDataStatusMock.mockResolvedValueOnce({ fallbackActive: true, source: "built-in-sample" });
+
+    const wrapper = mountChatView({ authVerified: true });
+    await vi.waitFor(() => expect(wrapper.find(".data-source-warning").exists()).toBe(true));
+
+    expect(wrapper.find(".data-source-warning").text()).toContain("Built-in sample data is active.");
   });
 
   it("fills the composer when a sidebar prompt is selected without submitting", async () => {

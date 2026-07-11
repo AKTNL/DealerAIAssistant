@@ -29,6 +29,8 @@
   --text-helper: #748397;
   --text-strong: #0b1728;
   --danger: #a43f3f;
+  --danger-border-soft: rgba(164, 63, 63, 0.28);
+  --danger-surface-soft: #fff4f2;
   --shadow-lg: 0 18px 40px rgba(23, 50, 77, 0.11);
   --shadow-md: 0 10px 24px rgba(23, 50, 77, 0.08);
   --shadow-sm: 0 6px 16px rgba(23, 50, 77, 0.06);
@@ -1050,6 +1052,26 @@ textarea::placeholder {
 
 .analysis-response-body > .markdown-body {
   margin-top: 0;
+}
+
+.data-source-warning {
+  display: flex;
+  min-height: 36px;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 7px 18px;
+  border-bottom: 1px solid var(--danger-border-soft);
+  color: var(--danger);
+  background: var(--danger-surface-soft);
+  font-size: 13px;
+  font-weight: 600;
+  text-align: center;
+}
+
+.data-source-warning .material-icons {
+  flex: 0 0 auto;
+  font-size: 18px;
 }
 
 .analysis-metadata-banner {

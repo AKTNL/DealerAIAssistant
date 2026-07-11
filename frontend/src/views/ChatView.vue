@@ -1,8 +1,9 @@
 <script setup>
-import { computed, ref } from "vue";
+import { computed, onMounted, ref } from "vue";
 import ChatInput from "../components/chat/ChatInput.vue";
 import ChatMessageList from "../components/chat/ChatMessageList.vue";
 import { testModelConnection } from "../api/modelConfig";
+import { getDataStatus } from "../api/dataStatus";
 import ExampleSidebar from "../components/layout/ExampleSidebar.vue";
 import ModelSettingsPanel from "../components/layout/ModelSettingsPanel.vue";
 import TopNav from "../components/layout/TopNav.vue";
@@ -36,6 +37,7 @@ const emit = defineEmits(["sign-out", "toggle-locale"]);
 const authVerified = computed(() => props.authVerified);
 const connectionMessage = ref("");
 const connectionStatus = ref("");
+const fallbackDataActive = ref(false);
 const isTestingConnection = ref(false);
 const modelSettingsPanelOpen = ref(false);
 const sidebarCollapsed = ref(true);
@@ -66,6 +68,20 @@ const {
   openModelSettings: handleOpenSettings,
   onAuthExpired: () => emit("sign-out")
 });
+
+onMounted(loadDataStatus);
+
+async function loadDataStatus() {
+  try {
+    const status = await getDataStatus();
+    fallbackDataActive.value = status.fallbackActive;
+  } catch (error) {
+    fallbackDataActive.value = false;
+    if (error?.status === 401) {
+      emit("sign-out");
+    }
+  }
+}
 
 function handleSelectSidebarPrompt(prompt) {
   promptInput.value = prompt;
@@ -185,6 +201,11 @@ async function handleTestConnection(settings) {
         @sign-out="emit('sign-out')"
         @toggle-locale="emit('toggle-locale')"
       />
+
+      <div v-if="fallbackDataActive" class="data-source-warning" role="status" aria-live="polite">
+        <span class="material-icons" aria-hidden="true">warning_amber</span>
+        <span>{{ dictionary.sampleDataWarning }}</span>
+      </div>
 
       <ModelSettingsPanel
         :connection-message="connectionMessage"
