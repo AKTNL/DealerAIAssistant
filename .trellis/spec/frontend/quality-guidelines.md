@@ -453,6 +453,66 @@ Correct:
 }
 ```
 
+## Scenario: Visible Built-In Sample Data Warning
+
+### 1. Scope / Trigger
+- Trigger: The backend may intentionally use built-in sample data in demo mode, but users must not mistake that source for a successful configured-workbook import.
+- This is a frontend/API/auth contract because the warning depends on an authenticated status request after login.
+
+### 2. Signatures
+- API module: `frontend/src/api/dataStatus.js`
+- Function: `loadDataStatus(): Promise<ImportDataStatus>` through `requestJson()`
+- Endpoint: `GET /api/data-status`
+- View state: `ChatView.vue` stores the latest status and renders `.data-source-warning` only when `fallbackActive === true`.
+
+### 3. Contracts
+- The request must use `api/client.js`; do not call raw `fetch()`.
+- The session token is supplied by the shared request client.
+- Show the localized warning only for built-in fallback data.
+- A configured-workbook success must leave the normal workspace unchanged.
+- Status-request failure is non-blocking: chat remains usable and no false fallback warning is shown.
+- Warning colors use root CSS custom properties, not component-local hardcoded values.
+
+### 4. Validation & Error Matrix
+- `fallbackActive=true` -> render the zh/en sample-data warning.
+- `fallbackActive=false` -> do not render the warning.
+- `GET /api/data-status` rejects -> swallow the optional status error, keep chat available, render no warning.
+- Auth expires during normal protected calls -> existing sign-out handling remains the authority; the warning feature must not introduce a second auth state.
+
+### 5. Good/Base/Bad Cases
+- Good: Demo fallback is immediately visible above the chat workspace.
+- Base: A successful workbook import has no extra banner or layout shift.
+- Bad: Showing a warning for every import issue makes normal cleaned workbooks look like fallback data.
+- Bad: Blocking the page because the optional status request failed prevents the primary chat workflow.
+
+### 6. Tests Required
+- `api/__tests__/dataStatus.spec.js`: assert endpoint, method, and shared-client usage.
+- `views/__tests__/ChatView.spec.js`: assert warning visible for fallback, hidden for configured workbook, and harmless failure behavior.
+- Run `npm run lint`, `npm test`, and `npm run build` for cross-layer status UI changes.
+
+### 7. Wrong vs Correct
+
+Wrong:
+```js
+const response = await fetch('/api/data-status');
+showWarning.value = true;
+```
+
+Correct:
+```js
+try {
+  dataStatus.value = await loadDataStatus();
+} catch {
+  dataStatus.value = null;
+}
+```
+
+```vue
+<div v-if="dataStatus?.fallbackActive" class="data-source-warning">
+  {{ dictionary.sampleDataWarning }}
+</div>
+```
+
 ---
 
 ## Code Review Checklist

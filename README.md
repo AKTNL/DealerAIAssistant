@@ -128,7 +128,9 @@ export APP_API_KEY="change-me-internal-api-key"
 mvn "-Dfrontend.skip=true" spring-boot:run
 ```
 
-后端默认监听 `http://localhost:8081`，启动时会从 `classpath:Sample Data.xlsx` 导入样板数据到 H2 内存数据库。
+后端默认监听 `http://localhost:8081`，启动时会从 `classpath:Sample Data.xlsx` 导入样板数据到 H2 内存数据库。导入前会校验五个必需 Sheet，并按字段类型清洗空白、文本空值、数字、日期和分类值。缺失目标分母或预计关闭日期会保留为 `null`，不会伪造为 `0` 或推测日期。
+
+本地/demo 模式默认允许在工作簿不可用时切换到内置样例数据，前端聊天区会显示明确警告；`prod` 配置关闭该回退，导入失败会阻止应用启动。登录后可通过 `GET /api/data-status` 查看数据来源、回退状态以及各 Sheet 的处理、导入、规范化、跳过和问题计数。
 
 ### 2. 启动前端
 
@@ -167,6 +169,7 @@ npm run dev
 | `app.security.api-key` | `APP_API_KEY` | 空 | 受保护后端接口的 `X-API-Key`；为空时内部 API key 校验失败 |
 | `app.cors.allowed-origins` | `APP_CORS_ALLOWED_ORIGINS` | `http://localhost:5173,http://127.0.0.1:5173` | CORS 允许来源，逗号分隔 |
 | `app.excel.path` | `APP_EXCEL_PATH` | `classpath:Sample Data.xlsx` | 启动时导入的 Excel 数据源 |
+| `app.excel.fallback-enabled` | `APP_EXCEL_FALLBACK_ENABLED` | `true`（`prod` 为 `false`） | 工作簿失败时是否允许使用内置样例数据；生产环境应关闭 |
 | `app.model.base-url` | `APP_MODEL_BASE_URL` | 空 | 可选默认模型服务地址，兼容 OpenAI Chat Completions |
 | `app.model.api-key` | `APP_MODEL_API_KEY` | 空 | 可选默认模型 API Key；不会写入日志 |
 | `app.model.name` | `APP_MODEL_NAME` | 空 | 可选默认模型名称 |
@@ -192,6 +195,7 @@ npm run dev
 | `/api/chat/stream` | POST | SSE 流式聊天 |
 | `/api/chat/{sessionId}` | DELETE | 清空指定会话记忆 |
 | `/api/model-config/test` | POST | 测试模型连接配置 |
+| `/api/data-status` | GET | 查看当前导入来源、样例回退状态和质量汇总 |
 
 SSE 流式聊天事件类型：
 
@@ -291,6 +295,8 @@ mvn "-Dfrontend.skip=true" clean install
 
 题库文件位于 `mockservice/DealerAIAssistant_准确率测试题库.xlsx`，样板数据位于 `mockservice/SampleData/Sample Data - 星曜汽车.xlsx`。题库用于覆盖目标达成、商机漏斗、线索分析、边界问题和数据概况等自然语言查询，重点验证规则引擎在未配置外部模型时的可复现回答。
 
+达成率题目采用可比样本口径：只有分母和配对分子都可用的行才参与比率计算，但总赢单、总商机等观测值仍保留全部有效行。回答和指标 API 会同时给出总观测值与可比样本分子，避免把部分目标与全部实际数直接相除。
+
 完整后端回归可直接运行 `mvn "-Dfrontend.skip=true" test`。若只想快速验证题库和规则引擎相关逻辑，可运行：
 
 ```bash
@@ -324,7 +330,9 @@ mvn clean install
 | `backend/src/main/java/com/brand/agentpoc/service/AnalyticsApiService.java` | 指标聚合与详情分页 API 逻辑 |
 | `backend/src/main/java/com/brand/agentpoc/ai/PromptFactory.java` | 系统提示词、thinking_protocol、证据边界和 0-2 个追问约束 |
 | `backend/src/main/java/com/brand/agentpoc/service/ChatReplyGuard.java` | 模型回答守卫，修正过度确定、追问数量和结构化回答格式 |
-| `backend/src/main/java/com/brand/agentpoc/service/ExcelImportService.java` | Excel 样板数据导入 |
+| `backend/src/main/java/com/brand/agentpoc/service/ExcelImportService.java` | Excel 字段级清洗、必需 Sheet 校验、严格/样例回退导入 |
+| `backend/src/main/java/com/brand/agentpoc/service/ImportQualityService.java` | 保存最近一次导入来源和质量汇总 |
+| `backend/src/main/java/com/brand/agentpoc/controller/DataStatusController.java` | 登录态数据质量状态接口 |
 | `backend/src/main/java/com/brand/agentpoc/config/ApiKeyFilter.java` | 受保护接口的 `X-API-Key` 校验 |
 | `frontend/src/composables/useChat.js` | 前端聊天状态、SSE 解析（step/analysis_metadata/progress/message/done/error）、`<think>` 标签流式解析、streamPhase 管理 |
 | `frontend/src/utils/markdown.js` | Markdown、HTML 表格、Mermaid fence 渲染 |
@@ -335,6 +343,8 @@ mvn clean install
 ## 开发注意事项
 
 - H2 使用内存数据库，应用重启后会重新导入 Excel 样板数据。
+- `0` 只表示源数据确认的真实零值；缺失数值保留为 `null`，未知分类使用“未知”或“未分配”。
+- 目标/活动达成率只使用可比样本计算，总观测值与可比样本值必须分别展示。
 - 规则引擎输出数据来自样板数据或聚合计算，外部模型只负责在事实锚点基础上润色。
 - 分析元数据由后端生成，前端只渲染 `analysis_metadata` 事件提供的字段，不从 Markdown 正文反推业务口径。
 - 前端开发时优先通过 Vite 代理访问后端；如果直接部署后端静态资源，则访问 `http://localhost:8081`。

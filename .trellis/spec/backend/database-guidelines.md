@@ -317,3 +317,74 @@ Correct:
 return matchesDealerIdentity(campaign.getDealerCode(), campaign.getDealerName(), scope)
         && matchesCity(campaign.getCity(), scope.city());
 ```
+
+### Scenario: Field-Aware Excel Import And Comparable-Rate Cohorts
+
+#### 1. Scope / Trigger
+- Trigger: Excel source fields can be blank without invalidating the rest of the row, and target/campaign rates can become misleading when all observed actuals are divided by only the available targets.
+- This is a database, import, API, and analytics contract because nullability must survive source -> entity -> query/DTO -> calculation -> user-visible response.
+
+#### 2. Signatures
+- Configuration:
+  - `app.excel.path` / `APP_EXCEL_PATH`
+  - `app.excel.fallback-enabled` / `APP_EXCEL_FALLBACK_ENABLED`
+- Nullable entity fields:
+  - `Opportunity.expectedCloseDate: LocalDate?`
+  - `Target.asKTarget: Integer?`
+  - Campaign target/actual counters: `Integer?`
+- Authenticated status API: `GET /api/data-status -> ApiResult<ImportDataStatus>`
+- Metric response fields:
+  - `TargetMetrics.totalOpportunityWon` and `comparableOpportunityWon`
+  - `CampaignMetrics.totalActualOpportunities`, `totalTarget`, `comparableActualOpportunities`, and `comparableTarget`
+
+#### 3. Contracts
+- Validate the five required sheets before persistence: `AE Target Data`, `Opportunity`, `Lead`, `Task`, and `Campaign`.
+- Missing required business identifiers or required observed facts -> skip the row and increment a deterministic reason.
+- Missing optional dates or metric-specific target denominators -> retain the row with `null`; never invent a date or replace the denominator with zero.
+- Optional categories normalize to the project's explicit unknown/unassigned bucket and increment `normalizedFields`.
+- Observed totals include every valid observed row.
+- A rate numerator includes only rows whose paired denominator is available; expose the comparable numerator/denominator when they differ from observed totals.
+- Demo fallback publishes source `built-in-sample` with `fallbackActive=true`. Strict/production failure publishes `import-failed` and throws instead of seeding sample data.
+
+#### 4. Validation & Error Matrix
+- Missing configured workbook + fallback enabled -> seed built-in sample, publish fallback status, show frontend warning.
+- Missing configured workbook + fallback disabled -> throw startup failure; do not persist sample data.
+- Missing required sheet -> same mode-aware failure behavior as an unavailable workbook.
+- Blank `Opportunity.expectedCloseDate` -> import the opportunity; exclude it only from expected-close-date analysis.
+- Blank `Target.asKTarget` -> import observed create/win counts; exclude that row from target-achievement rate cohorts.
+- Negative numeric value or invalid probability/date ordering -> skip the row with a reason count.
+- Textual null marker -> normalize to Java `null`, not numeric zero or literal category text.
+
+#### 5. Good/Base/Bad Cases
+- Good: A target row with `asKTarget=null` and `opportunityWonCount=10` contributes 10 to observed wins but contributes neither numerator nor denominator to achievement rate.
+- Base: A complete row contributes its observed value and its paired numerator/denominator to the rate cohort.
+- Good: An opportunity with no expected-close date still links its tasks to the dealer and participates in created-date funnel analysis.
+- Bad: `sum(all wins) / sum(non-null targets)` overstates achievement and presents a mathematically unauditable response.
+- Bad: Restoring `createdDate.plusDays(30)` or defaulting a missing target to `0` fabricates source facts.
+
+#### 6. Tests Required
+- `ExcelImportServiceTest`: retain nullable optional fields, reject required fields, assert import-quality reason counts, and cover strict/demo fallback.
+- `DataQueryServiceTest`: serialize unavailable dates/targets as `null` and preserve observed counts.
+- `AnalyticsApiServiceTest`: assert observed totals and comparable numerators separately.
+- `RuleBasedAnalyticsServiceTest`: assert the response contains the observed total, comparable fraction, and corrected rate.
+- `AccuracyWorkbookRegressionTest`: assert counts `112 / 5088 / 6198 / 1898 / 57582 / 715` and corrected workbook answer points.
+
+#### 7. Wrong vs Correct
+
+Wrong:
+```java
+int target = rows.stream().mapToInt(row -> defaultZero(row.getAsKTarget())).sum();
+int won = rows.stream().mapToInt(Target::getOpportunityWonCount).sum();
+double rate = percentage(won, target);
+```
+
+Correct:
+```java
+List<Target> comparable = rows.stream()
+        .filter(row -> row.getAsKTarget() != null)
+        .toList();
+int observedWon = rows.stream().mapToInt(Target::getOpportunityWonCount).sum();
+int comparableWon = comparable.stream().mapToInt(Target::getOpportunityWonCount).sum();
+int comparableTarget = comparable.stream().mapToInt(Target::getAsKTarget).sum();
+double rate = percentage(comparableWon, comparableTarget);
+```
