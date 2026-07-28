@@ -506,3 +506,36 @@ Implemented field-aware Excel cleaning, explicit demo/strict fallback behavior, 
 ### Next Steps
 
 - None - task complete
+
+
+## Session 16: Prune POC-era documentation
+
+**Date**: 2026-07-28
+**Task**: Prune POC-era documentation
+**Branch**: `main`
+
+### Summary
+
+Aggressively cleaned docs before production-oriented refactor: kept only Agent-POC requirements baseline under docs, removed old POC summaries, design notes, implementation plans, prototype HTML, and auxiliary DOCX references.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `aa2bc15` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
