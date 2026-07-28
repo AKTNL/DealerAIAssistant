@@ -539,3 +539,36 @@ Aggressively cleaned docs before production-oriented refactor: kept only Agent-P
 ### Next Steps
 
 - None - task complete
+
+
+## Session 17: Add production refactor documentation
+
+**Date**: 2026-07-28
+**Task**: Add production refactor documentation
+**Branch**: `main`
+
+### Summary
+
+Created the first production-refactor documentation skeleton: docs index, refactor overview, frontend/backend/data/integration/testing requirement documents, based on the retained Agent-POC baseline and current repo implementation.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `e6d6617` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
