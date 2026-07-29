@@ -167,6 +167,34 @@ class DataQueryServiceTest {
     }
 
     @Test
+    void queryOpportunitiesOnlyReturnsTheActiveImportBatch() {
+        ImportBatchService importBatchService = new ImportBatchService();
+        importBatchService.activateGlobalBatch("active-batch", "test-workbook", false, "active test batch");
+        service = new DataQueryService(
+                dealerRepository,
+                opportunityRepository,
+                campaignRepository,
+                taskRepository,
+                targetRepository,
+                leadRepository,
+                importBatchService
+        );
+        when(opportunityRepository.findAll()).thenReturn(List.of(
+                new Opportunity("OLD", "D001", "Dealer A", "Beijing", "Group A", "Model X",
+                        "Negotiation", "Website", LocalDate.of(2026, 5, 1), null, 80),
+                new Opportunity("ACTIVE", "D001", "Dealer A", "Beijing", "Group A", "Model X",
+                        "未知", "Won", "Website", LocalDate.of(2026, 5, 2), null, 100, "active-batch"),
+                new Opportunity("OTHER", "D001", "Dealer A", "Beijing", "Group A", "Model X",
+                        "未知", "Lost", "Website", LocalDate.of(2026, 5, 3), null, 10, "other-batch")
+        ));
+
+        DataQueryResponse response = service.query("opportunities", Map.of());
+
+        assertThat(response.items()).singleElement().satisfies(item ->
+                assertThat(item).containsEntry("opportunityId", "ACTIVE"));
+    }
+
+    @Test
     void queryTargetsPreservesUnavailableTargetAndObservedCounts() {
         when(targetRepository.findAll()).thenReturn(List.of(
                 new Target("D001", "Dealer A", "Beijing", "Group A", "Model X", 2026, 5, null, 8, 11)

@@ -10,13 +10,13 @@ import java.time.LocalDate;
 
 @Entity
 @Table(name = "dealer_tasks")
-public class Task {
+public class Task implements BatchScoped {
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    @Column(nullable = false, unique = true, length = 64)
+    @Column(nullable = false, length = 64)
     private String taskId;
 
     @Column(nullable = false, length = 64)
@@ -43,6 +43,9 @@ public class Task {
     @Column(nullable = false)
     private LocalDate createdDate;
 
+    @Column(nullable = false, length = 64)
+    private String importBatchId;
+
     protected Task() {
     }
 
@@ -65,7 +68,8 @@ public class Task {
                 opportunityId,
                 "未知",
                 status,
-                createdDate
+                createdDate,
+                BatchScoped.LEGACY_BATCH_ID
         );
     }
 
@@ -80,6 +84,32 @@ public class Task {
             String status,
             LocalDate createdDate
     ) {
+        this(
+                taskId,
+                dealerCode,
+                dealerName,
+                city,
+                dealerGroupName,
+                opportunityId,
+                subject,
+                status,
+                createdDate,
+                BatchScoped.LEGACY_BATCH_ID
+        );
+    }
+
+    public Task(
+            String taskId,
+            String dealerCode,
+            String dealerName,
+            String city,
+            String dealerGroupName,
+            String opportunityId,
+            String subject,
+            String status,
+            LocalDate createdDate,
+            String importBatchId
+    ) {
         this.taskId = taskId;
         this.dealerCode = dealerCode;
         this.dealerName = dealerName;
@@ -89,6 +119,11 @@ public class Task {
         this.subject = subject == null || subject.isBlank() ? "未知" : subject;
         this.status = status;
         this.createdDate = createdDate;
+        this.importBatchId = defaultBatchId(importBatchId);
+    }
+
+    private static String defaultBatchId(String value) {
+        return value == null || value.isBlank() ? BatchScoped.LEGACY_BATCH_ID : value;
     }
 
     public Long getId() {
@@ -129,5 +164,10 @@ public class Task {
 
     public LocalDate getCreatedDate() {
         return createdDate;
+    }
+
+    @Override
+    public String getImportBatchId() {
+        return importBatchId;
     }
 }

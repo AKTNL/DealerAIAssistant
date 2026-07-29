@@ -9,7 +9,7 @@ import jakarta.persistence.Table;
 
 @Entity
 @Table(name = "dealer_targets")
-public class Target {
+public class Target implements BatchScoped {
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
@@ -45,6 +45,9 @@ public class Target {
     @Column(nullable = false)
     private Integer opportunityCreateCount;
 
+    @Column(nullable = false, length = 64)
+    private String importBatchId;
+
     protected Target() {
     }
 
@@ -60,6 +63,34 @@ public class Target {
             Integer opportunityWonCount,
             Integer opportunityCreateCount
     ) {
+        this(
+                dealerCode,
+                dealerName,
+                city,
+                dealerGroupName,
+                productModel,
+                targetYear,
+                targetMonth,
+                asKTarget,
+                opportunityWonCount,
+                opportunityCreateCount,
+                BatchScoped.LEGACY_BATCH_ID
+        );
+    }
+
+    public Target(
+            String dealerCode,
+            String dealerName,
+            String city,
+            String dealerGroupName,
+            String productModel,
+            Integer targetYear,
+            Integer targetMonth,
+            Integer asKTarget,
+            Integer opportunityWonCount,
+            Integer opportunityCreateCount,
+            String importBatchId
+    ) {
         this.dealerCode = dealerCode;
         this.dealerName = dealerName;
         this.city = city;
@@ -70,6 +101,11 @@ public class Target {
         this.asKTarget = asKTarget;
         this.opportunityWonCount = opportunityWonCount;
         this.opportunityCreateCount = opportunityCreateCount;
+        this.importBatchId = defaultBatchId(importBatchId);
+    }
+
+    private static String defaultBatchId(String value) {
+        return value == null || value.isBlank() ? BatchScoped.LEGACY_BATCH_ID : value;
     }
 
     public Long getId() {
@@ -114,5 +150,10 @@ public class Target {
 
     public Integer getOpportunityCreateCount() {
         return opportunityCreateCount;
+    }
+
+    @Override
+    public String getImportBatchId() {
+        return importBatchId;
     }
 }

@@ -9,13 +9,13 @@ import jakarta.persistence.Table;
 
 @Entity
 @Table(name = "dealers")
-public class Dealer {
+public class Dealer implements BatchScoped {
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    @Column(nullable = false, unique = true, length = 64)
+    @Column(nullable = false, length = 64)
     private String dealerCode;
 
     @Column(nullable = false, length = 128)
@@ -27,14 +27,26 @@ public class Dealer {
     @Column(nullable = false, length = 128)
     private String dealerGroupName;
 
+    @Column(nullable = false, length = 64)
+    private String importBatchId;
+
     protected Dealer() {
     }
 
     public Dealer(String dealerCode, String dealerName, String city, String dealerGroupName) {
+        this(dealerCode, dealerName, city, dealerGroupName, BatchScoped.LEGACY_BATCH_ID);
+    }
+
+    public Dealer(String dealerCode, String dealerName, String city, String dealerGroupName, String importBatchId) {
         this.dealerCode = dealerCode;
         this.dealerName = dealerName;
         this.city = city;
         this.dealerGroupName = dealerGroupName;
+        this.importBatchId = defaultBatchId(importBatchId);
+    }
+
+    private static String defaultBatchId(String value) {
+        return value == null || value.isBlank() ? BatchScoped.LEGACY_BATCH_ID : value;
     }
 
     public Long getId() {
@@ -55,5 +67,10 @@ public class Dealer {
 
     public String getDealerGroupName() {
         return dealerGroupName;
+    }
+
+    @Override
+    public String getImportBatchId() {
+        return importBatchId;
     }
 }

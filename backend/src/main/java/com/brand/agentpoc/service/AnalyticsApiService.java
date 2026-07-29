@@ -10,6 +10,7 @@ import java.time.LocalDate;
 import java.util.*;
 import java.util.function.Function;
 import java.util.stream.Collectors;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -27,14 +28,17 @@ public class AnalyticsApiService {
     private final TaskRepository taskRepository;
     private final TargetRepository targetRepository;
     private final LeadRepository leadRepository;
+    private final ImportBatchService importBatchService;
 
+    @Autowired
     public AnalyticsApiService(
             DealerRepository dealerRepository,
             OpportunityRepository opportunityRepository,
             CampaignRepository campaignRepository,
             TaskRepository taskRepository,
             TargetRepository targetRepository,
-            LeadRepository leadRepository
+            LeadRepository leadRepository,
+            ImportBatchService importBatchService
     ) {
         this.dealerRepository = dealerRepository;
         this.opportunityRepository = opportunityRepository;
@@ -42,6 +46,26 @@ public class AnalyticsApiService {
         this.taskRepository = taskRepository;
         this.targetRepository = targetRepository;
         this.leadRepository = leadRepository;
+        this.importBatchService = importBatchService;
+    }
+
+    AnalyticsApiService(
+            DealerRepository dealerRepository,
+            OpportunityRepository opportunityRepository,
+            CampaignRepository campaignRepository,
+            TaskRepository taskRepository,
+            TargetRepository targetRepository,
+            LeadRepository leadRepository
+    ) {
+        this(
+                dealerRepository,
+                opportunityRepository,
+                campaignRepository,
+                taskRepository,
+                targetRepository,
+                leadRepository,
+                new ImportBatchService()
+        );
     }
 
     // ── Targets ────────────────────────────────────────
@@ -159,18 +183,18 @@ public class AnalyticsApiService {
 
     private List<Target> loadTargets(Integer year, Integer month, String productModel, String dealerCode) {
         if (hasText(dealerCode)) {
-            return targetRepository.findByDealerCodeIgnoreCase(dealerCode.trim());
+            return active(targetRepository.findByDealerCodeIgnoreCase(dealerCode.trim()));
         }
         if (year != null && month != null) {
-            return targetRepository.findByTargetYearAndTargetMonth(year, month);
+            return active(targetRepository.findByTargetYearAndTargetMonth(year, month));
         }
         if (year != null) {
-            return targetRepository.findByTargetYear(year);
+            return active(targetRepository.findByTargetYear(year));
         }
         if (hasText(productModel)) {
-            return targetRepository.findByProductModelIgnoreCase(productModel.trim());
+            return active(targetRepository.findByProductModelIgnoreCase(productModel.trim()));
         }
-        return targetRepository.findAll();
+        return active(targetRepository.findAll());
     }
 
     // ── Opportunities ──────────────────────────────────
@@ -435,52 +459,59 @@ public class AnalyticsApiService {
 
     private List<Opportunity> loadOpportunities(String dealerCode, LocalDate startDate, LocalDate endDate) {
         if (hasText(dealerCode) && startDate != null && endDate != null) {
-            return opportunityRepository.findByDealerCodeIgnoreCaseAndCreatedDateBetween(
+            return active(opportunityRepository.findByDealerCodeIgnoreCaseAndCreatedDateBetween(
                     dealerCode.trim(),
                     startDate,
                     endDate
-            );
+            ));
         }
         if (hasText(dealerCode)) {
-            return opportunityRepository.findByDealerCodeIgnoreCase(dealerCode.trim());
+            return active(opportunityRepository.findByDealerCodeIgnoreCase(dealerCode.trim()));
         }
         if (startDate != null && endDate != null) {
-            return opportunityRepository.findByCreatedDateBetween(startDate, endDate);
+            return active(opportunityRepository.findByCreatedDateBetween(startDate, endDate));
         }
         if (startDate != null) {
-            return opportunityRepository.findByCreatedDateGreaterThanEqual(startDate);
+            return active(opportunityRepository.findByCreatedDateGreaterThanEqual(startDate));
         }
         if (endDate != null) {
-            return opportunityRepository.findByCreatedDateLessThanEqual(endDate);
+            return active(opportunityRepository.findByCreatedDateLessThanEqual(endDate));
         }
-        return opportunityRepository.findAll();
+        return active(opportunityRepository.findAll());
     }
 
     private List<Lead> loadLeads(String leadSource, String dealerCode) {
         if (hasText(leadSource) && hasText(dealerCode)) {
-            return leadRepository.findByLeadSourceIgnoreCaseAndDealerCodeIgnoreCase(leadSource.trim(), dealerCode.trim());
+            return active(leadRepository.findByLeadSourceIgnoreCaseAndDealerCodeIgnoreCase(
+                    leadSource.trim(),
+                    dealerCode.trim()
+            ));
         }
         if (hasText(leadSource)) {
-            return leadRepository.findByLeadSourceIgnoreCase(leadSource.trim());
+            return active(leadRepository.findByLeadSourceIgnoreCase(leadSource.trim()));
         }
         if (hasText(dealerCode)) {
-            return leadRepository.findByDealerCodeIgnoreCase(dealerCode.trim());
+            return active(leadRepository.findByDealerCodeIgnoreCase(dealerCode.trim()));
         }
-        return leadRepository.findAll();
+        return active(leadRepository.findAll());
     }
 
     private List<Task> loadTasks(String dealerCode) {
         if (hasText(dealerCode)) {
-            return taskRepository.findByDealerCodeIgnoreCase(dealerCode.trim());
+            return active(taskRepository.findByDealerCodeIgnoreCase(dealerCode.trim()));
         }
-        return taskRepository.findAll();
+        return active(taskRepository.findAll());
     }
 
     private List<Campaign> loadCampaigns(String campaignType) {
         if (hasText(campaignType)) {
-            return campaignRepository.findByCampaignTypeIgnoreCase(campaignType.trim());
+            return active(campaignRepository.findByCampaignTypeIgnoreCase(campaignType.trim()));
         }
-        return campaignRepository.findAll();
+        return active(campaignRepository.findAll());
+    }
+
+    private <T extends BatchScoped> List<T> active(List<T> rows) {
+        return importBatchService.filterActive(rows);
     }
 
     private LocalDate parseDate(String fieldName, String value) {

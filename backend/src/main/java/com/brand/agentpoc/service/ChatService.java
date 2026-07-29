@@ -20,6 +20,7 @@ import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.messages.SystemMessage;
 import org.springframework.ai.chat.messages.UserMessage;
 import org.springframework.ai.chat.model.ChatModel;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.ai.chat.model.ChatResponse;
 import org.springframework.ai.chat.prompt.Prompt;
@@ -74,16 +75,19 @@ public class ChatService {
     private final PromptFactory promptFactory;
     private final ModelConfigService modelConfigService;
     private final DealerRepository dealerRepository;
+    private final ImportBatchService importBatchService;
     private final SseEventWriter sseEventWriter;
     private final ChatReplyGuard replyGuard;
 
+    @Autowired
     public ChatService(
             SessionMemoryService sessionMemoryService,
             LanguageDetector languageDetector,
             RuleBasedAnalyticsService analyticsService,
             PromptFactory promptFactory,
             ModelConfigService modelConfigService,
-            DealerRepository dealerRepository
+            DealerRepository dealerRepository,
+            ImportBatchService importBatchService
     ) {
         this.sessionMemoryService = sessionMemoryService;
         this.languageDetector = languageDetector;
@@ -91,8 +95,28 @@ public class ChatService {
         this.promptFactory = promptFactory;
         this.modelConfigService = modelConfigService;
         this.dealerRepository = dealerRepository;
+        this.importBatchService = importBatchService;
         this.sseEventWriter = new SseEventWriter();
         this.replyGuard = new ChatReplyGuard(languageDetector);
+    }
+
+    ChatService(
+            SessionMemoryService sessionMemoryService,
+            LanguageDetector languageDetector,
+            RuleBasedAnalyticsService analyticsService,
+            PromptFactory promptFactory,
+            ModelConfigService modelConfigService,
+            DealerRepository dealerRepository
+    ) {
+        this(
+                sessionMemoryService,
+                languageDetector,
+                analyticsService,
+                promptFactory,
+                modelConfigService,
+                dealerRepository,
+                new ImportBatchService()
+        );
     }
 
     public String chat(ChatRequest request) {
@@ -968,7 +992,7 @@ public class ChatService {
             return true;
         }
         String normalizedName = dealerName.trim();
-        return dealerRepository.findAll().stream()
+        return importBatchService.filterActive(dealerRepository.findAll()).stream()
                 .anyMatch(dealer -> {
                     String code = dealer.getDealerCode();
                     String name = dealer.getDealerName();

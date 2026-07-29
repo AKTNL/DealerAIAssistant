@@ -10,13 +10,13 @@ import java.time.LocalDate;
 
 @Entity
 @Table(name = "opportunities")
-public class Opportunity {
+public class Opportunity implements BatchScoped {
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    @Column(nullable = false, unique = true, length = 64)
+    @Column(nullable = false, length = 64)
     private String opportunityId;
 
     @Column(nullable = false, length = 64)
@@ -52,6 +52,9 @@ public class Opportunity {
     @Column(nullable = false)
     private Integer probability;
 
+    @Column(nullable = false, length = 64)
+    private String importBatchId;
+
     protected Opportunity() {
     }
 
@@ -80,7 +83,8 @@ public class Opportunity {
                 leadSource,
                 createdDate,
                 expectedCloseDate,
-                probability
+                probability,
+                BatchScoped.LEGACY_BATCH_ID
         );
     }
 
@@ -98,6 +102,38 @@ public class Opportunity {
             LocalDate expectedCloseDate,
             Integer probability
     ) {
+        this(
+                opportunityId,
+                dealerCode,
+                dealerName,
+                city,
+                dealerGroupName,
+                productModel,
+                purchaseHorizon,
+                stageName,
+                leadSource,
+                createdDate,
+                expectedCloseDate,
+                probability,
+                BatchScoped.LEGACY_BATCH_ID
+        );
+    }
+
+    public Opportunity(
+            String opportunityId,
+            String dealerCode,
+            String dealerName,
+            String city,
+            String dealerGroupName,
+            String productModel,
+            String purchaseHorizon,
+            String stageName,
+            String leadSource,
+            LocalDate createdDate,
+            LocalDate expectedCloseDate,
+            Integer probability,
+            String importBatchId
+    ) {
         this.opportunityId = opportunityId;
         this.dealerCode = dealerCode;
         this.dealerName = dealerName;
@@ -110,6 +146,11 @@ public class Opportunity {
         this.createdDate = createdDate;
         this.expectedCloseDate = expectedCloseDate;
         this.probability = probability;
+        this.importBatchId = defaultBatchId(importBatchId);
+    }
+
+    private static String defaultBatchId(String value) {
+        return value == null || value.isBlank() ? BatchScoped.LEGACY_BATCH_ID : value;
     }
 
     public Long getId() {
@@ -162,5 +203,10 @@ public class Opportunity {
 
     public Integer getProbability() {
         return probability;
+    }
+
+    @Override
+    public String getImportBatchId() {
+        return importBatchId;
     }
 }

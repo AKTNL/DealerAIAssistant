@@ -7,6 +7,7 @@ public record ImportDataStatus(
         String source,
         boolean fallbackActive,
         String message,
+        Batch batch,
         Totals totals,
         Map<String, SheetStatus> sheets
 ) {
@@ -18,8 +19,32 @@ public record ImportDataStatus(
         sheets = sheets == null ? Map.of() : Map.copyOf(new LinkedHashMap<>(sheets));
     }
 
+    public ImportDataStatus(
+            String source,
+            boolean fallbackActive,
+            String message,
+            Totals totals,
+            Map<String, SheetStatus> sheets
+    ) {
+        this(source, fallbackActive, message, null, totals, sheets);
+    }
+
     public static ImportDataStatus pending() {
-        return new ImportDataStatus("pending", false, "Data import has not completed.", null, null);
+        return new ImportDataStatus("pending", false, "Data import has not completed.", null, null, null);
+    }
+
+    public record Batch(
+            String id,
+            boolean active,
+            String scopeType,
+            String scopeId,
+            String activatedAt
+    ) {
+
+        public Batch {
+            id = id == null ? "" : id;
+            scopeType = scopeType == null ? "" : scopeType;
+        }
     }
 
     public record Totals(int processedRows, int importedRows, int normalizedFields, int skippedRows) {

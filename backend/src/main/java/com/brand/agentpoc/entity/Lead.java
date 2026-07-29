@@ -10,13 +10,13 @@ import java.time.LocalDate;
 
 @Entity
 @Table(name = "leads")
-public class Lead {
+public class Lead implements BatchScoped {
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    @Column(nullable = false, unique = true, length = 64)
+    @Column(nullable = false, length = 64)
     private String leadId;
 
     @Column(nullable = false, length = 64)
@@ -46,6 +46,9 @@ public class Lead {
     @Column(nullable = false)
     private Boolean converted;
 
+    @Column(nullable = false, length = 64)
+    private String importBatchId;
+
     protected Lead() {
     }
 
@@ -61,6 +64,34 @@ public class Lead {
             LocalDate createdDate,
             Boolean converted
     ) {
+        this(
+                leadId,
+                dealerCode,
+                dealerName,
+                city,
+                dealerGroupName,
+                leadSource,
+                stageName,
+                productModel,
+                createdDate,
+                converted,
+                BatchScoped.LEGACY_BATCH_ID
+        );
+    }
+
+    public Lead(
+            String leadId,
+            String dealerCode,
+            String dealerName,
+            String city,
+            String dealerGroupName,
+            String leadSource,
+            String stageName,
+            String productModel,
+            LocalDate createdDate,
+            Boolean converted,
+            String importBatchId
+    ) {
         this.leadId = leadId;
         this.dealerCode = dealerCode;
         this.dealerName = dealerName;
@@ -71,6 +102,11 @@ public class Lead {
         this.productModel = productModel;
         this.createdDate = createdDate;
         this.converted = converted;
+        this.importBatchId = defaultBatchId(importBatchId);
+    }
+
+    private static String defaultBatchId(String value) {
+        return value == null || value.isBlank() ? BatchScoped.LEGACY_BATCH_ID : value;
     }
 
     public Long getId() {
@@ -115,5 +151,10 @@ public class Lead {
 
     public Boolean getConverted() {
         return converted;
+    }
+
+    @Override
+    public String getImportBatchId() {
+        return importBatchId;
     }
 }

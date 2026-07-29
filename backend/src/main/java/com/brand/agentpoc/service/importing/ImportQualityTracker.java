@@ -37,6 +37,15 @@ public final class ImportQualityTracker {
     }
 
     public ImportDataStatus build(String source, boolean fallbackActive, String message) {
+        return build(source, fallbackActive, message, null);
+    }
+
+    public ImportDataStatus build(
+            String source,
+            boolean fallbackActive,
+            String message,
+            ImportDataStatus.Batch batch
+    ) {
         Map<String, ImportDataStatus.SheetStatus> immutableSheets = new LinkedHashMap<>();
         int processedRows = 0;
         int importedRows = 0;
@@ -56,6 +65,7 @@ public final class ImportQualityTracker {
                 source,
                 fallbackActive,
                 message,
+                batch,
                 new ImportDataStatus.Totals(processedRows, importedRows, normalizedFields, skippedRows),
                 immutableSheets
         );

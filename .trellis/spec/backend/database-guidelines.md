@@ -203,6 +203,99 @@ For production use, a migration tool would need to be introduced.
 
 ---
 
+## Scenario: Import Batch Active Data Scope
+
+### 1. Scope / Trigger
+- Trigger: Startup workbook imports can be repeated, and future upload analysis needs user/session/dealer-scoped data without mixing rows from older imports.
+- This is a backend database, import, query, analytics, and status contract because entity rows, import metadata, and every user-visible data surface must agree on the active data batch.
+
+### 2. Signatures
+- Marker contract: `BatchScoped.getImportBatchId(): String`
+- Legacy batch constant: `BatchScoped.LEGACY_BATCH_ID = "legacy-default"`
+- Batch entity/table: `ImportBatch -> import_batches`
+  - `batchKey: String`
+  - `source: String`
+  - `scopeType: String`
+  - `scopeId: String?`
+  - `active: Boolean`
+  - `fallbackActive: Boolean`
+  - `createdAt: Instant`
+  - `activatedAt: Instant?`
+  - `message: String`
+- Batch service:
+  - `ImportBatchService.newBatchId(String prefix): String`
+  - `ImportBatchService.activateGlobalBatch(String batchId, String source, boolean fallbackActive, String message): ImportBatch`
+  - `ImportBatchService.activeBatchId(): String`
+  - `ImportBatchService.activeStatusBatch(): ImportDataStatus.Batch`
+  - `ImportBatchService.filterActive(List<T extends BatchScoped> rows): List<T>`
+- Status response field: `ImportDataStatus.batch: Batch?`
+
+### 3. Contracts
+- Every imported business entity (`Dealer`, `Opportunity`, `Campaign`, `Lead`, `Task`, `Target`) implements `BatchScoped` and persists `importBatchId`.
+- Existing constructors must delegate to `BatchScoped.LEGACY_BATCH_ID` so unit tests and old manually created rows remain visible when no imported batch exists.
+- New startup imports create a fresh global batch id before parsing, persist every parsed entity with that id, then activate the batch after successful persistence.
+- Query services, analytics services, and known-dealer checks must filter repository results through `ImportBatchService.filterActive(...)` before mapping, counting, or deciding scope.
+- `ImportBatchService.activeBatchId()` falls back to `legacy-default` when no active batch exists.
+- Active-batch resolution uses the newest active import batch ordered by `activatedAt desc, id desc`. During the H2/ddl-auto MVP, older active rows may remain in `import_batches`; consumers must use `activeBatchId()` rather than reading `active=true` directly.
+- Business identifiers such as `dealerCode`, `opportunityId`, `campaignId`, `leadId`, and `taskId` are no longer globally unique. Treat uniqueness as batch-scoped until a PostgreSQL/Flyway phase adds composite constraints or indexes.
+
+### 4. Validation & Error Matrix
+- Configured workbook import succeeds -> persist rows with the generated startup batch id, activate that batch, publish `source="configured-workbook"` and `fallbackActive=false`.
+- Configured workbook is missing or invalid with fallback enabled -> seed built-in rows with a generated fallback batch id, activate that batch, publish `source="built-in-sample"` and `fallbackActive=true`.
+- Configured workbook is missing or invalid with fallback disabled -> publish `source="import-failed"` using the current active/legacy status batch, throw startup failure, and do not activate a new batch.
+- Repository returns rows from multiple batches -> service response includes only rows whose `importBatchId` equals `ImportBatchService.activeBatchId()`.
+- No `ImportBatch` row exists -> legacy rows whose `importBatchId` is `legacy-default` remain visible.
+- Direct repository counts across all rows -> invalid for user-visible status or analytics because they mix batches.
+
+### 5. Good/Base/Bad Cases
+- Good: Import workbook A, then workbook B. Queries and analytics show workbook B rows because B is the newest active batch, while workbook A remains stored for future rollback/audit work.
+- Base: Unit tests that construct entities without an explicit batch still pass because those entities default to `legacy-default`.
+- Good: `GET /api/data-status` includes `batch.id`, `batch.scopeType`, `batch.scopeId`, and `batch.activatedAt` alongside sheet quality counts.
+- Bad: A dealer-scoped analytics query calls `dealerRepository.findAll()` and counts rows directly; old batch rows leak into the answer.
+- Bad: Restoring `unique=true` on business ids prevents two import batches with the same source business id from coexisting.
+
+### 6. Tests Required
+- Query regression: `DataQueryService` returns only rows from the active import batch.
+- Analytics regression: `RuleBasedAnalyticsService` and `AnalyticsApiService` aggregate only active-batch rows when repositories contain multiple batches.
+- Chat regression: known-dealer checks ignore dealers from inactive batches.
+- Import regression: startup/fallback imports assign a non-blank batch id to every persisted entity and publish status batch metadata.
+- Compatibility regression: constructors without an explicit batch id still produce `legacy-default` rows.
+
+### 7. Wrong vs Correct
+
+Wrong:
+```java
+List<Opportunity> rows = opportunityRepository.findAll();
+long won = rows.stream()
+        .filter(row -> "Won".equalsIgnoreCase(row.getStageName()))
+        .count();
+```
+
+Correct:
+```java
+List<Opportunity> rows = importBatchService.filterActive(opportunityRepository.findAll());
+long won = rows.stream()
+        .filter(row -> "Won".equalsIgnoreCase(row.getStageName()))
+        .count();
+```
+
+Wrong:
+```java
+@Column(nullable = false, unique = true, length = 64)
+private String opportunityId;
+```
+
+Correct:
+```java
+@Column(nullable = false, length = 64)
+private String opportunityId;
+
+@Column(nullable = false, length = 64)
+private String importBatchId;
+```
+
+---
+
 ## Common Mistakes
 
 ### Scenario: Lead Import With Blank CreatedDate

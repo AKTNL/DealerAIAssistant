@@ -10,13 +10,13 @@ import java.time.LocalDate;
 
 @Entity
 @Table(name = "campaigns")
-public class Campaign {
+public class Campaign implements BatchScoped {
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    @Column(nullable = false, unique = true, length = 64)
+    @Column(nullable = false, length = 64)
     private String campaignId;
 
     @Column(nullable = false, length = 256)
@@ -64,6 +64,9 @@ public class Campaign {
     @Column
     private Integer totalNewCustomerTarget;
 
+    @Column(nullable = false, length = 64)
+    private String importBatchId;
+
     protected Campaign() {
     }
 
@@ -81,6 +84,34 @@ public class Campaign {
     ) {
         this(
                 campaignId,
+                dealerCode,
+                dealerName,
+                city,
+                dealerGroupName,
+                productModel,
+                campaignType,
+                createdDate,
+                actualOpportunityCount,
+                totalNewCustomerTarget,
+                BatchScoped.LEGACY_BATCH_ID
+        );
+    }
+
+    public Campaign(
+            String campaignId,
+            String dealerCode,
+            String dealerName,
+            String city,
+            String dealerGroupName,
+            String productModel,
+            String campaignType,
+            LocalDate createdDate,
+            Integer actualOpportunityCount,
+            Integer totalNewCustomerTarget,
+            String importBatchId
+    ) {
+        this(
+                campaignId,
                 campaignId,
                 dealerCode,
                 dealerName,
@@ -95,7 +126,8 @@ public class Campaign {
                 0,
                 0,
                 0,
-                totalNewCustomerTarget
+                totalNewCustomerTarget,
+                importBatchId
         );
     }
 
@@ -117,6 +149,46 @@ public class Campaign {
             Integer leadCount,
             Integer totalNewCustomerTarget
     ) {
+        this(
+                campaignId,
+                campaignName,
+                dealerCode,
+                dealerName,
+                city,
+                dealerGroupName,
+                productModel,
+                eventType,
+                campaignType,
+                createdDate,
+                targetOpportunityAmount,
+                actualOpportunityCount,
+                targetOrderAmount,
+                wonOpportunityCount,
+                leadCount,
+                totalNewCustomerTarget,
+                BatchScoped.LEGACY_BATCH_ID
+        );
+    }
+
+    public Campaign(
+            String campaignId,
+            String campaignName,
+            String dealerCode,
+            String dealerName,
+            String city,
+            String dealerGroupName,
+            String productModel,
+            String eventType,
+            String campaignType,
+            LocalDate createdDate,
+            Integer targetOpportunityAmount,
+            Integer actualOpportunityCount,
+            Integer targetOrderAmount,
+            Integer wonOpportunityCount,
+            Integer leadCount,
+            Integer totalNewCustomerTarget,
+            String importBatchId
+    ) {
         this.campaignId = campaignId;
         this.campaignName = defaultText(campaignName, campaignId);
         this.dealerCode = dealerCode;
@@ -133,10 +205,15 @@ public class Campaign {
         this.wonOpportunityCount = wonOpportunityCount;
         this.leadCount = leadCount;
         this.totalNewCustomerTarget = totalNewCustomerTarget;
+        this.importBatchId = defaultBatchId(importBatchId);
     }
 
     private static String defaultText(String value, String fallback) {
         return value == null || value.isBlank() ? fallback : value;
+    }
+
+    private static String defaultBatchId(String value) {
+        return value == null || value.isBlank() ? BatchScoped.LEGACY_BATCH_ID : value;
     }
 
     public Long getId() {
@@ -205,5 +282,10 @@ public class Campaign {
 
     public Integer getTotalNewCustomerTarget() {
         return totalNewCustomerTarget;
+    }
+
+    @Override
+    public String getImportBatchId() {
+        return importBatchId;
     }
 }

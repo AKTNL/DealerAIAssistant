@@ -3,6 +3,7 @@ package com.brand.agentpoc.service;
 import com.brand.agentpoc.ai.CalcStep;
 import com.brand.agentpoc.ai.PromptFactory;
 import com.brand.agentpoc.dto.response.DataQueryResponse;
+import com.brand.agentpoc.entity.BatchScoped;
 import com.brand.agentpoc.entity.Campaign;
 import com.brand.agentpoc.entity.Dealer;
 import com.brand.agentpoc.entity.Lead;
@@ -80,6 +81,7 @@ public class RuleBasedAnalyticsService {
     private final TargetRepository targetRepository;
     private final LeadRepository leadRepository;
     private final DataQueryService dataQueryService;
+    private final ImportBatchService importBatchService;
     private final Clock clock;
     private final ReportRenderer reportRenderer = new ReportRenderer();
     private final AnalyticsChartRenderer chartRenderer = new AnalyticsChartRenderer(reportRenderer);
@@ -98,6 +100,7 @@ public class RuleBasedAnalyticsService {
             TargetRepository targetRepository,
             LeadRepository leadRepository,
             DataQueryService dataQueryService,
+            ImportBatchService importBatchService,
             Clock clock
     ) {
         this.promptFactory = promptFactory;
@@ -108,6 +111,7 @@ public class RuleBasedAnalyticsService {
         this.targetRepository = targetRepository;
         this.leadRepository = leadRepository;
         this.dataQueryService = dataQueryService;
+        this.importBatchService = importBatchService;
         this.clock = clock;
     }
 
@@ -130,7 +134,33 @@ public class RuleBasedAnalyticsService {
                 targetRepository,
                 leadRepository,
                 dataQueryService,
+                new ImportBatchService(),
                 Clock.systemDefaultZone()
+        );
+    }
+
+    RuleBasedAnalyticsService(
+            PromptFactory promptFactory,
+            DealerRepository dealerRepository,
+            OpportunityRepository opportunityRepository,
+            CampaignRepository campaignRepository,
+            TaskRepository taskRepository,
+            TargetRepository targetRepository,
+            LeadRepository leadRepository,
+            DataQueryService dataQueryService,
+            Clock clock
+    ) {
+        this(
+                promptFactory,
+                dealerRepository,
+                opportunityRepository,
+                campaignRepository,
+                taskRepository,
+                targetRepository,
+                leadRepository,
+                dataQueryService,
+                new ImportBatchService(),
+                clock
         );
     }
 
@@ -5287,45 +5317,49 @@ public class RuleBasedAnalyticsService {
 
         private List<Dealer> dealers() {
             if (dealers == null) {
-                dealers = dealerRepository.findAll();
+                dealers = active(dealerRepository.findAll());
             }
             return dealers;
         }
 
         private List<Target> targets() {
             if (targets == null) {
-                targets = targetRepository.findAll();
+                targets = active(targetRepository.findAll());
             }
             return targets;
         }
 
         private List<Opportunity> opportunities() {
             if (opportunities == null) {
-                opportunities = opportunityRepository.findAll();
+                opportunities = active(opportunityRepository.findAll());
             }
             return opportunities;
         }
 
         private List<Campaign> campaigns() {
             if (campaigns == null) {
-                campaigns = campaignRepository.findAll();
+                campaigns = active(campaignRepository.findAll());
             }
             return campaigns;
         }
 
         private List<Task> tasks() {
             if (tasks == null) {
-                tasks = taskRepository.findAll();
+                tasks = active(taskRepository.findAll());
             }
             return tasks;
         }
 
         private List<Lead> leads() {
             if (leads == null) {
-                leads = leadRepository.findAll();
+                leads = active(leadRepository.findAll());
             }
             return leads;
         }
+    }
+
+    private <T extends BatchScoped> List<T> active(List<T> rows) {
+        return importBatchService.filterActive(rows);
     }
 
     private enum SalesFollowUpFocus {
