@@ -8,8 +8,8 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 17
-- **Last Active**: 2026-07-28
+- **Total Sessions**: 18
+- **Last Active**: 2026-07-29
 <!-- @@@/auto:current-status -->
 
 ---
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~574 | Active |
+| `journal-1.md` | ~607 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 18 | 2026-07-29 | Data import MVP skeleton | `1b1b698` | `main` |
 | 17 | 2026-07-28 | Add production refactor documentation | `e6d6617` | `main` |
 | 16 | 2026-07-28 | Prune POC-era documentation | `aa2bc15` | `main` |
 | 15 | 2026-07-11 | Field-aware import quality and missing-data semantics | `8506942`, `4d22608`, `4c84c4c` | `main` |

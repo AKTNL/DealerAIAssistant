@@ -572,3 +572,36 @@ Created the first production-refactor documentation skeleton: docs index, refact
 ### Next Steps
 
 - None - task complete
+
+
+## Session 18: Data import MVP skeleton
+
+**Date**: 2026-07-29
+**Task**: Data import MVP skeleton
+**Branch**: `main`
+
+### Summary
+
+Implemented batch-scoped startup import, active-batch query and analytics filtering, generated the medium MVP XLSX workbook, updated docs and backend database spec, and verified tests/PMD plus workbook startup import.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `1b1b698` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
