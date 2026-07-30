@@ -605,3 +605,36 @@ Implemented batch-scoped startup import, active-batch query and analytics filter
 ### Next Steps
 
 - None - task complete
+
+
+## Session 19: MVP production upgrade roadmap
+
+**Date**: 2026-07-30
+**Task**: MVP production upgrade roadmap
+**Branch**: `main`
+
+### Summary
+
+Added the MVP-focused production upgrade roadmap, MVP PRD, simulated business data direction, and docs reading-order updates.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `ceda59b` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
