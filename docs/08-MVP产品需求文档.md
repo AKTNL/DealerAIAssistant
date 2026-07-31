@@ -191,14 +191,33 @@ MVP 建议保留中型规模，既能演示真实感，又不让本地启动和�
 
 ## 验收标准
 
-* [ ] 能生成 MVP 模拟业务数据工作簿。
-* [ ] 后端能导入该工作簿并暴露数据状态。
-* [ ] Dashboard 能展示至少 5 类核心经营指标。
-* [ ] Dashboard 卡片能触发至少 3 类分析问题。
-* [ ] 未配置外部模型时，规则路径仍能完成核心分析。
-* [ ] Dashboard 和聊天分析的核心 KPI 一致。
-* [ ] 数据质量和模拟数据状态对用户可见。
+* [x] 能生成 MVP 模拟业务数据工作簿。
+* [x] 后端能导入该工作簿并暴露数据状态。
+* [x] Dashboard 能展示至少 5 类核心经营指标。
+* [x] Dashboard 卡片能触发至少 3 类分析问题。
+* [x] 未配置外部模型时，规则路径仍能完成核心分析。
+* [x] Dashboard 和聊天分析的核心 KPI 一致。
+* [x] 数据质量和模拟数据状态对用户可见。
 * [ ] PRD 中的验收问题可以用于人工演示。
+
+## 实施状态（2026-07-31）
+
+P0 Dashboard 首版已落地：
+
+* 后端新增 `GET /api/dashboard`，返回数据状态、经营概览、目标达成、商机漏斗、线索来源、跟进任务和活动效果。
+* Dashboard 汇总默认基于当前 active import batch，避免多次导入数据混用。
+* 前端登录后默认进入 Dashboard，并保留本地 Dashboard / AI 分析切换，不引入 router 或额外状态库。
+* Dashboard 卡片和模块分析按钮复用现有 `submitPrompt(...)` 聊天分析链路。
+* 已覆盖 Dashboard API、service、controller、security filter、前端 API、composable、DashboardView 和 ChatView 回归测试。
+* 已同步 OpenAPI 和 `.trellis/spec/backend/quality-guidelines.md` 的 Dashboard API 合约。
+
+已通过的质量命令：
+
+* `cd frontend && npm run lint`
+* `cd frontend && npm test`
+* `cd frontend && npm run build`
+* `cd backend && mvn "-Dfrontend.skip=true" pmd:check`
+* `cd backend && mvn "-Dfrontend.skip=true" test`
 
 ## 后续演进
 
