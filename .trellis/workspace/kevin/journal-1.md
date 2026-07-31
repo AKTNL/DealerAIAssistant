@@ -638,3 +638,37 @@ Added the MVP-focused production upgrade roadmap, MVP PRD, simulated business da
 ### Next Steps
 
 - None - task complete
+
+
+## Session 20: P0 Dashboard MVP and docs update
+
+**Date**: 2026-07-31
+**Task**: P0 Dashboard MVP and docs update
+**Branch**: `main`
+
+### Summary
+
+Implemented the Dashboard MVP, aligned security/OpenAPI/tests, updated product docs to reflect the new default Dashboard flow, and verified frontend/backend quality gates.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `13540de` | (see git log) |
+| `51e93f2` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
