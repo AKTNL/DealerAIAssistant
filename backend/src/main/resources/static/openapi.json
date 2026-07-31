@@ -26,9 +26,47 @@
         "type": "apiKey",
         "in": "header",
         "name": "X-API-Key"
+      },
+      "BearerAuth": {
+        "type": "http",
+        "scheme": "bearer"
       }
     },
     "schemas": {
+      "DashboardSummary": {
+        "type": "object",
+        "description": "Dashboard MVP 聚合数据，默认基于当前 active import batch。",
+        "properties": {
+          "dataStatus": {
+            "type": "object",
+            "description": "当前数据源、批次、导入质量和模拟数据提示。"
+          },
+          "overview": {
+            "type": "object",
+            "description": "目标达成、商机、线索、任务和活动的顶部 KPI。"
+          },
+          "targetAchievement": {
+            "type": "object",
+            "description": "低达成经销商和区域目标达成排行。"
+          },
+          "opportunityFunnel": {
+            "type": "object",
+            "description": "商机阶段分布和赢单率。"
+          },
+          "leadSources": {
+            "type": "object",
+            "description": "线索来源数量和转化率。"
+          },
+          "followUpTasks": {
+            "type": "object",
+            "description": "跟进任务完成率、逾期率和积压门店。"
+          },
+          "campaignEffect": {
+            "type": "object",
+            "description": "活动目标与实际产出对比。"
+          }
+        }
+      },
       "TargetMetrics": {
         "type": "object",
         "properties": {
@@ -386,6 +424,44 @@
     }
   },
   "paths": {
+    "/api/dashboard": {
+      "get": {
+        "operationId": "getDashboardSummary",
+        "summary": "【Dashboard MVP】经营看板聚合数据",
+        "description": "返回当前 active import batch 的经营概览、数据状态、目标达成、商机漏斗、线索来源、跟进任务和活动效果。",
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "code": {
+                      "type": "integer"
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "data": {
+                      "$ref": "#/components/schemas/DashboardSummary"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "登录状态过期或缺少 Bearer token"
+          }
+        }
+      }
+    },
     "/api/targets/metrics": {
       "get": {
         "operationId": "getTargetMetrics",

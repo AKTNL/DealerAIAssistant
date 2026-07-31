@@ -7,6 +7,12 @@ import TopNav from "../layout/TopNav.vue";
 import ChatView from "../../views/ChatView.vue";
 
 const testModelConnectionMock = vi.fn();
+const useDashboardMock = vi.fn(() => ({
+  dashboard: ref(null),
+  dashboardError: "",
+  dashboardLoading: false,
+  loadDashboard: vi.fn()
+}));
 const useChatMock = vi.fn(() => ({
     closeMobileSidebar: vi.fn(),
     handleClearSession: vi.fn(),
@@ -32,6 +38,10 @@ vi.mock("../../composables/useChat", () => ({
   useChat: (...args) => useChatMock(...args)
 }));
 
+vi.mock("../../composables/useDashboard", () => ({
+  useDashboard: (...args) => useDashboardMock(...args)
+}));
+
 vi.mock("../../api/modelConfig", () => ({
   testModelConnection: (...args) => testModelConnectionMock(...args)
 }));
@@ -40,7 +50,9 @@ const dictionary = {
   appName: "Dealer AI Assistant",
   appTagline: "Editorial workspace",
   clearChat: "Clear chat",
+  chatTab: "AI analysis",
   closeMenu: "Close",
+  dashboardTab: "Dashboard",
   footerNote: "Internal use only",
   inputPlaceholder: "Ask a question",
   logoutButton: "Sign out",
@@ -73,8 +85,13 @@ const dictionary = {
   jumpToLatest: "Jump to latest"
 };
 
+async function openChatWorkspace(wrapper) {
+  await wrapper.findAll(".workspace-mode-tab")[1].trigger("click");
+}
+
 beforeEach(() => {
   testModelConnectionMock.mockReset();
+  useDashboardMock.mockClear();
 });
 
 describe("Workspace chrome editorial hooks", () => {
@@ -115,6 +132,9 @@ describe("Workspace chrome editorial hooks", () => {
           },
           ChatMessageList: {
             template: "<div class='chat-message-list-stub'></div>"
+          },
+          DashboardView: {
+            template: "<section class='dashboard-view-stub'></section>"
           },
           ExampleSidebar: {
             template: "<aside class='example-sidebar-stub'></aside>"
@@ -207,6 +227,9 @@ describe("Workspace chrome editorial hooks", () => {
           ChatMessageList: {
             template: "<div class='chat-message-list-stub'></div>"
           },
+          DashboardView: {
+            template: "<section class='dashboard-view-stub'></section>"
+          },
           ExampleSidebar: {
             template: "<aside class='example-sidebar-stub'></aside>"
           },
@@ -276,6 +299,9 @@ describe("Workspace chrome editorial hooks", () => {
           ChatMessageList: {
             template: "<div class='chat-message-list-stub'></div>"
           },
+          DashboardView: {
+            template: "<section class='dashboard-view-stub'></section>"
+          },
           ExampleSidebar: {
             template: `
               <button
@@ -318,6 +344,9 @@ describe("Workspace chrome editorial hooks", () => {
           },
           ChatMessageList: {
             template: "<div class='chat-message-list-stub'></div>"
+          },
+          DashboardView: {
+            template: "<section class='dashboard-view-stub'></section>"
           },
           ExampleSidebar: {
             template: "<aside class='example-sidebar-stub'></aside>"
@@ -392,6 +421,9 @@ describe("Workspace chrome editorial hooks", () => {
           ChatMessageList: {
             template: "<div class='chat-message-list-stub'></div>"
           },
+          DashboardView: {
+            template: "<section class='dashboard-view-stub'></section>"
+          },
           ExampleSidebar: {
             template: "<aside class='example-sidebar-stub'></aside>"
           },
@@ -405,6 +437,7 @@ describe("Workspace chrome editorial hooks", () => {
       }
     });
 
+    await openChatWorkspace(chatView);
     await chatView.find(".chat-scroll").trigger("scroll");
 
     expect(handleScroll).toHaveBeenCalledTimes(1);
@@ -462,6 +495,9 @@ describe("Workspace chrome editorial hooks", () => {
           ChatMessageList: {
             template: "<div class='chat-message-list-stub'></div>"
           },
+          DashboardView: {
+            template: "<section class='dashboard-view-stub'></section>"
+          },
           ExampleSidebar: {
             template: "<aside class='example-sidebar-stub'></aside>"
           },
@@ -475,6 +511,7 @@ describe("Workspace chrome editorial hooks", () => {
       }
     });
 
+    await openChatWorkspace(chatView);
     const affordance = chatView.find(".jump-latest-button");
 
     expect(affordance.exists()).toBe(true);
@@ -524,6 +561,9 @@ describe("Workspace chrome editorial hooks", () => {
           ChatMessageList: {
             template: "<div class='chat-message-list-stub'></div>"
           },
+          DashboardView: {
+            template: "<section class='dashboard-view-stub'></section>"
+          },
           ExampleSidebar: {
             template: "<aside class='example-sidebar-stub'></aside>"
           },
@@ -540,6 +580,7 @@ describe("Workspace chrome editorial hooks", () => {
 
     expect(chatView.find(".model-settings-panel-stub").attributes("data-open")).toBe("false");
 
+    await openChatWorkspace(chatView);
     await chatView.find(".chat-submit-stub").trigger("click");
 
     expect(chatView.find(".model-settings-panel-stub").attributes("data-open")).toBe("true");
@@ -561,6 +602,9 @@ describe("Workspace chrome editorial hooks", () => {
           },
           ChatMessageList: {
             template: "<div class='chat-message-list-stub'></div>"
+          },
+          DashboardView: {
+            template: "<section class='dashboard-view-stub'></section>"
           },
           ExampleSidebar: {
             template: "<aside class='example-sidebar-stub'></aside>"
@@ -617,6 +661,9 @@ describe("Workspace chrome editorial hooks", () => {
           ChatMessageList: {
             template: "<div class='chat-message-list-stub'></div>"
           },
+          DashboardView: {
+            template: "<section class='dashboard-view-stub'></section>"
+          },
           ExampleSidebar: {
             template: "<aside class='example-sidebar-stub'></aside>"
           },
@@ -671,6 +718,9 @@ describe("Workspace chrome editorial hooks", () => {
           },
           ChatMessageList: {
             template: "<div class='chat-message-list-stub'></div>"
+          },
+          DashboardView: {
+            template: "<section class='dashboard-view-stub'></section>"
           },
           ExampleSidebar: {
             template: "<aside class='example-sidebar-stub'></aside>"

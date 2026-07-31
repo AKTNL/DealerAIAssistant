@@ -5,9 +5,19 @@ import TopNav from "../../components/layout/TopNav.vue";
 import ChatView from "../ChatView.vue";
 
 const getDataStatusMock = vi.fn();
+const useDashboardMock = vi.fn(() => ({
+  dashboard: ref(null),
+  dashboardError: "",
+  dashboardLoading: false,
+  loadDashboard: vi.fn()
+}));
 
 vi.mock("../../api/dataStatus", () => ({
   getDataStatus: () => getDataStatusMock()
+}));
+
+vi.mock("../../composables/useDashboard", () => ({
+  useDashboard: (...args) => useDashboardMock(...args)
 }));
 
 const useChatMock = vi.fn(() => ({
@@ -51,7 +61,10 @@ const dictionary = {
   newChat: "New chat",
   settingsButton: "Settings",
   sampleDataWarning: "Built-in sample data is active.",
-  switchLanguage: "Switch language"
+  switchLanguage: "Switch language",
+  workspaceTitle: "Dealer workspace",
+  dashboardTab: "Dashboard",
+  chatTab: "AI analysis"
 };
 
 function mountChatView(props = {}) {
@@ -70,6 +83,9 @@ function mountChatView(props = {}) {
         ChatMessageList: {
           template: "<div class='chat-message-list-stub'></div>"
         },
+        DashboardView: {
+          template: "<section class='dashboard-view-stub'></section>"
+        },
         ExampleSidebar: {
           template: "<aside class='example-sidebar-stub'></aside>"
         },
@@ -83,6 +99,7 @@ function mountChatView(props = {}) {
 
 beforeEach(() => {
   useChatMock.mockClear();
+  useDashboardMock.mockClear();
   getDataStatusMock.mockReset();
   getDataStatusMock.mockResolvedValue({ fallbackActive: false, source: "configured-workbook" });
 });
@@ -100,6 +117,13 @@ describe("ChatView", () => {
     const wrapper = mountChatView({ authVerified: true });
 
     expect(wrapper.find(".workspace-shell").classes()).toContain("sidebar-collapsed");
+  });
+
+  it("opens on the dashboard workspace by default", () => {
+    const wrapper = mountChatView({ authVerified: true });
+
+    expect(wrapper.find(".dashboard-view-stub").exists()).toBe(true);
+    expect(wrapper.find(".chat-screen").exists()).toBe(false);
   });
 
   it("shows a warning when the backend reports fallback sample data", async () => {
@@ -152,6 +176,9 @@ describe("ChatView", () => {
           ChatMessageList: {
             template: "<div class='chat-message-list-stub'></div>"
           },
+          DashboardView: {
+            template: "<section class='dashboard-view-stub'></section>"
+          },
           ExampleSidebar: {
             template: `
               <button class="sidebar-question-stub" type="button" @click="$emit('select-prompt', '${question}')">
@@ -171,5 +198,67 @@ describe("ChatView", () => {
     expect(promptInput.value).toBe(question);
     expect(closeMobileSidebar).toHaveBeenCalledTimes(1);
     expect(submitPrompt).not.toHaveBeenCalled();
+    expect(wrapper.find(".chat-screen").exists()).toBe(true);
+  });
+
+  it("submits dashboard analysis prompts through the existing chat flow", async () => {
+    const submitPrompt = vi.fn();
+
+    useChatMock.mockReturnValueOnce({
+      closeMobileSidebar: vi.fn(),
+      handleClearSession: vi.fn(),
+      handleScroll: vi.fn(),
+      hasUnreadContent: false,
+      isSending: false,
+      jumpToLatest: vi.fn(),
+      messages: ref([]),
+      openMobileSidebar: vi.fn(),
+      promptInput: ref(""),
+      requestError: "",
+      scrollContainer: ref(null),
+      showMobileSidebar: false,
+      startNewChat: vi.fn(),
+      statusMessage: "Ready",
+      stopGenerating: vi.fn(),
+      streamPhase: ref("idle"),
+      submitPrompt,
+      toastMessage: ""
+    });
+
+    const wrapper = mount(ChatView, {
+      props: {
+        authVerified: true,
+        dictionary,
+        locale: "en"
+      },
+      global: {
+        stubs: {
+          ChatInput: {
+            template: "<div class='chat-input-stub'></div>"
+          },
+          ChatMessageList: {
+            template: "<div class='chat-message-list-stub'></div>"
+          },
+          DashboardView: {
+            template: `
+              <button class="dashboard-analyze-stub" type="button" @click="$emit('analyze', 'Which dealers are lagging?')">
+                analyze
+              </button>
+            `
+          },
+          ExampleSidebar: {
+            template: "<aside class='example-sidebar-stub'></aside>"
+          },
+          ModelSettingsPanel: {
+            template: "<div class='model-settings-panel-stub'></div>"
+          }
+        }
+      }
+    });
+
+    await wrapper.find(".dashboard-analyze-stub").trigger("click");
+
+    expect(submitPrompt).toHaveBeenCalledWith("Which dealers are lagging?");
+    expect(wrapper.find(".chat-screen").exists()).toBe(true);
   });
 });

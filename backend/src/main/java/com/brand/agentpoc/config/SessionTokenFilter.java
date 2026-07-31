@@ -24,6 +24,7 @@ public class SessionTokenFilter extends OncePerRequestFilter {
     private static final List<String> PROTECTED_PATHS = List.of(
             "/api/chat/**",
             "/api/data-status",
+            "/api/dashboard",
             "/api/model-config/**"
     );
 

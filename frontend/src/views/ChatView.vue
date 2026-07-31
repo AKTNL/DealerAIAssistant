@@ -1,5 +1,6 @@
 <script setup>
 import { computed, onMounted, ref } from "vue";
+import DashboardView from "../components/dashboard/DashboardView.vue";
 import ChatInput from "../components/chat/ChatInput.vue";
 import ChatMessageList from "../components/chat/ChatMessageList.vue";
 import { testModelConnection } from "../api/modelConfig";
@@ -16,6 +17,7 @@ import {
   writeModelSettings
 } from "../composables/useModelSettings";
 import { useChat } from "../composables/useChat";
+import { useDashboard } from "../composables/useDashboard";
 
 const props = defineProps({
   dictionary: {
@@ -38,6 +40,7 @@ const authVerified = computed(() => props.authVerified);
 const connectionMessage = ref("");
 const connectionStatus = ref("");
 const fallbackDataActive = ref(false);
+const activeWorkspace = ref("dashboard");
 const isTestingConnection = ref(false);
 const modelSettingsPanelOpen = ref(false);
 const sidebarCollapsed = ref(true);
@@ -68,6 +71,14 @@ const {
   openModelSettings: handleOpenSettings,
   onAuthExpired: () => emit("sign-out")
 });
+const {
+  dashboard,
+  dashboardError,
+  dashboardLoading,
+  loadDashboard
+} = useDashboard({
+  onAuthExpired: () => emit("sign-out")
+});
 
 onMounted(loadDataStatus);
 
@@ -84,8 +95,19 @@ async function loadDataStatus() {
 }
 
 function handleSelectSidebarPrompt(prompt) {
+  activeWorkspace.value = "chat";
   promptInput.value = prompt;
   closeMobileSidebar();
+}
+
+function handleStartNewChat() {
+  activeWorkspace.value = "chat";
+  startNewChat();
+}
+
+function handleDashboardAnalyze(prompt) {
+  activeWorkspace.value = "chat";
+  submitPrompt(prompt);
 }
 
 function createEmptyModelSettings() {
@@ -181,7 +203,7 @@ async function handleTestConnection(settings) {
       :show-mobile-sidebar="showMobileSidebar"
       @close="closeMobileSidebar"
       @select-prompt="handleSelectSidebarPrompt"
-      @new-chat="startNewChat"
+      @new-chat="handleStartNewChat"
       @toggle-sidebar="sidebarCollapsed = !sidebarCollapsed"
     />
 
@@ -220,7 +242,42 @@ async function handleTestConnection(settings) {
         @test-connection="handleTestConnection"
       />
 
-      <section class="chat-screen">
+      <div class="workspace-mode-tabs" role="tablist" :aria-label="dictionary.workspaceTitle">
+        <button
+          :class="['workspace-mode-tab', { active: activeWorkspace === 'dashboard' }]"
+          type="button"
+          role="tab"
+          :aria-selected="activeWorkspace === 'dashboard'"
+          @click="activeWorkspace = 'dashboard'"
+        >
+          <span class="material-icons" aria-hidden="true">dashboard</span>
+          <span>{{ dictionary.dashboardTab }}</span>
+        </button>
+        <button
+          :class="['workspace-mode-tab', { active: activeWorkspace === 'chat' }]"
+          type="button"
+          role="tab"
+          :aria-selected="activeWorkspace === 'chat'"
+          @click="activeWorkspace = 'chat'"
+        >
+          <span class="material-icons" aria-hidden="true">forum</span>
+          <span>{{ dictionary.chatTab }}</span>
+        </button>
+      </div>
+
+      <DashboardView
+        v-if="activeWorkspace === 'dashboard'"
+        :dashboard="dashboard"
+        :dictionary="dictionary"
+        :error="dashboardError"
+        :is-sending="isSending"
+        :loading="dashboardLoading"
+        :locale="locale"
+        @analyze="handleDashboardAnalyze"
+        @reload="loadDashboard"
+      />
+
+      <section v-else class="chat-screen">
         <div ref="scrollContainer" class="chat-scroll" @scroll="handleScroll">
           <ChatMessageList
             :dictionary="dictionary"
