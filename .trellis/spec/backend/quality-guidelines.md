@@ -165,6 +165,92 @@ Application class enables scanning with:
 @ConfigurationPropertiesScan
 ```
 
+### Scenario: Dashboard MVP Aggregate Endpoint
+
+#### 1. Scope / Trigger
+- Trigger: Browser users need an authenticated landing dashboard before entering chat analysis.
+- This is a backend API, security, active-batch, OpenAPI, and frontend request contract because one aggregate endpoint feeds the dashboard workspace and its chat-analysis entry points.
+
+#### 2. Signatures
+- Backend endpoint: `GET /api/dashboard`
+- Controller return type: `ApiResult<DashboardSummary>`
+- Response record: `dto.response.DashboardSummary`
+- Service entry point: `DashboardService.getSummary(): DashboardSummary`
+- Security:
+  - `ApiKeyFilter` must whitelist `/api/dashboard` from the internal `X-API-Key` gate.
+  - `SessionTokenFilter` must protect `/api/dashboard` with the browser Bearer session token.
+- Frontend API wrapper: `frontend/src/api/dashboard.js -> getDashboardSummary()` through `requestJson("/api/dashboard", ...)`.
+- OpenAPI path: `backend/src/main/resources/static/openapi.json -> /api/dashboard` with `BearerAuth`.
+
+#### 3. Contracts
+- Dashboard aggregation must read only the active import batch for every business entity (`Dealer`, `Target`, `Opportunity`, `Lead`, `Task`, `Campaign`) via `ImportBatchService.filterActive(...)`.
+- The controller stays thin: no repository access, no aggregation logic, and no manual response-envelope construction beyond `ApiResult.success(...)`.
+- Dashboard DTOs are Java records under `dto/response`; do not expose JPA entities directly.
+- `DashboardSummary` includes these top-level sections:
+  - `dataStatus`
+  - `overview`
+  - `targetAchievement`
+  - `opportunityFunnel`
+  - `leadSources`
+  - `followUpTasks`
+  - `campaignEffect`
+- Rate calculations must preserve comparable-denominator semantics: nullable targets are included in observed counts but excluded from rate denominators.
+- Frontend dashboard requests must use the shared API client and send the stored session token as `Authorization: Bearer <token>`.
+- Dashboard analysis buttons must reuse the existing chat submission path rather than creating a second analysis transport.
+
+#### 4. Validation & Error Matrix
+- Missing or invalid Bearer token -> `SessionTokenFilter` returns HTTP 401 with the existing session-expired JSON body.
+- Missing `X-API-Key` on `/api/dashboard` -> allowed through `ApiKeyFilter`; browser APIs do not require the internal key.
+- Repository rows from inactive batches -> excluded before counting, ranking, or calculating rates.
+- No active batch row exists -> `ImportBatchService` legacy fallback rules apply and legacy rows remain visible.
+- Malformed frontend response shape -> API wrapper normalizes to `null`/empty records so the view can render loading/empty/error states safely.
+- Dashboard card clicked while chat is sending -> do not emit a duplicate analysis request.
+
+#### 5. Good/Base/Bad Cases
+- Good: Workbook A is imported, then workbook B is activated; `/api/dashboard` shows only workbook B metrics and status.
+- Good: A target row with `asKTarget=null` contributes to observed won counts but not to `targetAchievementRate`.
+- Base: `/api/dashboard` returns a 200 `ApiResult` envelope with all seven top-level sections, even when some lists are empty.
+- Bad: Calling `targetRepository.findAll()` and summing directly leaks inactive-batch rows into the user-facing dashboard.
+- Bad: The dashboard frontend calls raw `fetch()` or posts prompts to a new endpoint instead of reusing `submitPrompt(...)`.
+
+#### 6. Tests Required
+- `DashboardServiceTest`: assert active-batch filtering and comparable-rate calculations across all dashboard sections.
+- `DashboardControllerTest`: assert the `ApiResult` envelope and representative nested fields.
+- `ApiKeyFilterTest`: assert `/api/dashboard` bypasses internal API-key enforcement.
+- `SessionTokenFilterTest`: assert `/api/dashboard` requires a valid Bearer session token.
+- `frontend/src/api/__tests__/dashboard.spec.js`: assert `requestJson("/api/dashboard", ...)` and Bearer header usage.
+- `DashboardView.spec.js` and `ChatView.spec.js`: assert dashboard states, default workspace behavior, and analysis prompt handoff into chat.
+- Quality verification must include `npm run lint`, `npm test`, `npm run build`, `mvn "-Dfrontend.skip=true" pmd:check`, and `mvn "-Dfrontend.skip=true" test` when this contract changes.
+
+#### 7. Wrong vs Correct
+
+Wrong:
+```java
+List<Target> targets = targetRepository.findAll();
+double achievement = percentage(sumWon(targets), sumTarget(targets));
+```
+
+Correct:
+```java
+List<Target> targets = importBatchService.filterActive(targetRepository.findAll());
+List<Target> comparable = targets.stream()
+        .filter(target -> target.getAsKTarget() != null)
+        .toList();
+double achievement = percentage(sumWon(comparable), sumTarget(comparable));
+```
+
+Wrong:
+```js
+const response = await fetch("/api/dashboard");
+```
+
+Correct:
+```js
+const response = await requestJson("/api/dashboard", {
+  headers: token ? { Authorization: `Bearer ${token}` } : {}
+});
+```
+
 ### Scenario: Default Model Configuration With Request Override
 
 #### 1. Scope / Trigger
