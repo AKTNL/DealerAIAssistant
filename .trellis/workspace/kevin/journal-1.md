@@ -672,3 +672,36 @@ Implemented the Dashboard MVP, aligned security/OpenAPI/tests, updated product d
 ### Next Steps
 
 - None - task complete
+
+
+## Session 21: MVP试点验收脚本和反馈表
+
+**Date**: 2026-08-01
+**Task**: MVP试点验收脚本和反馈表
+**Branch**: `main`
+
+### Summary
+
+新增MVP试点验收脚本、业务故事验收表、反馈表和P1排序规则；更新MVP文档索引与验收状态；实际启动前后端并通过登录、Dashboard和低达成门店分析入口smoke验收；补充后台PowerShell启动Maven参数说明。
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `4244a03` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
