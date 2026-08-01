@@ -750,6 +750,17 @@ argument list:
 mvn "-Dfrontend.skip=true" "-Dtest=AccuracyWorkbookRegressionTest,RuleBasedAnalyticsServiceTest" test
 ```
 
+When launching Maven from a background PowerShell automation such as
+`Start-Process`, prefer calling `mvn.cmd` directly with an argument array
+instead of embedding the quoted Maven command inside another PowerShell
+script string. Nested PowerShell command strings can still split
+`-Dfrontend.skip=true` incorrectly and make Maven see `.skip=true` as a
+lifecycle phase.
+
+```powershell
+Start-Process -FilePath "mvn.cmd" -ArgumentList @("-Dfrontend.skip=true", "spring-boot:run")
+```
+
 ### Expected Test Coverage
 
 - Controller tests: cover auth checks, request validation, success and error response paths

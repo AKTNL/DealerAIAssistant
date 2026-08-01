@@ -198,7 +198,7 @@ MVP 建议保留中型规模，既能演示真实感，又不让本地启动和�
 * [x] 未配置外部模型时，规则路径仍能完成核心分析。
 * [x] Dashboard 和聊天分析的核心 KPI 一致。
 * [x] 数据质量和模拟数据状态对用户可见。
-* [ ] PRD 中的验收问题可以用于人工演示。
+* [x] PRD 中的验收问题可以用于人工演示。
 
 ## 实施状态（2026-07-31）
 
@@ -210,6 +210,11 @@ P0 Dashboard 首版已落地：
 * Dashboard 卡片和模块分析按钮复用现有 `submitPrompt(...)` 聊天分析链路。
 * 已覆盖 Dashboard API、service、controller、security filter、前端 API、composable、DashboardView 和 ChatView 回归测试。
 * 已同步 OpenAPI 和 `.trellis/spec/backend/quality-guidelines.md` 的 Dashboard API 合约。
+
+MVP 试点验收补充（2026-08-01）：
+
+* 已新增 `docs/09-MVP试点验收脚本.md`，覆盖端到端演示步骤、业务故事验收表、反馈表和 P1 候选排序规则。
+* 已按脚本完成一次本地试跑：后端导入 configured workbook，前端登录后默认进入 Dashboard，并从 `低达成门店` 触发 `哪些经销商目标达成率最低？` 分析。
 
 已通过的质量命令：
 
