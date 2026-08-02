@@ -1,4 +1,4 @@
-package com.brand.agentpoc.service;
+package com.brand.agentpoc.agent;
 
 import com.brand.agentpoc.ai.LanguageDetector;
 import java.util.ArrayList;
@@ -9,7 +9,7 @@ import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
-class ChatReplyGuard {
+public class ChatReplyGuard {
 
     private static final Pattern SECOND_LEVEL_HEADING_LINE_PATTERN = Pattern.compile("(?m)^##[^\\r\\n]*$");
     private static final Pattern DATA_SUPPORT_HEADING_PATTERN = Pattern.compile(
@@ -38,11 +38,11 @@ class ChatReplyGuard {
 
     private final LanguageDetector languageDetector;
 
-    ChatReplyGuard(LanguageDetector languageDetector) {
+    public ChatReplyGuard(LanguageDetector languageDetector) {
         this.languageDetector = languageDetector;
     }
 
-    boolean isValidAnalyticsReply(String reply, String fallbackReply) {
+    public boolean isValidAnalyticsReply(String reply, String fallbackReply) {
         String normalized = reply == null ? "" : reply.trim();
         if (normalized.isBlank()) {
             return false;
@@ -67,7 +67,7 @@ class ChatReplyGuard {
                 && hasValidAnalyticsFollowUpQuestions(normalized);
     }
 
-    String ensureFollowUpQuestions(String reply, String language, boolean analyticsRequested) {
+    public String ensureFollowUpQuestions(String reply, String language, boolean analyticsRequested) {
         String trimmed = reply == null ? "" : reply.trim();
         if (trimmed.isBlank()) {
             throw new IllegalStateException("Reply is blank after model generation.");
@@ -122,7 +122,7 @@ class ChatReplyGuard {
         return rebuildReplyWithFollowUps(repaired, validated);
     }
 
-    List<String> buildContextualFollowUps(String language, String reply) {
+    public List<String> buildContextualFollowUps(String language, String reply) {
         if (reply == null || reply.isBlank()) {
             return defaultGeneralFollowUps(language);
         }
@@ -175,7 +175,7 @@ class ChatReplyGuard {
         return defaultGeneralFollowUps(language);
     }
 
-    List<String> validateFollowUpRelevance(
+    public List<String> validateFollowUpRelevance(
             String reply,
             List<String> followUps,
             String language,
@@ -210,7 +210,7 @@ class ChatReplyGuard {
         return validated.subList(0, Math.min(validated.size(), 2));
     }
 
-    List<String> extractFollowUpsFromReply(String reply) {
+    public List<String> extractFollowUpsFromReply(String reply) {
         return extractRawFollowUpLines(reply).stream()
                 .map(ChatReplyGuard::cleanFollowUpLine)
                 .filter(ChatReplyGuard::hasText)
@@ -218,7 +218,7 @@ class ChatReplyGuard {
                 .toList();
     }
 
-    List<String> extractTopicKeywords(String reply, String language) {
+    public List<String> extractTopicKeywords(String reply, String language) {
         Set<String> keywords = new LinkedHashSet<>();
         String normalized = reply == null ? "" : reply;
         boolean isZh = "zh".equals(language);
@@ -242,7 +242,7 @@ class ChatReplyGuard {
         return List.copyOf(keywords);
     }
 
-    boolean isStronglyRelevant(String followUp, List<String> topicKeywords) {
+    public boolean isStronglyRelevant(String followUp, List<String> topicKeywords) {
         if (followUp == null || topicKeywords == null) {
             return false;
         }
