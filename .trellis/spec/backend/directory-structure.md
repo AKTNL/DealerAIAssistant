@@ -150,6 +150,26 @@ New features follow these rules:
 
 7. **AI tool callbacks** live in `ai/`. These are `@Tool`-annotated methods exposed to Spring AI's `MethodToolCallbackProvider`.
 
+## P1-2 Modular Monolith Transition
+
+New business capabilities should use a business-first top-level package instead of adding another class to the legacy root `service/` package. The target module names are `auth`, `organization`, `dataimport`, `metrics`, `dashboard`, `analytics`, `agent`, `reporting`, and `knowledge`.
+
+Each migrated module should converge on this internal shape:
+
+```text
+com.brand.agentpoc.<module>/
+  controller/          # HTTP or SSE protocol adapters
+  application/         # use-case orchestration and public module entry points
+  domain/              # business rules and stable domain contracts
+  infrastructure/      # database, file, model, and other external adapters
+```
+
+During the transition, `controller/`, `service/`, `ai/`, `dto/`, `entity/`, and `repository/` remain compatibility packages. They must not receive new responsibilities merely because they already exist. Cross-module calls should use a public application service or port rather than another module's repository, entity, or internal implementation.
+
+The first migrated agent slice is `com.brand.agentpoc.agent.ChatReplyGuard`. `service.ChatService` may reference this public boundary while the rest of the chat orchestration remains in the legacy service package. This deliberately small seam keeps the existing HTTP/SSE contract stable and makes the migration reversible.
+
+Tests mirror the package of the migrated production class. For example, `agent/ChatReplyGuard.java` is covered by `agent/ChatReplyGuardTest.java`; existing `service/ChatServiceTest.java` remains the regression guard for the compatibility caller.
+
 ---
 
 ## Naming Conventions
