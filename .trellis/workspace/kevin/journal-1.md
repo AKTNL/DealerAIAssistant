@@ -705,3 +705,37 @@ Implemented the Dashboard MVP, aligned security/OpenAPI/tests, updated product d
 ### Next Steps
 
 - None - task complete
+
+
+## Session 22: 完成 P1-1 持久化数据库与迁移
+
+**Date**: 2026-08-02
+**Task**: 完成 P1-1 持久化数据库与迁移
+**Branch**: `main`
+
+### Summary
+
+按 PostgreSQL + Flyway 方案完成 P1-1：新增 PostgreSQL/Flyway 依赖和 prod profile，补齐 V1 基线 schema、active batch 索引及 H2/ Hibernate validation 回归；同步 README、后端数据文档和 database-guidelines。293 个后端测试与 PMD 通过；真实 PostgreSQL 启动待配置有效凭据后手工验收。
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `75bede3` | (see git log) |
+| `a0ae290` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete

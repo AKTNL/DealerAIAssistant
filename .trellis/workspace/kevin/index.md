@@ -8,8 +8,8 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 21
-- **Last Active**: 2026-08-01
+- **Total Sessions**: 22
+- **Last Active**: 2026-08-02
 <!-- @@@/auto:current-status -->
 
 ---
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~707 | Active |
+| `journal-1.md` | ~741 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 22 | 2026-08-02 | 完成 P1-1 持久化数据库与迁移 | `75bede3`, `a0ae290` | `main` |
 | 21 | 2026-08-01 | MVP试点验收脚本和反馈表 | `4244a03` | `main` |
 | 20 | 2026-07-31 | P0 Dashboard MVP and docs update | `13540de`, `51e93f2` | `main` |
 | 19 | 2026-07-30 | MVP production upgrade roadmap | `ceda59b` | `main` |
