@@ -6,9 +6,9 @@
 
 ## Overview
 
-The project uses **Spring Data JPA 3.4.5** with **H2** as the in-memory database (MySQL compatibility mode). Schema is managed automatically by Hibernate via `ddl-auto: update`. No migration tooling (Flyway/Liquibase) is used.
+The project uses **Spring Data JPA 3.4.5** with **H2** as the default in-memory database (MySQL compatibility mode) and **PostgreSQL** as the production database. The default demo/test path keeps Hibernate `ddl-auto: update`; the `prod` profile uses Flyway-managed migrations and Hibernate `ddl-auto: validate`.
 
-Dependencies: `spring-boot-starter-data-jpa`, `com.h2database:h2`.
+Dependencies: `spring-boot-starter-data-jpa`, `com.h2database:h2`, `org.postgresql:postgresql`, `org.flywaydb:flyway-core`, and `org.flywaydb:flyway-database-postgresql`.
 
 Configuration from `backend/src/main/resources/application.yml`:
 ```yaml
@@ -22,9 +22,13 @@ spring:
     open-in-view: false
     hibernate:
       ddl-auto: update
+  flyway:
+    enabled: false
 ```
 
 Data is seeded on startup by `ExcelImportService` (implements `ApplicationRunner`), which reads an Excel file or falls back to built-in defaults.
+
+Production overrides in `backend/src/main/resources/application-prod.yml` read `APP_DB_URL`, `APP_DB_USERNAME`, and `APP_DB_PASSWORD`, enable Flyway from `classpath:db/migration`, and set Hibernate DDL to `validate`.
 
 ---
 
@@ -197,9 +201,79 @@ Controllers do not manage transactions. All transaction boundaries are in the se
 
 ## Migrations
 
-This project does **not** use Flyway, Liquibase, or any migration tool. Schema is managed by Hibernate's `ddl-auto: update` setting, which auto-creates and updates tables based on entity annotations at startup.
+The production profile uses Flyway for schema management. Versioned SQL files live under `backend/src/main/resources/db/migration/` and are applied in order during startup. The initial `V1__create_initial_schema.sql` migration mirrors the current JPA entities, creates the `import_batches` table, and adds indexes for active-batch and batch-scoped business lookups.
 
-For production use, a migration tool would need to be introduced.
+The default H2 demo/test profile keeps Flyway disabled and continues to use Hibernate `ddl-auto: update`; tests that need migration coverage invoke Flyway explicitly against an isolated H2 database. Production schema changes must be delivered as a new forward migration. Do not edit an already-applied migration or re-enable Hibernate schema mutation in production.
+
+The following production migration contract is executable and must remain aligned with `application-prod.yml`:
+
+### Scenario: PostgreSQL + Flyway Production Migration
+
+#### 1. Scope / Trigger
+
+- Trigger: The application needs durable production data and auditable schema changes without removing the fast H2 demo/test path.
+- This is an infrastructure and database contract because startup, persistence, migration history, and Hibernate validation must agree on the same schema.
+
+#### 2. Signatures
+
+- Profile: `spring.profiles.active=prod`
+- Environment keys: `APP_DB_URL`, `APP_DB_USERNAME`, `APP_DB_PASSWORD`
+- Migration location: `classpath:db/migration`
+- Baseline migration: `V1__create_initial_schema.sql`
+- Production settings: `spring.flyway.enabled=true`, `spring.flyway.validate-on-migrate=true`, `spring.flyway.clean-disabled=true`, `spring.jpa.hibernate.ddl-auto=validate`
+
+#### 3. Contracts
+
+- The `prod` profile uses the configured PostgreSQL JDBC URL and never silently falls back to H2 or built-in sample data when the database or migration is unavailable.
+- Flyway applies pending versioned SQL before Hibernate validates entity mappings.
+- The baseline creates `import_batches`, all six batch-scoped business tables, the active-batch lookup index, and non-unique batch/business-key indexes.
+- Business IDs may repeat across import batches; do not add global unique constraints to `dealer_code`, `opportunity_id`, `lead_id`, `task_id`, or `campaign_id`.
+- The current physical naming contract includes `Target.asKTarget -> asktarget`; migration SQL must match the existing Hibernate mapping unless the entity explicitly declares another column name.
+
+#### 4. Validation & Error Matrix
+
+- Missing/invalid `APP_DB_*` credentials -> application startup fails with the datasource error; no H2 fallback.
+- Pending valid migration -> Flyway applies it and records the version in `flyway_schema_history`.
+- Applied migration file changed -> Flyway validation fails; create a new forward migration instead.
+- Migration schema differs from JPA mappings -> Hibernate `validate` fails before the application becomes ready.
+- H2 unit/demo startup without `prod` -> Flyway remains disabled and Hibernate `ddl-auto: update` remains available.
+
+#### 5. Good/Base/Bad Cases
+
+- Good: A new PostgreSQL database starts with `V1`, imports one active batch, and retains the rows after restart.
+- Base: H2 tests run without a PostgreSQL server; the migration is explicitly exercised against isolated H2 and Hibernate validation passes.
+- Bad: Setting `ddl-auto: update` in `prod` hides missing migration columns and makes schema drift unauditable.
+- Bad: Naming the column `as_k_target` without changing the entity causes `ddl-auto: validate` to reject the schema because Hibernate expects `asktarget`.
+
+#### 6. Tests Required
+
+- Profile configuration test: assert PostgreSQL driver, `ddl-auto=validate`, Flyway enabled, and `clean-disabled=true`.
+- Migration test: apply `V1` to isolated H2 and assert all required tables exist.
+- Mapping test: start a context with Flyway enabled and `ddl-auto=validate` against the migrated schema.
+- Batch coexistence test: insert the same business ID under two batch IDs and assert both rows are accepted.
+- Deployment smoke test: with valid PostgreSQL credentials, assert schema version, first import counts, and unchanged counts after restart.
+
+#### 7. Wrong vs Correct
+
+Wrong:
+
+```yaml
+spring:
+  jpa:
+    hibernate:
+      ddl-auto: update
+```
+
+Correct:
+
+```yaml
+spring:
+  jpa:
+    hibernate:
+      ddl-auto: validate
+  flyway:
+    enabled: true
+```
 
 ---
 
@@ -237,7 +311,7 @@ For production use, a migration tool would need to be introduced.
 - Query services, analytics services, and known-dealer checks must filter repository results through `ImportBatchService.filterActive(...)` before mapping, counting, or deciding scope.
 - `ImportBatchService.activeBatchId()` falls back to `legacy-default` when no active batch exists.
 - Active-batch resolution uses the newest active import batch ordered by `activatedAt desc, id desc`. During the H2/ddl-auto MVP, older active rows may remain in `import_batches`; consumers must use `activeBatchId()` rather than reading `active=true` directly.
-- Business identifiers such as `dealerCode`, `opportunityId`, `campaignId`, `leadId`, and `taskId` are no longer globally unique. Treat uniqueness as batch-scoped until a PostgreSQL/Flyway phase adds composite constraints or indexes.
+- Business identifiers such as `dealerCode`, `opportunityId`, `campaignId`, `leadId`, and `taskId` are not globally unique. The PostgreSQL baseline uses non-unique batch-scoped indexes so the same source identifier can coexist in different import batches; add composite uniqueness only when the source contract proves it safe.
 
 ### 4. Validation & Error Matrix
 - Configured workbook import succeeds -> persist rows with the generated startup batch id, activate that batch, publish `source="configured-workbook"` and `fallbackActive=false`.

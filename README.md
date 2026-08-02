@@ -16,7 +16,7 @@
 | --- | --- |
 | 前端 | Vue 3、Vite、markdown-it、highlight.js、Mermaid、Vitest |
 | 后端 | Java 21、Spring Boot 3.4、Spring AI 1.0、Spring Web MVC |
-| 数据 | H2 内存数据库、Spring Data JPA、Apache POI |
+| 数据 | 默认 H2 + Spring Data JPA；`prod` 使用 PostgreSQL + Flyway；Apache POI |
 | 通信 | REST、Server-Sent Events (SSE) |
 
 ## 核心能力
@@ -131,6 +131,23 @@ mvn "-Dfrontend.skip=true" spring-boot:run
 后端默认监听 `http://localhost:8081`，启动时会从 `classpath:Sample Data.xlsx` 导入样板数据到 H2 内存数据库。导入前会校验五个必需 Sheet，并按字段类型清洗空白、文本空值、数字、日期和分类值。缺失目标分母或预计关闭日期会保留为 `null`，不会伪造为 `0` 或推测日期。
 
 本地/demo 模式默认允许在工作簿不可用时切换到内置样例数据，前端聊天区会显示明确警告；`prod` 配置关闭该回退，导入失败会阻止应用启动。登录后可通过 `GET /api/data-status` 查看数据来源、回退状态以及各 Sheet 的处理、导入、规范化、跳过和问题计数。
+
+### 持久化数据库模式
+
+生产形态使用 PostgreSQL + Flyway。Flyway 会在启动时执行 `backend/src/main/resources/db/migration/` 下尚未应用的迁移，生产环境的 Hibernate 只校验 schema，不自动修改表结构。
+
+PowerShell 示例：
+
+```powershell
+cd backend
+$env:SPRING_PROFILES_ACTIVE="prod"
+$env:APP_DB_URL="jdbc:postgresql://localhost:5432/agentpoc"
+$env:APP_DB_USERNAME="agentpoc"
+$env:APP_DB_PASSWORD="change-me"
+mvn "-Dfrontend.skip=true" spring-boot:run
+```
+
+`APP_DB_URL`、`APP_DB_USERNAME` 和 `APP_DB_PASSWORD` 必须指向可访问的 PostgreSQL 实例。迁移失败或数据库不可用时，`prod` 不会回退到 H2 或内置样例；本地快速开发仍使用默认 H2 配置。
 
 ### 2. 启动前端
 
@@ -342,7 +359,7 @@ mvn clean install
 
 ## 开发注意事项
 
-- H2 使用内存数据库，应用重启后会重新导入 Excel 样板数据。
+- 默认开发模式使用 H2 内存数据库，应用重启后会重新导入 Excel 样板数据；`prod` 使用 PostgreSQL 持久化数据，并由 Flyway 管理 schema。
 - `0` 只表示源数据确认的真实零值；缺失数值保留为 `null`，未知分类使用“未知”或“未分配”。
 - 目标/活动达成率只使用可比样本计算，总观测值与可比样本值必须分别展示。
 - 规则引擎输出数据来自样板数据或聚合计算，外部模型只负责在事实锚点基础上润色。
