@@ -17,6 +17,8 @@ spring:
     open-in-view: false
     hibernate:
       ddl-auto: update
+  flyway:
+    enabled: false
 
 app:
   auth:
