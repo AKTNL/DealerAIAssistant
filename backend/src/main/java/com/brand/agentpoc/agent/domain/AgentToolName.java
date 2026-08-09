@@ -8,7 +8,8 @@ public enum AgentToolName {
     GET_DASHBOARD_SUMMARY("getDashboardSummary"),
     QUERY_METRIC("queryMetric"),
     QUERY_DETAILS("queryDetails"),
-    RUN_SCENARIO_ANALYSIS("runScenarioAnalysis");
+    RUN_SCENARIO_ANALYSIS("runScenarioAnalysis"),
+    RETRIEVE_KNOWLEDGE("retrieveKnowledge");
 
     private final String wireName;
 

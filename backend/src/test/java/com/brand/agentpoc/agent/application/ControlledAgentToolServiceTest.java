@@ -11,6 +11,8 @@ import com.brand.agentpoc.dto.detail.TaskDetail;
 import com.brand.agentpoc.dto.metrics.TargetMetrics;
 import com.brand.agentpoc.dto.response.ApiPage;
 import com.brand.agentpoc.dto.response.ApiResult;
+import com.brand.agentpoc.knowledge.application.KnowledgeService;
+import com.brand.agentpoc.knowledge.domain.KnowledgeSearchResult;
 import com.brand.agentpoc.service.AnalyticsApiService;
 import com.brand.agentpoc.service.AnalyticsMetadata;
 import com.brand.agentpoc.service.AnalyticsPlan;
@@ -26,6 +28,7 @@ class ControlledAgentToolServiceTest {
     private DashboardService dashboardService;
     private AnalyticsApiService analyticsApiService;
     private RuleBasedAnalyticsService analyticsService;
+    private KnowledgeService knowledgeService;
     private ControlledAgentToolService toolService;
 
     @BeforeEach
@@ -33,10 +36,12 @@ class ControlledAgentToolServiceTest {
         dashboardService = mock(DashboardService.class);
         analyticsApiService = mock(AnalyticsApiService.class);
         analyticsService = mock(RuleBasedAnalyticsService.class);
+        knowledgeService = mock(KnowledgeService.class);
         toolService = new ControlledAgentToolService(
                 dashboardService,
                 analyticsApiService,
-                analyticsService
+                analyticsService,
+                knowledgeService
         );
     }
 
@@ -165,5 +170,17 @@ class ControlledAgentToolServiceTest {
         assertThat(result.groundedReference()).isEqualTo("grounded facts");
         assertThat(result.fallbackReply()).isEqualTo("fallback report");
         assertThat(result.metadata()).isSameAs(metadata);
+    }
+
+    @Test
+    void delegatesKnowledgeRetrievalThroughThePublicApplicationService() {
+        KnowledgeSearchResult expected = KnowledgeSearchResult.from("目标达成率口径", List.of());
+        when(knowledgeService.retrieve("目标达成率口径", 3)).thenReturn(expected);
+
+        KnowledgeSearchResult result = toolService.retrieveKnowledge("目标达成率口径", 3);
+
+        assertThat(result).isSameAs(expected);
+        verify(knowledgeService).retrieve("目标达成率口径", 3);
+        verifyNoInteractions(dashboardService, analyticsApiService, analyticsService);
     }
 }

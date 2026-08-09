@@ -3,6 +3,7 @@ package com.brand.agentpoc.agent.infrastructure;
 import com.brand.agentpoc.agent.application.AgentScenarioAnalysis;
 import com.brand.agentpoc.agent.application.AgentToolResult;
 import com.brand.agentpoc.agent.application.ControlledAgentToolService;
+import com.brand.agentpoc.knowledge.domain.KnowledgeSearchResult;
 import java.util.Map;
 import org.springframework.ai.tool.annotation.Tool;
 import org.springframework.ai.tool.annotation.ToolParam;
@@ -82,5 +83,18 @@ public class ControlledAgentToolAdapter {
             String language
     ) {
         return toolService.runScenarioAnalysis(question, language);
+    }
+
+    @Tool(
+            name = "retrieveKnowledge",
+            description = "Retrieve citable dealer business knowledge such as KPI definitions, SOPs, policies, and product or campaign rules. Read only. Never use it as the source of current KPI values."
+    )
+    public KnowledgeSearchResult retrieveKnowledge(
+            @ToolParam(description = "A specific dealer business knowledge question.", required = true)
+            String query,
+            @ToolParam(description = "Optional result limit from 1 to 8. Defaults to 4.", required = false)
+            Integer topK
+    ) {
+        return toolService.retrieveKnowledge(query, topK);
     }
 }

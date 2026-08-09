@@ -2,6 +2,8 @@ package com.brand.agentpoc.agent.application;
 
 import com.brand.agentpoc.agent.domain.AgentDataKind;
 import com.brand.agentpoc.agent.domain.AgentExecutionPolicy;
+import com.brand.agentpoc.knowledge.application.KnowledgeService;
+import com.brand.agentpoc.knowledge.domain.KnowledgeSearchResult;
 import com.brand.agentpoc.service.AnalyticsApiService;
 import com.brand.agentpoc.service.AnalyticsPlan;
 import com.brand.agentpoc.service.DashboardService;
@@ -48,26 +50,36 @@ public class ControlledAgentToolService {
     private final DashboardService dashboardService;
     private final AnalyticsApiService analyticsApiService;
     private final RuleBasedAnalyticsService analyticsService;
+    private final KnowledgeService knowledgeService;
     private final AgentExecutionPolicy executionPolicy;
 
     @Autowired
     public ControlledAgentToolService(
             DashboardService dashboardService,
             AnalyticsApiService analyticsApiService,
-            RuleBasedAnalyticsService analyticsService
+            RuleBasedAnalyticsService analyticsService,
+            KnowledgeService knowledgeService
     ) {
-        this(dashboardService, analyticsApiService, analyticsService, AgentExecutionPolicy.defaultPolicy());
+        this(
+                dashboardService,
+                analyticsApiService,
+                analyticsService,
+                knowledgeService,
+                AgentExecutionPolicy.defaultPolicy()
+        );
     }
 
     ControlledAgentToolService(
             DashboardService dashboardService,
             AnalyticsApiService analyticsApiService,
             RuleBasedAnalyticsService analyticsService,
+            KnowledgeService knowledgeService,
             AgentExecutionPolicy executionPolicy
     ) {
         this.dashboardService = dashboardService;
         this.analyticsApiService = analyticsApiService;
         this.analyticsService = analyticsService;
+        this.knowledgeService = knowledgeService;
         this.executionPolicy = executionPolicy;
     }
 
@@ -190,6 +202,10 @@ public class ControlledAgentToolService {
                 plan.fallbackReply(),
                 plan.metadata()
         );
+    }
+
+    public KnowledgeSearchResult retrieveKnowledge(String query, Integer topK) {
+        return knowledgeService.retrieve(query, topK);
     }
 
     private Map<String, String> validateFilters(Map<String, String> filters, Set<String> allowedKeys) {

@@ -1,0 +1,36 @@
+{
+  "documents": [
+    {
+      "documentId": "kpi-target-achievement",
+      "title": "目标达成率与经营指标口径",
+      "type": "KPI_DEFINITION",
+      "version": "2026.08",
+      "source": "knowledge/kpi-definitions.md",
+      "resource": "classpath:/knowledge/kpi-definitions.md"
+    },
+    {
+      "documentId": "sales-follow-up-sop",
+      "title": "商机与线索跟进 SOP",
+      "type": "SALES_SOP",
+      "version": "2026.08",
+      "source": "knowledge/sales-follow-up-sop.md",
+      "resource": "classpath:/knowledge/sales-follow-up-sop.md"
+    },
+    {
+      "documentId": "dealer-management-policy",
+      "title": "经销商经营管理政策摘要",
+      "type": "DEALER_POLICY",
+      "version": "2026.08",
+      "source": "knowledge/dealer-management-policy.md",
+      "resource": "classpath:/knowledge/dealer-management-policy.md"
+    },
+    {
+      "documentId": "campaign-product-rules",
+      "title": "车型与市场活动规则",
+      "type": "PRODUCT_RULE",
+      "version": "2026.08",
+      "source": "knowledge/campaign-product-rules.md",
+      "resource": "classpath:/knowledge/campaign-product-rules.md"
+    }
+  ]
+}

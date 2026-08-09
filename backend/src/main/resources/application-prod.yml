@@ -12,10 +12,12 @@ spring:
       ddl-auto: validate
   flyway:
     enabled: true
-    locations: classpath:db/migration
+    locations: classpath:db/migration,classpath:db/postgresql
     validate-on-migrate: true
     clean-disabled: true
 
 app:
   excel:
     fallback-enabled: false
+  knowledge:
+    vector-store: ${APP_KNOWLEDGE_VECTOR_STORE:pgvector}

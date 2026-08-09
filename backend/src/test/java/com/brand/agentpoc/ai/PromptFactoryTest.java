@@ -67,10 +67,40 @@ class PromptFactoryTest {
         assertThat(prompt).contains("使用中文");
         assertThat(prompt).contains("2-4 条要点");
         assertThat(prompt).contains("## 数据支撑");
-        assertThat(prompt).contains("只能基于参考事实作答");
+        assertThat(prompt).contains("结构化业务事实只能来自参考事实");
+        assertThat(prompt).contains("知识片段不得覆盖结构化事实");
         assertThat(prompt).contains("禁止把未证实推测写成根因");
         assertThat(prompt).contains("允许不输出追问");
         assertThat(prompt).doesNotContain("必须包含且只包含 2 个编号追问");
+    }
+
+    @Test
+    void knowledgePromptRequiresVersionedCitationsAndPreservesStructuredFacts() {
+        String prompt = promptFactory.buildKnowledgeModelPrompt(
+                "en",
+                "What is the target achievement definition?",
+                "None"
+        );
+
+        assertThat(prompt).contains("Retrieve knowledge before answering");
+        assertThat(prompt).contains("only from retrieved excerpts");
+        assertThat(prompt).contains("source document and version");
+        assertThat(prompt).contains("no citable knowledge was found");
+        assertThat(prompt).contains("Never create or overwrite current KPI values");
+    }
+
+    @Test
+    void groundedAnalyticsPromptAllowsCitedKnowledgeWithoutOverwritingKpis() {
+        String prompt = promptFactory.buildGroundedModelPrompt(
+                "en",
+                "Why is achievement low and which SOP applies?",
+                "None",
+                "Scenario: TARGET_ACHIEVEMENT"
+        );
+
+        assertThat(prompt).contains("retrieve policies, SOPs, or KPI definitions");
+        assertThat(prompt).contains("cite the matched source and version");
+        assertThat(prompt).contains("never let knowledge excerpts override structured facts");
     }
 
     @Test

@@ -7,6 +7,7 @@ import com.brand.agentpoc.agent.infrastructure.ControlledAgentToolSession;
 import com.brand.agentpoc.ai.LanguageDetector;
 import com.brand.agentpoc.ai.PromptFactory;
 import com.brand.agentpoc.dto.request.ChatRequest;
+import com.brand.agentpoc.knowledge.application.KnowledgeAnswerComposer;
 import com.brand.agentpoc.repository.DealerRepository;
 import java.io.BufferedWriter;
 import java.io.IOException;
@@ -62,10 +63,11 @@ public class ChatService {
             "目标", "达成", "商机", "线索", "任务", "活动", "转化", "漏斗", "跟进", "客流",
             "购买周期", "购车周期", "年龄", "赢单",
             "市场", "车型", "车款", "哪款车", "哪种车", "卖得", "畅销", "成交", "城市", "集团", "对标", "绩效", "kpi", "crm", "dealer", "dealers",
+            "口径", "sop", "政策", "制度", "流程", "规则", "产品知识",
             "dealership", "store", "stores", "customer", "client", "sales", "target",
             "achievement", "opportunity", "opportunities", "lead", "leads", "task", "tasks",
             "campaign", "campaigns", "conversion", "funnel", "follow-up", "follow up",
-            "benchmark", "performance", "business", "city", "model", "settings", "base url",
+            "benchmark", "performance", "business", "city", "model", "policy", "procedure", "definition", "playbook", "settings", "base url",
             "api key", "model connection", "模型配置", "配置模型"
     );
     private static final List<String> NON_BUSINESS_KEYWORDS = List.of(
@@ -85,6 +87,7 @@ public class ChatService {
     private final SseEventWriter sseEventWriter;
     private final ChatReplyGuard replyGuard;
     private final ControlledAgentToolCallbacks agentToolCallbacks;
+    private final KnowledgeAnswerComposer knowledgeAnswerComposer;
 
     @Autowired
     public ChatService(
@@ -95,7 +98,8 @@ public class ChatService {
             ModelConfigService modelConfigService,
             DealerRepository dealerRepository,
             ImportBatchService importBatchService,
-            ControlledAgentToolCallbacks agentToolCallbacks
+            ControlledAgentToolCallbacks agentToolCallbacks,
+            KnowledgeAnswerComposer knowledgeAnswerComposer
     ) {
         this.sessionMemoryService = sessionMemoryService;
         this.languageDetector = languageDetector;
@@ -107,6 +111,7 @@ public class ChatService {
         this.sseEventWriter = new SseEventWriter();
         this.replyGuard = new ChatReplyGuard(languageDetector);
         this.agentToolCallbacks = agentToolCallbacks;
+        this.knowledgeAnswerComposer = knowledgeAnswerComposer;
     }
 
     ChatService(
@@ -125,6 +130,7 @@ public class ChatService {
                 modelConfigService,
                 dealerRepository,
                 new ImportBatchService(),
+                null,
                 null
         );
     }
@@ -150,13 +156,15 @@ public class ChatService {
             AgentRequestScope agentScope
     ) throws IOException {
         String language = languageDetector.detectLanguage(request.message());
-        boolean analyticsRequested = looksLikeAnalyticsRequest(request.message());
-        String directReply = buildDirectCasualReply(request.message(), language, analyticsRequested);
+        boolean knowledgeRequested = looksLikeKnowledgeRequest(request.message());
+        boolean analyticsRequested = isAnalyticsRoute(request.message(), knowledgeRequested);
+        boolean groundedRequested = analyticsRequested || knowledgeRequested;
+        String directReply = buildDirectCasualReply(request.message(), language, groundedRequested);
         if (directReply == null) {
             if (mentionsUnknownDemoEntity(request.message())) {
                 String unknownEntity = extractUnknownDemoEntityName(request.message());
                 directReply = buildEntityNotFoundReply(language, unknownEntity);
-            } else if (isOutOfScopeQuestion(request.message(), analyticsRequested)) {
+            } else if (isOutOfScopeQuestion(request.message(), groundedRequested)) {
                 directReply = buildOutOfScopeReply(language);
             }
         }
@@ -189,6 +197,7 @@ public class ChatService {
                 List<String> progressMessages = resolveStreamProgressMessages(
                         language,
                         analyticsRequested,
+                        knowledgeRequested,
                         configuredModel,
                         analyticsPlan
                 );
@@ -198,17 +207,22 @@ public class ChatService {
                 writeAnalyticsMetadata(writer, analyticsPlan);
 
                 if (!configuredModel) {
-                    GeneratedReply generatedReply = analyticsPlan != null
-                            ? new GeneratedReply(
+                    GeneratedReply generatedReply;
+                    if (analyticsPlan != null) {
+                        generatedReply = new GeneratedReply(
                                     analyticsPlan.fallbackReply().trim(),
                                     analyticsPlan.progressMessages(),
                                     analyticsPlan.visibleThinking()
-                            )
-                            : new GeneratedReply(
+                            );
+                    } else if (knowledgeRequested) {
+                        generatedReply = knowledgeFallback(request.message(), language);
+                    } else {
+                        generatedReply = new GeneratedReply(
                                     buildModelNotConfiguredReply(language),
                                     buildConfigurationProgressMessages(language),
                                     buildConfigurationThinking(language)
                             );
+                    }
                     sseEventWriter.writeChunkedEvent(writer, "message", generatedReply.reply());
                     sessionMemoryService.addAssistantMessage(request.sessionId(), generatedReply.reply());
                     sseEventWriter.writeEvent(writer, "done", "[DONE]");
@@ -220,6 +234,7 @@ public class ChatService {
                         request,
                         language,
                         analyticsRequested,
+                        knowledgeRequested,
                         analyticsPlan,
                         agentScope,
                         traceId
@@ -235,6 +250,7 @@ public class ChatService {
             ChatRequest request,
             String language,
             boolean analyticsRequested,
+            boolean knowledgeRequested,
             AnalyticsPlan analyticsPlan,
             AgentRequestScope agentScope,
             String traceId
@@ -250,6 +266,13 @@ public class ChatService {
                     prompt,
                     agentSession
             );
+            return;
+        }
+
+        if (knowledgeRequested) {
+            Prompt prompt = buildKnowledgePrompt(request, language);
+            ControlledAgentToolSession agentSession = openAgentSession(agentScope, traceId);
+            streamConfiguredKnowledgeReply(writer, request, language, prompt, agentSession);
             return;
         }
 
@@ -384,6 +407,40 @@ public class ChatService {
         sseEventWriter.writeEvent(writer, "done", "[DONE]");
     }
 
+    private void streamConfiguredKnowledgeReply(
+            BufferedWriter writer,
+            ChatRequest request,
+            String language,
+            Prompt prompt,
+            ControlledAgentToolSession agentSession
+    ) throws IOException {
+        String finalReply;
+        try {
+            sseEventWriter.writeEvent(writer, "progress", localizedProgress(
+                    language,
+                    "正在检索业务知识并生成带引用的回答",
+                    "Retrieving business knowledge and preparing a cited answer"
+            ));
+            ChatModel chatModel = modelConfigService.createChatModel(request);
+            finalReply = callConfiguredKnowledgeModel(chatModel, prompt, agentSession);
+            finalReply = replyGuard.ensureFollowUpQuestions(finalReply, language, false);
+        } catch (Exception exception) {
+            finalReply = knowledgeFallback(request.message(), language).reply();
+            sseEventWriter.writeEvent(writer, "progress", localizedProgress(
+                    language,
+                    "模型或知识工具不可用，已返回确定性知识检索结果",
+                    "The model or knowledge tool was unavailable; returning deterministic retrieval results"
+            ));
+        }
+
+        if (finalReply.length() > MAX_STREAMED_REPLY_CHARS) {
+            throw new IllegalStateException(STREAMED_REPLY_LIMIT_MESSAGE);
+        }
+        sseEventWriter.writeChunkedEvent(writer, "message", finalReply);
+        sessionMemoryService.addAssistantMessage(request.sessionId(), finalReply);
+        sseEventWriter.writeEvent(writer, "done", "[DONE]");
+    }
+
     private void writeAnalyticsMetadata(BufferedWriter writer, AnalyticsPlan analyticsPlan) throws IOException {
         if (analyticsPlan != null) {
             sseEventWriter.writeAnalysisMetadataEvent(writer, analyticsPlan.metadata());
@@ -406,6 +463,19 @@ public class ChatService {
                 )
                 : promptFactory.buildConversationModelPrompt(language, request.message(), sessionHistory);
 
+        return new Prompt(
+                new SystemMessage(promptFactory.buildSystemPrompt(language)),
+                new UserMessage(userPrompt)
+        );
+    }
+
+    private Prompt buildKnowledgePrompt(ChatRequest request, String language) {
+        String sessionHistory = formatSessionHistory(request.sessionId(), language);
+        String userPrompt = promptFactory.buildKnowledgeModelPrompt(
+                language,
+                request.message(),
+                sessionHistory
+        );
         return new Prompt(
                 new SystemMessage(promptFactory.buildSystemPrompt(language)),
                 new UserMessage(userPrompt)
@@ -511,17 +581,20 @@ public class ChatService {
 
     private GeneratedReply generateReply(ChatRequest request, AgentRequestScope agentScope) {
         String language = languageDetector.detectLanguage(request.message());
-        boolean analyticsRequested = looksLikeAnalyticsRequest(request.message());
-        return generateReply(request, language, analyticsRequested, agentScope);
+        boolean knowledgeRequested = looksLikeKnowledgeRequest(request.message());
+        boolean analyticsRequested = isAnalyticsRoute(request.message(), knowledgeRequested);
+        return generateReply(request, language, analyticsRequested, knowledgeRequested, agentScope);
     }
 
     private GeneratedReply generateReply(
             ChatRequest request,
             String language,
             boolean analyticsRequested,
+            boolean knowledgeRequested,
             AgentRequestScope agentScope
     ) {
-        String directReply = buildDirectCasualReply(request.message(), language, analyticsRequested);
+        boolean groundedRequested = analyticsRequested || knowledgeRequested;
+        String directReply = buildDirectCasualReply(request.message(), language, groundedRequested);
         if (directReply != null) {
             return new GeneratedReply(directReply, List.of(), "");
         }
@@ -529,7 +602,7 @@ public class ChatService {
             String unknownEntity = extractUnknownDemoEntityName(request.message());
             return new GeneratedReply(buildEntityNotFoundReply(language, unknownEntity), List.of(), "");
         }
-        if (isOutOfScopeQuestion(request.message(), analyticsRequested)) {
+        if (isOutOfScopeQuestion(request.message(), groundedRequested)) {
             return new GeneratedReply(buildOutOfScopeReply(language), List.of(), "");
         }
 
@@ -542,6 +615,9 @@ public class ChatService {
                         plan.visibleThinking()
                 );
             }
+            if (knowledgeRequested) {
+                return knowledgeFallback(request.message(), language);
+            }
 
             return new GeneratedReply(
                     buildModelNotConfiguredReply(language),
@@ -553,7 +629,33 @@ public class ChatService {
         if (analyticsRequested) {
             return generateAnalyticsReply(request, language, agentScope);
         }
+        if (knowledgeRequested) {
+            return generateKnowledgeReply(request, language, agentScope);
+        }
         return generateGeneralReply(request, language);
+    }
+
+    private GeneratedReply generateKnowledgeReply(
+            ChatRequest request,
+            String language,
+            AgentRequestScope agentScope
+    ) {
+        try {
+            ChatModel chatModel = modelConfigService.createChatModel(request);
+            ControlledAgentToolSession agentSession = openAgentSession(agentScope, newTraceId());
+            String reply = callConfiguredKnowledgeModel(
+                    chatModel,
+                    buildKnowledgePrompt(request, language),
+                    agentSession
+            );
+            return new GeneratedReply(
+                    replyGuard.ensureFollowUpQuestions(reply, language, false),
+                    buildKnowledgeProgressMessages(language),
+                    buildKnowledgeThinking(language)
+            );
+        } catch (Exception exception) {
+            return knowledgeFallback(request.message(), language);
+        }
     }
 
     private GeneratedReply generateGeneralReply(ChatRequest request, String language) {
@@ -681,6 +783,25 @@ public class ChatService {
         return reply.trim();
     }
 
+    private String callConfiguredKnowledgeModel(
+            ChatModel chatModel,
+            Prompt prompt,
+            ControlledAgentToolSession agentSession
+    ) {
+        if (agentSession == null || agentSession.callbacks().isEmpty()) {
+            throw new IllegalStateException("Authenticated knowledge tool scope is required.");
+        }
+        String reply = ChatClient.create(chatModel)
+                .prompt(prompt)
+                .toolCallbacks(agentSession.callbacks())
+                .call()
+                .content();
+        if (reply == null || reply.isBlank()) {
+            throw new IllegalStateException("Configured model returned an empty response.");
+        }
+        return reply.trim();
+    }
+
     private Flux<ChatResponse> streamWithControlledTools(
             ChatModel chatModel,
             Prompt prompt,
@@ -700,6 +821,25 @@ public class ChatService {
         return agentToolCallbacks.openSession(scope, traceId);
     }
 
+    private GeneratedReply knowledgeFallback(String query, String language) {
+        String reply;
+        try {
+            if (knowledgeAnswerComposer == null) {
+                throw new IllegalStateException("Knowledge answer composer is unavailable.");
+            }
+            reply = knowledgeAnswerComposer.compose(query, language);
+        } catch (RuntimeException exception) {
+            reply = "zh".equals(language)
+                    ? "业务知识库当前不可用，无法提供带来源和版本的可靠回答。请稍后重试。"
+                    : "The business knowledge base is currently unavailable, so I cannot provide a reliable answer with source and version citations. Try again later.";
+        }
+        return new GeneratedReply(
+                reply,
+                buildKnowledgeProgressMessages(language),
+                buildKnowledgeThinking(language)
+        );
+    }
+
     private String newTraceId() {
         return java.util.UUID.randomUUID().toString().replace("-", "").substring(0, 8);
     }
@@ -707,14 +847,21 @@ public class ChatService {
     private List<String> resolveStreamProgressMessages(
             String language,
             boolean analyticsRequested,
+            boolean knowledgeRequested,
             boolean configuredModel,
             AnalyticsPlan analyticsPlan
     ) {
         if (configuredModel) {
+            if (knowledgeRequested && !analyticsRequested) {
+                return buildKnowledgeProgressMessages(language);
+            }
             return buildModelProgressMessages(language, analyticsRequested);
         }
         if (analyticsPlan != null) {
             return analyticsPlan.progressMessages();
+        }
+        if (knowledgeRequested) {
+            return buildKnowledgeProgressMessages(language);
         }
         return buildConfigurationProgressMessages(language);
     }
@@ -749,6 +896,39 @@ public class ChatService {
                 "Calling the configured model",
                 "Generating the final reply"
         );
+    }
+
+    private List<String> buildKnowledgeProgressMessages(String language) {
+        if ("zh".equals(language)) {
+            return List.of(
+                    "正在识别业务知识问题",
+                    "正在检索带来源和版本的资料",
+                    "正在生成受知识库约束的回答"
+            );
+        }
+        return List.of(
+                "Identifying the business knowledge question",
+                "Retrieving sources with versioned citations",
+                "Preparing a knowledge-grounded answer"
+        );
+    }
+
+    private String buildKnowledgeThinking(String language) {
+        if ("zh".equals(language)) {
+            return """
+                    1. 识别当前业务知识问题与适用范围
+                    2. 检索带来源、版本和章节定位的知识片段
+                    3. 区分知识解释与结构化 KPI 事实，避免相互覆盖
+                    4. 仅依据命中资料整理带引用的回答
+                    """;
+        }
+
+        return """
+                1. Identify the business knowledge question and its scope
+                2. Retrieve knowledge passages with source, version, and section details
+                3. Keep knowledge explanations separate from structured KPI facts
+                4. Compose a cited answer using only the retrieved material
+                """;
     }
 
     private List<String> buildConfigurationProgressMessages(String language) {
@@ -1152,6 +1332,40 @@ public class ChatService {
                 "dealer", "dealers", "target", "achievement", "sales", "opportunity", "opportunities",
                 "lead", "leads", "task", "tasks", "campaign", "campaigns", "benchmark", "funnel",
                 "conversion", "city", "model", "performance", "trend", "lowest", "highest", "compare"
+        );
+    }
+
+    private boolean looksLikeKnowledgeRequest(String message) {
+        String normalized = message == null ? "" : message.trim().toLowerCase(Locale.ROOT);
+        if (normalized.isBlank()) {
+            return false;
+        }
+
+        boolean knowledgeSignal = containsAny(
+                normalized,
+                "口径", "sop", "政策", "制度", "流程", "规则", "定义", "产品知识",
+                "policy", "procedure", "definition", "playbook"
+        );
+        boolean businessSignal = BUSINESS_SCOPE_KEYWORDS.stream().anyMatch(normalized::contains);
+        boolean explicitlyNonBusiness = NON_BUSINESS_KEYWORDS.stream().anyMatch(normalized::contains);
+        return knowledgeSignal && businessSignal && !explicitlyNonBusiness;
+    }
+
+    private boolean isAnalyticsRoute(String message, boolean knowledgeRequested) {
+        if (!looksLikeAnalyticsRequest(message)) {
+            return false;
+        }
+        if (!knowledgeRequested) {
+            return true;
+        }
+
+        String normalized = message == null ? "" : message.trim().toLowerCase(Locale.ROOT);
+        return containsAny(
+                normalized,
+                "分析", "对比", "趋势", "表现", "差距", "原因", "最低", "最高", "排名", "多少",
+                "低", "改善", "提升", "优化",
+                "analyze", "compare", "trend", "performance", "gap", "reason", "lowest", "highest",
+                "rank", "how many", "improve", "optimize"
         );
     }
 

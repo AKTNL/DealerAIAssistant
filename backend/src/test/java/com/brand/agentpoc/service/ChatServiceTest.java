@@ -19,6 +19,7 @@ import com.brand.agentpoc.agent.domain.AgentRequestScope;
 import com.brand.agentpoc.agent.infrastructure.ControlledAgentToolAdapter;
 import com.brand.agentpoc.agent.infrastructure.ControlledAgentToolCallbacks;
 import com.brand.agentpoc.dto.request.ChatRequest;
+import com.brand.agentpoc.knowledge.application.KnowledgeAnswerComposer;
 import com.brand.agentpoc.repository.DealerRepository;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
@@ -50,6 +51,7 @@ class ChatServiceTest {
     private PromptFactory promptFactory;
     private ModelConfigService modelConfigService;
     private DealerRepository dealerRepository;
+    private KnowledgeAnswerComposer knowledgeAnswerComposer;
     private ChatService chatService;
 
     @BeforeEach
@@ -60,6 +62,7 @@ class ChatServiceTest {
         promptFactory = mock(PromptFactory.class);
         modelConfigService = mock(ModelConfigService.class);
         dealerRepository = mock(DealerRepository.class);
+        knowledgeAnswerComposer = mock(KnowledgeAnswerComposer.class);
 
         when(modelConfigService.hasConfiguredModelSettings(any(ChatRequest.class)))
                 .thenAnswer(invocation -> {
@@ -631,6 +634,207 @@ class ChatServiceTest {
         assertControlledToolCallbacks(promptCaptor.getValue());
         assertThat(extractEventData(outputStream.toString(StandardCharsets.UTF_8), "message"))
                 .containsExactly(plan.fallbackReply().trim());
+    }
+
+    @Test
+    void authenticatedKnowledgeChatUsesTheKnowledgePromptAndAllControlledTools() {
+        ChatRequest request = new ChatRequest(
+                "s1",
+                "What is the target achievement definition for dealers?",
+                "https://api.example.com",
+                "sk-test",
+                "gpt-4.1-mini"
+        );
+        ChatModel chatModel = mock(ChatModel.class);
+        ArgumentCaptor<Prompt> promptCaptor = ArgumentCaptor.forClass(Prompt.class);
+        String knowledgePrompt = "Retrieve knowledge and cite the source document, version, and section.";
+
+        when(languageDetector.detectLanguage(request.message())).thenReturn("en");
+        when(modelConfigService.createChatModel(request)).thenReturn(chatModel);
+        when(chatModel.getDefaultOptions()).thenReturn(ToolCallingChatOptions.builder().build());
+        when(promptFactory.buildKnowledgeModelPrompt("en", request.message(), "None"))
+                .thenReturn(knowledgePrompt);
+        when(promptFactory.buildSystemPrompt("en")).thenReturn("System prompt");
+        when(chatModel.call(any(Prompt.class))).thenReturn(new ChatResponse(List.of(
+                new Generation(new AssistantMessage(
+                        "Target achievement follows the documented definition. Source: KPI Handbook, version 1.0."
+                ))
+        )));
+
+        String reply = controlledChatService().chat(
+                request,
+                AgentRequestScope.authenticated("s1", "subject-1")
+        );
+
+        verify(chatModel).call(promptCaptor.capture());
+        assertControlledToolCallbacks(promptCaptor.getValue());
+        assertThat(promptCaptor.getValue().getContents()).contains(knowledgePrompt);
+        assertThat(reply).contains("Source: KPI Handbook, version 1.0");
+        verifyNoInteractions(analyticsService);
+    }
+
+    @Test
+    void knowledgeChatWithoutAModelReturnsTheDeterministicCitedAnswer() {
+        ChatRequest request = new ChatRequest("s1", "目标达成率口径是什么？", "", "", "");
+        String citedAnswer = "目标达成率按可比目标计算。\n\n来源：KPI 指标口径手册（版本 1.0）";
+
+        when(languageDetector.detectLanguage(request.message())).thenReturn("zh");
+        when(knowledgeAnswerComposer.compose(request.message(), "zh")).thenReturn(citedAnswer);
+
+        String reply = controlledChatService().chat(request);
+
+        assertThat(reply).isEqualTo(citedAnswer);
+        verify(knowledgeAnswerComposer).compose(request.message(), "zh");
+        verify(modelConfigService, never()).createChatModel(any(ChatRequest.class));
+        verifyNoInteractions(analyticsService);
+    }
+
+    @Test
+    void knowledgeChatFallsBackToDeterministicRetrievalWhenTheModelFails() {
+        ChatRequest request = new ChatRequest(
+                "s1",
+                "What is the dealer follow-up SOP?",
+                "https://api.example.com",
+                "sk-test",
+                "gpt-4.1-mini"
+        );
+        String citedAnswer = "Follow up within the documented window. Source: Sales SOP, version 1.0.";
+
+        when(languageDetector.detectLanguage(request.message())).thenReturn("en");
+        when(modelConfigService.createChatModel(request))
+                .thenThrow(new IllegalArgumentException("Model base URL is not allowed."));
+        when(knowledgeAnswerComposer.compose(request.message(), "en")).thenReturn(citedAnswer);
+
+        String reply = controlledChatService().chat(
+                request,
+                AgentRequestScope.authenticated("s1", "subject-1")
+        );
+
+        assertThat(reply).isEqualTo(citedAnswer);
+        verify(knowledgeAnswerComposer).compose(request.message(), "en");
+        verifyNoInteractions(analyticsService);
+    }
+
+    @Test
+    void authenticatedKnowledgeStreamEmitsReplyAndDoneWithAllControlledTools() throws Exception {
+        ChatRequest request = new ChatRequest(
+                "s1",
+                "What is the dealer follow-up SOP?",
+                "https://api.example.com",
+                "sk-test",
+                "gpt-4.1-mini"
+        );
+        ChatModel chatModel = mock(ChatModel.class);
+        ArgumentCaptor<Prompt> promptCaptor = ArgumentCaptor.forClass(Prompt.class);
+        ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
+
+        when(languageDetector.detectLanguage(request.message())).thenReturn("en");
+        when(modelConfigService.createChatModel(request)).thenReturn(chatModel);
+        when(chatModel.getDefaultOptions()).thenReturn(ToolCallingChatOptions.builder().build());
+        when(promptFactory.buildKnowledgeModelPrompt("en", request.message(), "None"))
+                .thenReturn("Retrieve the SOP and cite its source and version.");
+        when(promptFactory.buildSystemPrompt("en")).thenReturn("System prompt");
+        when(chatModel.call(any(Prompt.class))).thenReturn(new ChatResponse(List.of(
+                new Generation(new AssistantMessage("Use the documented follow-up cadence. Source: Sales SOP v1.0."))
+        )));
+
+        controlledChatService().streamChat(
+                request,
+                outputStream,
+                AgentRequestScope.authenticated("s1", "subject-1")
+        );
+
+        verify(chatModel).call(promptCaptor.capture());
+        assertControlledToolCallbacks(promptCaptor.getValue());
+        String payload = outputStream.toString(StandardCharsets.UTF_8);
+        assertThat(String.join("", extractEventData(payload, "message")))
+                .contains("Source: Sales SOP v1.0");
+        assertThat(payload).contains("event: done").doesNotContain("event: error");
+        verifyNoInteractions(analyticsService);
+    }
+
+    @Test
+    void combinedAnalyticsAndKnowledgeQuestionKeepsTheAnalyticsRoute() {
+        ChatRequest request = new ChatRequest(
+                "s1",
+                "目标达成率低，按什么 SOP 改善？",
+                "https://api.example.com",
+                "sk-test",
+                "gpt-4.1-mini"
+        );
+        ChatModel chatModel = mock(ChatModel.class);
+        AnalyticsPlan plan = analyticsPlan(
+                AnalyticsPlan.Scenario.TARGET_ACHIEVEMENT,
+                """
+                ## 核心结论
+                目标达成率偏低。
+                ## 数据支撑
+                <table><tr><td>72%</td></tr></table>
+                ## 经营分析
+                需要结合跟进 SOP 改善。
+                ## 问题诊断与解决
+                先核查漏斗。
+                ## 改进建议
+                按知识库 SOP 执行。
+                """
+        );
+        ArgumentCaptor<Prompt> promptCaptor = ArgumentCaptor.forClass(Prompt.class);
+
+        when(languageDetector.detectLanguage(request.message())).thenReturn("zh");
+        when(analyticsService.plan(request.message(), "zh")).thenReturn(plan);
+        when(modelConfigService.createChatModel(request)).thenReturn(chatModel);
+        when(chatModel.getDefaultOptions()).thenReturn(ToolCallingChatOptions.builder().build());
+        when(promptFactory.buildGroundedModelPrompt("zh", request.message(), "无", plan.groundedReference()))
+                .thenReturn("Grounded analytics prompt with optional cited knowledge.");
+        when(promptFactory.buildSystemPrompt("zh")).thenReturn("System prompt");
+        when(chatModel.call(any(Prompt.class))).thenReturn(new ChatResponse(List.of(
+                new Generation(new AssistantMessage("invalid structured reply"))
+        )));
+
+        String reply = controlledChatService().chat(
+                request,
+                AgentRequestScope.authenticated("s1", "subject-1")
+        );
+
+        verify(analyticsService).plan(request.message(), "zh");
+        verify(chatModel).call(promptCaptor.capture());
+        assertControlledToolCallbacks(promptCaptor.getValue());
+        assertThat(reply).isEqualTo(plan.fallbackReply().trim());
+        verifyNoInteractions(knowledgeAnswerComposer);
+    }
+
+    @Test
+    void controlledGeneralChatDoesNotPublishBusinessTools() {
+        ChatRequest request = new ChatRequest(
+                "s1",
+                GENERAL_MESSAGE,
+                "https://api.example.com",
+                "sk-test",
+                "gpt-4.1-mini"
+        );
+        ChatModel chatModel = mock(ChatModel.class);
+        ArgumentCaptor<Prompt> promptCaptor = ArgumentCaptor.forClass(Prompt.class);
+
+        when(languageDetector.detectLanguage(GENERAL_MESSAGE)).thenReturn("en");
+        when(modelConfigService.createChatModel(request)).thenReturn(chatModel);
+        when(chatModel.getDefaultOptions()).thenReturn(ToolCallingChatOptions.builder().build());
+        when(promptFactory.buildConversationModelPrompt("en", GENERAL_MESSAGE, "None"))
+                .thenReturn("Conversation prompt");
+        when(promptFactory.buildSystemPrompt("en")).thenReturn("System prompt");
+        when(chatModel.call(any(Prompt.class))).thenReturn(new ChatResponse(List.of(
+                new Generation(new AssistantMessage("Keep the CRM records current."))
+        )));
+
+        controlledChatService().chat(
+                request,
+                AgentRequestScope.authenticated("s1", "subject-1")
+        );
+
+        verify(chatModel).call(promptCaptor.capture());
+        assertThat(promptCaptor.getValue().getOptions()).isInstanceOf(ToolCallingChatOptions.class);
+        ToolCallingChatOptions options = (ToolCallingChatOptions) promptCaptor.getValue().getOptions();
+        assertThat(options.getToolCallbacks()).isEmpty();
+        verifyNoInteractions(analyticsService, knowledgeAnswerComposer);
     }
 
     @Test
@@ -1941,7 +2145,8 @@ class ChatServiceTest {
                 modelConfigService,
                 dealerRepository,
                 new ImportBatchService(),
-                callbacks
+                callbacks,
+                knowledgeAnswerComposer
         );
     }
 
@@ -1954,7 +2159,8 @@ class ChatServiceTest {
                         "getDashboardSummary",
                         "queryMetric",
                         "queryDetails",
-                        "runScenarioAnalysis"
+                        "runScenarioAnalysis",
+                        "retrieveKnowledge"
                 )
                 .doesNotContain("queryOpportunities", "queryTargets", "queryLeads");
     }

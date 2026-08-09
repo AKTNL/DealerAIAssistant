@@ -12,6 +12,7 @@ public class AppProperties {
     private final Cors cors = new Cors();
     private final Excel excel = new Excel();
     private final Model model = new Model();
+    private final Knowledge knowledge = new Knowledge();
 
     public Auth getAuth() {
         return auth;
@@ -31,6 +32,10 @@ public class AppProperties {
 
     public Model getModel() {
         return model;
+    }
+
+    public Knowledge getKnowledge() {
+        return knowledge;
     }
 
     public static class Auth {
@@ -163,6 +168,58 @@ public class AppProperties {
 
         public void setAllowPrivateHosts(boolean allowPrivateHosts) {
             this.allowPrivateHosts = allowPrivateHosts;
+        }
+    }
+
+    public static class Knowledge {
+        private String vectorStore = "memory";
+        private String schemaName = "public";
+        private String tableName = "knowledge_vector_store";
+        private int dimensions = 1536;
+        private double similarityThreshold = 0.45;
+
+        public String getVectorStore() {
+            return vectorStore;
+        }
+
+        public void setVectorStore(String vectorStore) {
+            this.vectorStore = normalize(vectorStore, "memory");
+        }
+
+        public String getSchemaName() {
+            return schemaName;
+        }
+
+        public void setSchemaName(String schemaName) {
+            this.schemaName = normalize(schemaName, "public");
+        }
+
+        public String getTableName() {
+            return tableName;
+        }
+
+        public void setTableName(String tableName) {
+            this.tableName = normalize(tableName, "knowledge_vector_store");
+        }
+
+        public int getDimensions() {
+            return dimensions;
+        }
+
+        public void setDimensions(int dimensions) {
+            this.dimensions = dimensions;
+        }
+
+        public double getSimilarityThreshold() {
+            return similarityThreshold;
+        }
+
+        public void setSimilarityThreshold(double similarityThreshold) {
+            this.similarityThreshold = similarityThreshold;
+        }
+
+        private String normalize(String value, String fallback) {
+            return value == null || value.isBlank() ? fallback : value.trim();
         }
     }
 }

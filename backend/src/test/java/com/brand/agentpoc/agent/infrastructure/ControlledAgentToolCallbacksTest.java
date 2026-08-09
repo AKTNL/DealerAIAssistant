@@ -35,7 +35,7 @@ class ControlledAgentToolCallbacksTest {
     }
 
     @Test
-    void publishesOnlyTheFourBusinessLevelCallbacks() {
+    void publishesOnlyTheFiveBusinessLevelCallbacks() {
         ControlledAgentToolSession session = toolCallbacks.openSession(scope, "trace-1");
 
         assertThat(session.callbacks())
@@ -44,7 +44,8 @@ class ControlledAgentToolCallbacksTest {
                         "getDashboardSummary",
                         "queryMetric",
                         "queryDetails",
-                        "runScenarioAnalysis"
+                        "runScenarioAnalysis",
+                        "retrieveKnowledge"
                 )
                 .doesNotContain(
                         "searchDealers",
@@ -83,6 +84,21 @@ class ControlledAgentToolCallbacksTest {
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessage("Agent request scope is not authorized.");
         verify(toolService, never()).getDashboardSummary();
+    }
+
+    @Test
+    void guardsKnowledgeRetrievalWithTheSharedRequestScopeAndBudget() {
+        when(scopeVerifier.isAllowed(scope)).thenReturn(true);
+        when(toolService.retrieveKnowledge("目标达成率口径", 2))
+                .thenReturn(com.brand.agentpoc.knowledge.domain.KnowledgeSearchResult.from(
+                        "目标达成率口径",
+                        java.util.List.of()
+                ));
+
+        String result = callback("retrieveKnowledge").call("{\"query\":\"目标达成率口径\",\"topK\":2}");
+
+        assertThat(result).contains("\"noMatch\":true");
+        verify(toolService).retrieveKnowledge("目标达成率口径", 2);
     }
 
     private ToolCallback callback(String name) {

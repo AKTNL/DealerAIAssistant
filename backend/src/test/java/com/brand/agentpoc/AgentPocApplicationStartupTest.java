@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
 
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.sql.Connection;
@@ -64,7 +65,25 @@ class AgentPocApplicationStartupTest {
                 .isEqualTo("org.postgresql.Driver");
         assertThat(properties.getProperty("spring.jpa.hibernate.ddl-auto")).isEqualTo("validate");
         assertThat(properties.getProperty("spring.flyway.enabled")).isEqualTo("true");
+        assertThat(properties.getProperty("spring.flyway.locations"))
+                .isEqualTo("classpath:db/migration,classpath:db/postgresql");
         assertThat(properties.getProperty("spring.flyway.clean-disabled")).isEqualTo("true");
+        assertThat(properties.getProperty("app.knowledge.vector-store"))
+                .isEqualTo("${APP_KNOWLEDGE_VECTOR_STORE:pgvector}");
+    }
+
+    @Test
+    void pgvectorMigrationMatchesTheConfiguredKnowledgeStoreContract() throws IOException {
+        String migration = new ClassPathResource(
+                "db/postgresql/V2__create_knowledge_vector_store.sql"
+        ).getContentAsString(StandardCharsets.UTF_8);
+
+        assertThat(migration)
+                .contains("CREATE EXTENSION IF NOT EXISTS vector")
+                .contains("id TEXT PRIMARY KEY")
+                .contains("metadata JSON NOT NULL")
+                .contains("embedding VECTOR(1536) NOT NULL")
+                .contains("USING HNSW (embedding vector_cosine_ops)");
     }
 
     @Test

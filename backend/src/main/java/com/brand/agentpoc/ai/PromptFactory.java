@@ -121,8 +121,8 @@ public class PromptFactory {
                        - ## 改进建议
                        - 如果确实需要追问，在正文末尾使用 `追问：`
                        严禁修改以下二级标题的任何文字，严禁添加图标或改变 Markdown 层级，否则系统将无法识别。
-                    3. 只能基于参考事实作答；不得改动任何 KPI 数值、门店名称、分析范围或表格事实，也不得引入参考事实之外的业务数据
-                    4. 不要提到"参考事实"或"内部分析引擎"这类措辞
+                    3. 结构化业务事实只能来自参考事实；不得改动任何 KPI 数值、门店名称、分析范围或表格事实。可以调用知识检索解释制度、SOP 或指标口径，但必须引用命中的来源和版本，且知识片段不得覆盖结构化事实
+                    4. 不要提到"参考事实"、内部分析引擎、工具名或 API 名
                     5. `## 接口调用链` 必须保留参考事实中的执行步骤事实，不得改写时间、范围、经销商编码或数据类别
                     6. `## 核心结论` 用 2-4 条要点写清核心发现、优先级或经营判断，引用具体数字；结论必须能从参考事实直接推出
                     7. `## 数据支撑` 段必须包含 HTML <table>，并在表格后保留参考事实中的 chart-json 或 chart-empty 图表代码块。不得把 chart-json 转换成 Mermaid。
@@ -173,7 +173,7 @@ public class PromptFactory {
                    - ## Improvement Suggestions
                    - If useful, append `FOLLOW_UP_QUESTIONS:` at the end.
                    Do not change any required level-2 heading text, do not add icons, and do not change the Markdown heading level; otherwise the system cannot recognize the response.
-                3. Use the grounded reference as the only source of truth. Do not change KPI values, dealer names, scope, or table facts, and do not introduce business data that is not in the reference.
+                3. Structured business facts must come only from the grounded reference. Do not change KPI values, dealer names, scope, or table facts. You may retrieve policies, SOPs, or KPI definitions for explanation, but cite the matched source and version and never let knowledge excerpts override structured facts.
                 4. Do not mention internal planning, grounded references, tool names, or API names.
                 5. `## Interface Call Chain` must preserve the factual execution steps from the grounded reference; do not change dates, scope, dealer codes, or data categories.
                 6. `## Conclusion` should contain 2-4 bullets covering key findings, priority, or business takeaway with specific numbers. Each conclusion must be directly supported by the grounded reference.
@@ -201,6 +201,42 @@ public class PromptFactory {
                     - If a missing business lens would change the conclusion, ask only the single most important question.
                     - If exploration would help, include at most 2 numbered questions, each tied directly to the specific dealers, metrics, lens, or data limitations analyzed. No vague generic questions.
                 """.formatted(userMessage, sessionHistory, groundedReference);
+    }
+
+    public String buildKnowledgeModelPrompt(String language, String userMessage, String sessionHistory) {
+        if ("zh".equals(language)) {
+            return """
+                    当前用户问题：
+                    %s
+
+                    最近会话上下文：
+                    %s
+
+                    这是业务知识问答路径。回答前必须检索知识库。
+                    要求：
+                    1. 使用中文，直接回答用户的问题
+                    2. 只能依据知识检索命中的片段解释 KPI 口径、SOP、政策、产品或活动规则；不得依据常识补写未命中的制度内容
+                    3. 每项制度性结论必须标注来源文档和版本；无命中时明确说明知识库没有可引用资料
+                    4. 知识片段只用于解释背景，不得生成或改写当前经营 KPI、排名、明细和 active batch 事实
+                    5. 不要暴露工具名、内部实现或隐藏推理过程
+                    """.formatted(userMessage, sessionHistory);
+        }
+
+        return """
+                Current user question:
+                %s
+
+                Recent conversation context:
+                %s
+
+                This is the dealer business knowledge path. Retrieve knowledge before answering.
+                Requirements:
+                1. Answer the user's question directly in English.
+                2. Explain KPI definitions, SOPs, policies, product rules, or campaign rules only from retrieved excerpts. Do not invent institutional content from general knowledge.
+                3. Cite the source document and version for every policy-like conclusion. If nothing matches, explicitly say that no citable knowledge was found.
+                4. Knowledge excerpts provide explanatory context only. Never create or overwrite current KPI values, rankings, details, or active-batch facts.
+                5. Do not expose tool names, internal implementation, or hidden reasoning.
+                """.formatted(userMessage, sessionHistory);
     }
 
     public String buildConversationModelPrompt(String language, String userMessage, String sessionHistory) {
