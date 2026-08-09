@@ -8,8 +8,8 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 23
-- **Last Active**: 2026-08-02
+- **Total Sessions**: 24
+- **Last Active**: 2026-08-09
 <!-- @@@/auto:current-status -->
 
 ---
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~775 | Active |
+| `journal-1.md` | ~809 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 24 | 2026-08-09 | Complete P1-3 controlled agent system | `cc9dc5d`, `41bc8ff` | `main` |
 | 23 | 2026-08-02 | P1-2 架构模块化 | `e979c3d`, `2258a3a` | `main` |
 | 22 | 2026-08-02 | 完成 P1-1 持久化数据库与迁移 | `75bede3`, `a0ae290` | `main` |
 | 21 | 2026-08-01 | MVP试点验收脚本和反馈表 | `4244a03` | `main` |

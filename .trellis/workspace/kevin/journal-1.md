@@ -773,3 +773,37 @@ Implemented the Dashboard MVP, aligned security/OpenAPI/tests, updated product d
 ### Next Steps
 
 - None - task complete
+
+
+## Session 24: Complete P1-3 controlled agent system
+
+**Date**: 2026-08-09
+**Task**: Complete P1-3 controlled agent system
+**Branch**: `main`
+
+### Summary
+
+Implemented four request-scoped read-only Agent tools with allowlist, ownership and active-batch scope checks, shared call budget, bounded detail queries, safe tracing, and sync/SSE rule fallback; added regression coverage and updated architecture, roadmap, and backend code-specs.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `cc9dc5d` | (see git log) |
+| `41bc8ff` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
