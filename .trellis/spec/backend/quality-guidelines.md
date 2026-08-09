@@ -336,6 +336,120 @@ public static <T> ApiResult<T> success(T data) { return new ApiResult<>(200, dat
 public static <T> ApiResult<T> error(int code, String message) { return new ApiResult<>(code, null, message); }
 ```
 
+### Scenario: Controlled Agent Tool Runtime
+
+#### 1. Scope / Trigger
+
+- Trigger: an authenticated sync or SSE chat request is classified as dealer operations analytics and a configured model may select read-only business tools.
+- This is a backend security, Spring AI integration, active-batch, fallback, and compatibility contract. A change to callback registration, tool arguments, scope verification, or analytics model handling must follow this scenario.
+
+#### 2. Signatures
+
+- Authenticated chat entry points:
+  - `ChatService.chat(ChatRequest request, AgentRequestScope scope): String`
+  - `ChatService.streamChat(ChatRequest request, OutputStream outputStream, AgentRequestScope scope): void`
+- Request-scoped callback factory:
+  - `ControlledAgentToolCallbacks.openSession(AgentRequestScope scope, String traceId): ControlledAgentToolSession`
+- Fixed callback names and application entry points:
+  - `getDashboardSummary()`
+  - `queryMetric(String metric, Map<String, String> filters)`
+  - `queryDetails(String dataset, Map<String, String> filters, Integer page, Integer pageSize, String sortBy, String sortOrder)`
+  - `runScenarioAnalysis(String question, String language)`
+- Default policy:
+  - `AgentExecutionPolicy.DEFAULT_MAX_TOOL_CALLS == 4`
+  - `AgentExecutionPolicy.DEFAULT_MAX_PAGE_SIZE == 50`
+
+#### 3. Contracts
+
+- `ChatController` claims/verifies session ownership first, then creates `AgentRequestScope.authenticated(sessionId, tokenSubject)`; it must not pass token values into tool arguments or logs.
+- Only authenticated analytics requests receive callbacks. Each model request gets a new `AgentExecutionContext`, and its four callbacks share the same call budget.
+- Register exactly the four names above. Legacy callbacks such as `searchDealers`, `queryOpportunities`, `queryTargets`, and `queryLeads` remain compatibility code and are not attached to `ChatService`.
+- The scope verifier requires a non-blank session and subject, `activeBatchOnly=true`, and current `SessionOwnershipService.owns(sessionId, subject)`.
+- The application facade calls `DashboardService`, `AnalyticsApiService`, or `RuleBasedAnalyticsService`; it never accepts SQL, repository/bean names, arbitrary dataset names, or import batch IDs, and never accesses a repository directly.
+- Metric/dataset values, filter keys, detail sort fields, sort direction, page, page size, scenario question length, and language are allowlisted or bounded before delegation.
+- Existing application services remain responsible for active-import-batch filtering. Agent code cannot select a batch.
+- Sync and SSE analytics use the same controlled callbacks and rule fallback semantics without changing `ChatRequest`, `ChatResponse`, HTTP paths, or SSE event names/order.
+- A Spring AI `@Tool` method must return a concrete serializable type such as `AgentToolResult` or `AgentScenarioAnalysis`. Do not declare an `Object` return type; Spring AI 1.0 treats it as a functional type and rejects callback creation.
+- `retrieveKnowledge` and `generateReportDraft` are not registered until the `knowledge` and `reporting` modules provide their own application ports and policies.
+- Controlled trace logs contain only `traceId`, tool name, status, and a fixed safe reason. They never contain subject, token, user message, arguments, model output, or business details.
+
+#### 4. Validation & Error Matrix
+
+- Unauthenticated scope passed through a compatibility overload -> no Agent callbacks are attached.
+- Scope no longer owns the session or `activeBatchOnly=false` -> tool call rejected before delegation; analytics request falls back to the deterministic report.
+- Unknown tool name -> callback indexing/policy rejects it; it is never published.
+- Unsupported metric/dataset/filter/sort/language or malformed integer -> `IllegalArgumentException`; no application query runs.
+- `page < 1`, `pageSize < 1`, or `pageSize > 50` -> reject before calling `AnalyticsApiService`.
+- Fifth tool call in one request -> `IllegalStateException("Agent tool call budget exceeded.")`; no fifth delegate call.
+- Model creation/call, tool execution, budget, or final reply validation fails -> return/persist `AnalyticsPlan.fallbackReply()` for both sync and SSE analytics.
+- SSE writer I/O failure or accumulated output above `MAX_STREAMED_REPLY_CHARS` -> preserve the existing stream error/limit behavior; do not attempt to write an additional fallback after the transport is unsafe.
+
+#### 5. Good/Base/Bad Cases
+
+- Good: an authenticated target question receives exactly four callbacks, calls `queryMetric("target", ...)`, reads the active batch through `AnalyticsApiService`, and records a safe success trace.
+- Good: model creation is rejected by URL policy during analytics; sync and SSE still return the existing rule report, and SSE emits `done` rather than a model error.
+- Base: a general non-analytics chat request uses the existing model path with no controlled callbacks.
+- Bad: injecting the global `aiToolCallbackProvider` into chat exposes raw low-level tools and bypasses the business facade.
+- Bad: accepting `batchId`, `sql`, or a free-form repository/dataset identifier and trusting the model to stay in scope.
+- Bad: creating a separate budget per callback; this permits four calls per tool instead of four calls per request.
+
+#### 6. Tests Required
+
+- `AgentExecutionPolicyTest`: exact four-name allowlist, maximum 4 calls, maximum page size 50, unknown tool rejection, safe trace reasons.
+- `ControlledAgentToolServiceTest`: mapping to existing services plus invalid metric/dataset/filter, pagination, sort, language, and scenario-length rejection without delegate interaction.
+- `ControlledAgentToolCallbacksTest`: exact published callback set, shared request budget, ownership denial, and no fifth delegate call.
+- `SessionOwnershipAgentScopeVerifierTest`: authenticated subject/session, `activeBatchOnly`, and current ownership are all required.
+- `ChatControllerTest`: claimed token subject becomes the exact authenticated `AgentRequestScope` for sync and SSE.
+- `ChatServiceTest`: sync and SSE prompt options contain exactly the four controlled callbacks, exclude legacy callbacks, and model creation/call or invalid model output falls back to the same rule report.
+- Full verification: `mvn "-Dfrontend.skip=true" pmd:check` and `mvn "-Dfrontend.skip=true" test`.
+
+#### 7. Wrong vs Correct
+
+Wrong -- expose the global low-level callback provider or use an abstract return type:
+
+```java
+requestSpec.toolCallbacks(aiToolCallbackProvider.getToolCallbacks());
+
+@Tool(name = "queryMetric")
+public Object queryMetric(String metric) {
+    return analyticsApiService.getMetric(metric);
+}
+```
+
+Correct -- create a request-scoped controlled session and return a concrete record:
+
+```java
+ControlledAgentToolSession session = controlledCallbacks.openSession(scope, traceId);
+requestSpec = requestSpec.toolCallbacks(session.callbacks());
+
+@Tool(name = "queryMetric")
+public AgentToolResult queryMetric(String metric, Map<String, String> filters) {
+    return toolService.queryMetric(metric, filters);
+}
+```
+
+Wrong -- create the analytics model outside the fallback boundary:
+
+```java
+ChatModel model = modelConfigService.createChatModel(request);
+try {
+    return callGroundedAnalyticsModel(model, request, plan);
+} catch (Exception exception) {
+    return plan.fallbackReply();
+}
+```
+
+Correct -- include model creation, tool execution, and model output validation in the same analytics fallback boundary:
+
+```java
+try {
+    ChatModel model = modelConfigService.createChatModel(request);
+    return callGroundedAnalyticsModel(model, request, plan);
+} catch (Exception exception) {
+    return plan.fallbackReply();
+}
+```
+
 ### Stream Chunking for Large Responses
 
 ChatService limits streamed output to `MAX_STREAMED_REPLY_CHARS = 32_000` characters and uses a dedicated error message when the limit is exceeded:

@@ -166,9 +166,19 @@ com.brand.agentpoc.<module>/
 
 During the transition, `controller/`, `service/`, `ai/`, `dto/`, `entity/`, and `repository/` remain compatibility packages. They must not receive new responsibilities merely because they already exist. Cross-module calls should use a public application service or port rather than another module's repository, entity, or internal implementation.
 
-The first migrated agent slice is `com.brand.agentpoc.agent.ChatReplyGuard`. `service.ChatService` may reference this public boundary while the rest of the chat orchestration remains in the legacy service package. This deliberately small seam keeps the existing HTTP/SSE contract stable and makes the migration reversible.
+The first migrated agent slice was `com.brand.agentpoc.agent.ChatReplyGuard`. P1-3 adds the controlled runtime under the module's standard layers:
 
-Tests mirror the package of the migrated production class. For example, `agent/ChatReplyGuard.java` is covered by `agent/ChatReplyGuardTest.java`; existing `service/ChatServiceTest.java` remains the regression guard for the compatibility caller.
+```text
+com.brand.agentpoc.agent/
+  application/       # ControlledAgentToolService, AgentScopeVerifier, tool result records
+  domain/            # tool names, data kinds, request scope, policy, execution context
+  infrastructure/   # Spring AI adapters/callbacks and session ownership verification
+  ChatReplyGuard.java
+```
+
+`service.ChatService` may reference these public/application and infrastructure integration boundaries while the rest of chat orchestration remains in the legacy service package. `agent.domain` must stay free of Spring, Servlet, repository, and model-SDK dependencies. The controlled application service reuses existing public services (`DashboardService`, `AnalyticsApiService`, and `RuleBasedAnalyticsService`) and must not access repositories directly. This seam keeps the existing HTTP/SSE contract stable and makes the migration reversible.
+
+Tests mirror the package of the migrated production class. For example, `agent/domain/AgentExecutionPolicy.java` is covered by `agent/domain/AgentExecutionPolicyTest.java`; existing `service/ChatServiceTest.java` remains the regression guard for the compatibility caller and request-scoped callback registration.
 
 ---
 
