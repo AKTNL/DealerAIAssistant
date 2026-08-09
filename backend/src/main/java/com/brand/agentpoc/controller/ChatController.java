@@ -1,5 +1,6 @@
 package com.brand.agentpoc.controller;
 
+import com.brand.agentpoc.agent.domain.AgentRequestScope;
 import com.brand.agentpoc.dto.request.ChatRequest;
 import com.brand.agentpoc.dto.response.ChatResponse;
 import com.brand.agentpoc.dto.response.SimpleSuccessResponse;
@@ -43,11 +44,13 @@ public class ChatController {
             @Valid @RequestBody ChatRequest request,
             HttpServletRequest servletRequest
     ) {
-        if (!sessionOwnershipService.claimOrVerify(request.sessionId(), tokenSubject(servletRequest))) {
+        String tokenSubject = tokenSubject(servletRequest);
+        if (!sessionOwnershipService.claimOrVerify(request.sessionId(), tokenSubject)) {
             return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
         }
 
-        return ResponseEntity.ok(new ChatResponse(chatService.chat(request)));
+        AgentRequestScope agentScope = AgentRequestScope.authenticated(request.sessionId(), tokenSubject);
+        return ResponseEntity.ok(new ChatResponse(chatService.chat(request, agentScope)));
     }
 
     @PostMapping(path = "/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
@@ -55,11 +58,13 @@ public class ChatController {
             @Valid @RequestBody ChatRequest request,
             HttpServletRequest servletRequest
     ) {
-        if (!sessionOwnershipService.claimOrVerify(request.sessionId(), tokenSubject(servletRequest))) {
+        String tokenSubject = tokenSubject(servletRequest);
+        if (!sessionOwnershipService.claimOrVerify(request.sessionId(), tokenSubject)) {
             return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
         }
 
-        StreamingResponseBody responseBody = outputStream -> chatService.streamChat(request, outputStream);
+        AgentRequestScope agentScope = AgentRequestScope.authenticated(request.sessionId(), tokenSubject);
+        StreamingResponseBody responseBody = outputStream -> chatService.streamChat(request, outputStream, agentScope);
         return ResponseEntity.ok()
                 .contentType(MediaType.TEXT_EVENT_STREAM)
                 .body(responseBody);

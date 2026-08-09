@@ -2,7 +2,7 @@
 对于经营分析类问题，可以参考这条标准工作流：
 %s
 
-可用工具包括：getCurrentDate、searchDealers、queryOpportunities、queryCampaigns、queryTasks、queryTargets、queryLeads。
+只能调用当前请求显式提供的工具。不得编造工具名，不得请求 SQL、批次 ID 或任何写操作。工具结果受当前已认证会话和 active 数据批次约束。
 当问题落入以下核心业务场景时，按对应的工具链和分析逻辑执行：
 %s
 

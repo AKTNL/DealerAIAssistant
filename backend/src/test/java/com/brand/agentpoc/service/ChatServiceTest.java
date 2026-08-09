@@ -13,6 +13,11 @@ import static org.mockito.Mockito.when;
 
 import com.brand.agentpoc.ai.LanguageDetector;
 import com.brand.agentpoc.ai.PromptFactory;
+import com.brand.agentpoc.agent.application.AgentScopeVerifier;
+import com.brand.agentpoc.agent.application.ControlledAgentToolService;
+import com.brand.agentpoc.agent.domain.AgentRequestScope;
+import com.brand.agentpoc.agent.infrastructure.ControlledAgentToolAdapter;
+import com.brand.agentpoc.agent.infrastructure.ControlledAgentToolCallbacks;
 import com.brand.agentpoc.dto.request.ChatRequest;
 import com.brand.agentpoc.repository.DealerRepository;
 import java.io.ByteArrayOutputStream;
@@ -31,6 +36,7 @@ import org.springframework.ai.chat.model.ChatModel;
 import org.springframework.ai.chat.model.ChatResponse;
 import org.springframework.ai.chat.model.Generation;
 import org.springframework.ai.chat.prompt.Prompt;
+import org.springframework.ai.model.tool.ToolCallingChatOptions;
 import org.mockito.ArgumentCaptor;
 import reactor.core.publisher.Flux;
 
@@ -544,6 +550,152 @@ class ChatServiceTest {
         verify(sessionMemoryService).addUserMessage("s1", GENERAL_MESSAGE);
         verify(sessionMemoryService).addAssistantMessage(eq("s1"), eq(reply));
         verifyNoInteractions(analyticsService);
+    }
+
+    @Test
+    void authenticatedAnalyticsChatRegistersOnlyControlledBusinessTools() {
+        ChatRequest request = new ChatRequest(
+                "s1",
+                "Which dealers have the lowest target achievement?",
+                "https://api.example.com",
+                "sk-test",
+                "gpt-4.1-mini"
+        );
+        ChatModel chatModel = mock(ChatModel.class);
+        AnalyticsPlan plan = analyticsPlan(
+                AnalyticsPlan.Scenario.TARGET_ACHIEVEMENT,
+                englishAnalyticsFallbackReport(),
+                sampleMetadata()
+        );
+        ChatService controlledChatService = controlledChatService();
+        ArgumentCaptor<Prompt> promptCaptor = ArgumentCaptor.forClass(Prompt.class);
+
+        when(languageDetector.detectLanguage(request.message())).thenReturn("en");
+        when(analyticsService.plan(request.message(), "en")).thenReturn(plan);
+        when(modelConfigService.createChatModel(request)).thenReturn(chatModel);
+        when(chatModel.getDefaultOptions()).thenReturn(ToolCallingChatOptions.builder().build());
+        when(promptFactory.buildGroundedModelPrompt("en", request.message(), "None", plan.groundedReference()))
+                .thenReturn("Grounded prompt");
+        when(promptFactory.buildSystemPrompt("en")).thenReturn("System prompt");
+        when(chatModel.call(any(Prompt.class))).thenReturn(new ChatResponse(List.of(
+                new Generation(new AssistantMessage("invalid structured reply"))
+        )));
+
+        String reply = controlledChatService.chat(
+                request,
+                AgentRequestScope.authenticated("s1", "subject-1")
+        );
+
+        verify(chatModel).call(promptCaptor.capture());
+        assertControlledToolCallbacks(promptCaptor.getValue());
+        assertThat(reply).isEqualTo(plan.fallbackReply().trim());
+    }
+
+    @Test
+    void authenticatedAnalyticsStreamRegistersTheSameControlledBusinessTools() throws Exception {
+        ChatRequest request = new ChatRequest(
+                "s1",
+                "Which dealers have the lowest target achievement?",
+                "https://api.example.com",
+                "sk-test",
+                "gpt-4.1-mini"
+        );
+        ChatModel chatModel = mock(ChatModel.class);
+        AnalyticsPlan plan = analyticsPlan(
+                AnalyticsPlan.Scenario.TARGET_ACHIEVEMENT,
+                englishAnalyticsFallbackReport(),
+                sampleMetadata()
+        );
+        ChatService controlledChatService = controlledChatService();
+        ArgumentCaptor<Prompt> promptCaptor = ArgumentCaptor.forClass(Prompt.class);
+        ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
+
+        when(languageDetector.detectLanguage(request.message())).thenReturn("en");
+        when(analyticsService.plan(eq(request.message()), eq("en"), anyString(), any())).thenReturn(plan);
+        when(modelConfigService.createChatModel(request)).thenReturn(chatModel);
+        when(chatModel.getDefaultOptions()).thenReturn(ToolCallingChatOptions.builder().build());
+        when(promptFactory.buildGroundedModelPrompt("en", request.message(), "None", plan.groundedReference()))
+                .thenReturn("Grounded prompt");
+        when(promptFactory.buildSystemPrompt("en")).thenReturn("System prompt");
+        when(chatModel.stream(any(Prompt.class))).thenReturn(Flux.just(
+                new ChatResponse(List.of(new Generation(new AssistantMessage("invalid structured reply"))))
+        ));
+
+        controlledChatService.streamChat(
+                request,
+                outputStream,
+                AgentRequestScope.authenticated("s1", "subject-1")
+        );
+
+        verify(chatModel).stream(promptCaptor.capture());
+        assertControlledToolCallbacks(promptCaptor.getValue());
+        assertThat(extractEventData(outputStream.toString(StandardCharsets.UTF_8), "message"))
+                .containsExactly(plan.fallbackReply().trim());
+    }
+
+    @Test
+    void authenticatedAnalyticsChatFallsBackWhenModelCreationFails() {
+        ChatRequest request = new ChatRequest(
+                "s1",
+                "Which dealers have the lowest target achievement?",
+                "https://api.example.com",
+                "sk-test",
+                "gpt-4.1-mini"
+        );
+        AnalyticsPlan plan = analyticsPlan(
+                AnalyticsPlan.Scenario.TARGET_ACHIEVEMENT,
+                englishAnalyticsFallbackReport(),
+                sampleMetadata()
+        );
+
+        when(languageDetector.detectLanguage(request.message())).thenReturn("en");
+        when(analyticsService.plan(request.message(), "en")).thenReturn(plan);
+        when(modelConfigService.createChatModel(request))
+                .thenThrow(new IllegalArgumentException("Model base URL is not allowed."));
+
+        String reply = controlledChatService().chat(
+                request,
+                AgentRequestScope.authenticated("s1", "subject-1")
+        );
+
+        assertThat(reply).isEqualTo(plan.fallbackReply().trim());
+        verify(sessionMemoryService).addAssistantMessage("s1", plan.fallbackReply().trim());
+    }
+
+    @Test
+    void authenticatedAnalyticsStreamFallsBackWhenModelCreationFails() throws Exception {
+        ChatRequest request = new ChatRequest(
+                "s1",
+                "Which dealers have the lowest target achievement?",
+                "https://api.example.com",
+                "sk-test",
+                "gpt-4.1-mini"
+        );
+        AnalyticsPlan plan = analyticsPlan(
+                AnalyticsPlan.Scenario.TARGET_ACHIEVEMENT,
+                englishAnalyticsFallbackReport(),
+                sampleMetadata()
+        );
+        ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
+
+        when(languageDetector.detectLanguage(request.message())).thenReturn("en");
+        when(analyticsService.plan(eq(request.message()), eq("en"), anyString(), any())).thenReturn(plan);
+        when(promptFactory.buildGroundedModelPrompt("en", request.message(), "None", plan.groundedReference()))
+                .thenReturn("Grounded prompt");
+        when(promptFactory.buildSystemPrompt("en")).thenReturn("System prompt");
+        when(modelConfigService.createChatModel(request))
+                .thenThrow(new IllegalArgumentException("Model base URL is not allowed."));
+
+        controlledChatService().streamChat(
+                request,
+                outputStream,
+                AgentRequestScope.authenticated("s1", "subject-1")
+        );
+
+        String payload = outputStream.toString(StandardCharsets.UTF_8);
+        assertThat(extractEventData(payload, "message")).containsExactly(plan.fallbackReply().trim());
+        assertThat(payload).contains("event: done").doesNotContain("event: error");
+        verify(sessionMemoryService).addAssistantMessage("s1", plan.fallbackReply().trim());
     }
 
     @Test
@@ -1772,6 +1924,39 @@ class ChatServiceTest {
         assertThat(reply).doesNotContain("你想了解什么");
         assertThat(reply).doesNotContain("还有其他需要帮助的吗");
         assertThat(reply).contains("FOLLOW_UP_QUESTIONS:");
+    }
+
+    private ChatService controlledChatService() {
+        ControlledAgentToolService controlledToolService = mock(ControlledAgentToolService.class);
+        AgentScopeVerifier scopeVerifier = mock(AgentScopeVerifier.class);
+        ControlledAgentToolCallbacks callbacks = new ControlledAgentToolCallbacks(
+                new ControlledAgentToolAdapter(controlledToolService),
+                scopeVerifier
+        );
+        return new ChatService(
+                sessionMemoryService,
+                languageDetector,
+                analyticsService,
+                promptFactory,
+                modelConfigService,
+                dealerRepository,
+                new ImportBatchService(),
+                callbacks
+        );
+    }
+
+    private void assertControlledToolCallbacks(Prompt prompt) {
+        assertThat(prompt.getOptions()).isInstanceOf(ToolCallingChatOptions.class);
+        ToolCallingChatOptions options = (ToolCallingChatOptions) prompt.getOptions();
+        assertThat(options.getToolCallbacks())
+                .extracting(callback -> callback.getToolDefinition().name())
+                .containsExactlyInAnyOrder(
+                        "getDashboardSummary",
+                        "queryMetric",
+                        "queryDetails",
+                        "runScenarioAnalysis"
+                )
+                .doesNotContain("queryOpportunities", "queryTargets", "queryLeads");
     }
 
     private List<String> extractEventData(String payload, String eventName) {

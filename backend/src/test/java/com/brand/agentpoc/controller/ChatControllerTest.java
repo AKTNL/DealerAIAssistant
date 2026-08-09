@@ -1,6 +1,7 @@
 package com.brand.agentpoc.controller;
 
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -16,10 +17,13 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.brand.agentpoc.config.SessionTokenFilter;
+import com.brand.agentpoc.agent.domain.AgentRequestScope;
+import com.brand.agentpoc.dto.request.ChatRequest;
 import com.brand.agentpoc.service.ChatService;
 import com.brand.agentpoc.service.SessionMemoryService;
 import com.brand.agentpoc.service.SessionOwnershipService;
 import java.nio.charset.StandardCharsets;
+import java.io.OutputStream;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.MediaType;
@@ -53,7 +57,7 @@ class ChatControllerTest {
     @Test
     void claimsSessionBeforeHandlingChatRequest() throws Exception {
         when(sessionOwnershipService.claimOrVerify("session-1", "token-subject")).thenReturn(true);
-        when(chatService.chat(any())).thenReturn("hello");
+        when(chatService.chat(any(ChatRequest.class), any(AgentRequestScope.class))).thenReturn("hello");
 
         mockMvc.perform(post("/api/chat")
                         .requestAttr(SessionTokenFilter.TOKEN_SUBJECT_ATTRIBUTE, "token-subject")
@@ -65,6 +69,10 @@ class ChatControllerTest {
                 .andExpect(jsonPath("$.reply").value("hello"));
 
         verify(sessionOwnershipService).claimOrVerify("session-1", "token-subject");
+        verify(chatService).chat(
+                any(ChatRequest.class),
+                eq(AgentRequestScope.authenticated("session-1", "token-subject"))
+        );
     }
 
     @Test
@@ -79,7 +87,7 @@ class ChatControllerTest {
                                 """))
                 .andExpect(status().isForbidden());
 
-        verify(chatService, never()).chat(any());
+        verify(chatService, never()).chat(any(ChatRequest.class), any(AgentRequestScope.class));
     }
 
     @Test
@@ -94,13 +102,21 @@ class ChatControllerTest {
                                 """))
                 .andExpect(status().isForbidden());
 
-        verify(chatService, never()).streamChat(any(), any());
+        verify(chatService, never()).streamChat(
+                any(ChatRequest.class),
+                any(OutputStream.class),
+                any(AgentRequestScope.class)
+        );
     }
 
     @Test
     void createsSseResponseForStreamRequest() throws Exception {
         when(sessionOwnershipService.claimOrVerify("session-1", "token-subject")).thenReturn(true);
-        doAnswer(invocation -> null).when(chatService).streamChat(any(), any());
+        doAnswer(invocation -> null).when(chatService).streamChat(
+                any(ChatRequest.class),
+                any(OutputStream.class),
+                any(AgentRequestScope.class)
+        );
 
         MvcResult mvcResult = mockMvc.perform(post("/api/chat/stream")
                         .requestAttr(SessionTokenFilter.TOKEN_SUBJECT_ATTRIBUTE, "token-subject")
@@ -115,7 +131,11 @@ class ChatControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(content().contentTypeCompatibleWith(MediaType.TEXT_EVENT_STREAM));
 
-        verify(chatService).streamChat(any(), any());
+        verify(chatService).streamChat(
+                any(ChatRequest.class),
+                any(OutputStream.class),
+                eq(AgentRequestScope.authenticated("session-1", "token-subject"))
+        );
     }
 
     @Test
@@ -125,7 +145,11 @@ class ChatControllerTest {
             invocation.getArgument(1, java.io.OutputStream.class)
                     .write("event: error\ndata: failed\n\n".getBytes(StandardCharsets.UTF_8));
             return null;
-        }).when(chatService).streamChat(any(), any());
+        }).when(chatService).streamChat(
+                any(ChatRequest.class),
+                any(OutputStream.class),
+                any(AgentRequestScope.class)
+        );
 
         MvcResult mvcResult = mockMvc.perform(post("/api/chat/stream")
                         .requestAttr(SessionTokenFilter.TOKEN_SUBJECT_ATTRIBUTE, "token-subject")
