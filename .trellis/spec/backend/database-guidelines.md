@@ -28,7 +28,7 @@ spring:
 
 Data is seeded on startup by `ExcelImportService` (implements `ApplicationRunner`), which reads an Excel file or falls back to built-in defaults.
 
-Production overrides in `backend/src/main/resources/application-prod.yml` read `APP_DB_URL`, `APP_DB_USERNAME`, and `APP_DB_PASSWORD`, enable Flyway from `classpath:db/migration`, and set Hibernate DDL to `validate`.
+Production overrides in `backend/src/main/resources/application-prod.yml` read `APP_DB_URL`, `APP_DB_USERNAME`, and `APP_DB_PASSWORD`, enable Flyway from `classpath:db/migration,classpath:db/postgresql`, and set Hibernate DDL to `validate`.
 
 ---
 
@@ -218,8 +218,9 @@ The following production migration contract is executable and must remain aligne
 
 - Profile: `spring.profiles.active=prod`
 - Environment keys: `APP_DB_URL`, `APP_DB_USERNAME`, `APP_DB_PASSWORD`
-- Migration location: `classpath:db/migration`
+- Migration locations: `classpath:db/migration,classpath:db/postgresql`
 - Baseline migration: `V1__create_initial_schema.sql`
+- Knowledge migration: `db/postgresql/V2__create_knowledge_vector_store.sql`
 - Production settings: `spring.flyway.enabled=true`, `spring.flyway.validate-on-migrate=true`, `spring.flyway.clean-disabled=true`, `spring.jpa.hibernate.ddl-auto=validate`
 
 #### 3. Contracts
@@ -227,6 +228,7 @@ The following production migration contract is executable and must remain aligne
 - The `prod` profile uses the configured PostgreSQL JDBC URL and never silently falls back to H2 or built-in sample data when the database or migration is unavailable.
 - Flyway applies pending versioned SQL before Hibernate validates entity mappings.
 - The baseline creates `import_batches`, all six batch-scoped business tables, the active-batch lookup index, and non-unique batch/business-key indexes.
+- The PostgreSQL-only V2 migration enables `vector`, creates `knowledge_vector_store` with text IDs, JSON metadata, `VECTOR(1536)`, and an HNSW cosine index. It is not applied to the default H2 migration test location.
 - Business IDs may repeat across import batches; do not add global unique constraints to `dealer_code`, `opportunity_id`, `lead_id`, `task_id`, or `campaign_id`.
 - The current physical naming contract includes `Target.asKTarget -> asktarget`; migration SQL must match the existing Hibernate mapping unless the entity explicitly declares another column name.
 
@@ -273,6 +275,95 @@ spring:
       ddl-auto: validate
   flyway:
     enabled: true
+```
+
+---
+
+## Scenario: Bundled Knowledge Retrieval And PGvector Production Store
+
+### 1. Scope / Trigger
+
+- Trigger: dealer knowledge questions need citable KPI definitions, SOPs, policies, and product/campaign rules without treating structured operating data as vector-store facts.
+- This is a backend module, resource-ingestion, Spring AI, database migration, startup, and Agent contract because the same citation metadata and failure semantics must survive source -> chunk -> index -> tool -> chat.
+
+### 2. Signatures
+
+- Framework-neutral ports/use cases:
+  - `KnowledgeDocumentSource.load(): List<KnowledgeDocument>`
+  - `KnowledgeIndex.replaceAll(List<KnowledgeChunk>): void`
+  - `KnowledgeIndex.search(KnowledgeQuery): KnowledgeSearchResult`
+  - `KnowledgeService.retrieve(String query, Integer topK): KnowledgeSearchResult`
+- Query limits: `DEFAULT_TOP_K=4`, `MAX_TOP_K=8`, `MAX_QUERY_LENGTH=500`.
+- Catalog: `classpath:/knowledge/catalog.json` with `documentId`, `title`, `type`, `version`, `source`, and controlled `classpath:/knowledge/*.md` resource.
+- Store selection/config:
+  - `APP_KNOWLEDGE_VECTOR_STORE` -> `memory` by default, `pgvector` by default in `prod`.
+  - `APP_KNOWLEDGE_SCHEMA_NAME` -> `public`.
+  - `APP_KNOWLEDGE_TABLE_NAME` -> `knowledge_vector_store`.
+  - `APP_KNOWLEDGE_EMBEDDING_DIMENSIONS` -> `1536`.
+  - `APP_KNOWLEDGE_SIMILARITY_THRESHOLD` -> `0.45`.
+- Production database: `knowledge_vector_store(id TEXT PRIMARY KEY, content TEXT, metadata JSON, embedding VECTOR(1536))` plus HNSW cosine index.
+
+### 3. Contracts
+
+- `knowledge.domain` and `knowledge.application` contain no Spring, Spring AI, JDBC, resource-loader, or model-SDK types; Spring bean wiring and vector adapters live under `knowledge.infrastructure`.
+- Only repository-reviewed bundled Markdown is ingested. `documentId`/version syntax, duplicate IDs, controlled resource path, exact citation source mapping, non-empty content, and known `KnowledgeType` are validated before indexing.
+- Chunking is heading-first and deterministic. A chunk ID includes document ID, version, normalized section key, and section-local chunk index so edits in an earlier section do not churn later-section IDs.
+- Every hit contains `documentId`, `source`, `version`, `section`, `chunkId`, `excerpt`, and score. Empty hits mean explicit `noMatch=true`; they are not an invitation to use model general knowledge.
+- The default memory adapter uses deterministic local lexical retrieval and requires no embedding service or PostgreSQL. The `prod` PGvector adapter filters `catalog == 'bundled'`, replaces bundled chunks on startup, and never silently falls back to memory.
+- PGvector uses Spring AI 1.0 because the existing model and controlled `@Tool` runtime already use it. A future LangChain4j implementation may replace/add only an infrastructure adapter; it must preserve these domain/application contracts.
+- Structured KPI values, rankings, details, scopes, and active-batch facts remain owned by structured services. RAG can explain a definition or policy but cannot overwrite those facts.
+- Embedding model output dimension, `APP_KNOWLEDGE_EMBEDDING_DIMENSIONS`, and the Flyway `VECTOR(...)` dimension must match. Dimension changes require a new forward migration and full bundled reindex; never edit applied V2.
+
+### 4. Validation & Error Matrix
+
+- Missing/duplicate/unsafe `documentId`, invalid version, missing resource, source/resource mismatch, empty catalog, or empty Markdown -> startup fails before the application becomes ready.
+- Blank query, query over 500 characters, or Top-K outside `1..8` -> `IllegalArgumentException` before index access.
+- Index not initialized/available -> `IllegalStateException`; knowledge-only chat attempts deterministic fallback and otherwise emits the fixed unavailable response.
+- No lexical/semantic hit -> return empty hits with `noMatch=true`; do not fabricate a policy/SOP/definition.
+- `prod` without `EmbeddingModel`, PostgreSQL `vector`, V2 schema, valid identifiers/dimensions/threshold, or database connectivity -> startup fails; do not create/use an undeclared memory store.
+- Embedding dimension differs from the migrated vector column -> PGvector validation/add fails; add a forward migration and reindex.
+
+### 5. Good/Base/Bad Cases
+
+- Good: local H2 startup loads four catalog documents into the deterministic memory index and answers a KPI-definition query with stable source/version/section/chunk citations.
+- Good: `prod` applies V2, embeds the bundled catalog, deletes/replaces only `catalog='bundled'`, and retrieves Top-K results above the configured threshold.
+- Base: a valid but unrelated business question returns `noMatch=true` and the user-facing composer explicitly says no citable document was found.
+- Bad: store current opportunity rows or active-batch KPI values in RAG and let the model select them as facts.
+- Bad: configure `APP_KNOWLEDGE_EMBEDDING_DIMENSIONS=3072` while V2 remains `VECTOR(1536)`.
+- Bad: use Spring AI types in `KnowledgeService`, making a future adapter replacement leak across Agent and application code.
+
+### 6. Tests Required
+
+- `ClasspathKnowledgeCatalogLoaderTest`: four bundled types plus duplicate/invalid IDs, invalid version, empty content, and citation source drift.
+- `KnowledgeDocumentChunkerTest`: heading boundaries, deterministic length splitting, section-local stable IDs, and no-content rejection.
+- `KnowledgeServiceTest` / `InMemoryKnowledgeIndexTest`: query and Top-K limits, unavailable index, stable ranking, citation fields, and explicit no-match.
+- `PgVectorKnowledgeIndexTest`: bundled delete filter, metadata mapping, Top-K, threshold, catalog filter, score, and pre-bootstrap rejection.
+- `KnowledgeVectorStoreConfigTest`: text-ID/cosine/HNSW build contract, unsafe identifiers/dimensions/threshold rejection, and missing `EmbeddingModel` startup failure.
+- `AgentPocApplicationStartupTest`: default external-service-free startup, prod store/Flyway locations, and V2 extension/table/index contract.
+- Full gate: `mvn "-Dfrontend.skip=true" pmd:check` then `mvn "-Dfrontend.skip=true" test`.
+
+### 7. Wrong vs Correct
+
+Wrong -- couple the application layer to one vector framework and hide production failure:
+
+```java
+@Service
+class KnowledgeService {
+    private final PgVectorStore store;
+}
+// If PGvector fails, silently create an in-memory store.
+```
+
+Correct -- keep the use case behind a port and select adapters explicitly by profile:
+
+```java
+public class KnowledgeService {
+    private final KnowledgeIndex knowledgeIndex;
+}
+
+@ConditionalOnProperty(name = "app.knowledge.vector-store", havingValue = "pgvector")
+class PgVectorKnowledgeIndex implements KnowledgeIndex {
+}
 ```
 
 ---

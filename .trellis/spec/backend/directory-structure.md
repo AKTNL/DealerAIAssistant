@@ -176,9 +176,18 @@ com.brand.agentpoc.agent/
   ChatReplyGuard.java
 ```
 
-`service.ChatService` may reference these public/application and infrastructure integration boundaries while the rest of chat orchestration remains in the legacy service package. `agent.domain` must stay free of Spring, Servlet, repository, and model-SDK dependencies. The controlled application service reuses existing public services (`DashboardService`, `AnalyticsApiService`, and `RuleBasedAnalyticsService`) and must not access repositories directly. This seam keeps the existing HTTP/SSE contract stable and makes the migration reversible.
+P1-4 adds the first complete `knowledge` module slice:
 
-Tests mirror the package of the migrated production class. For example, `agent/domain/AgentExecutionPolicy.java` is covered by `agent/domain/AgentExecutionPolicyTest.java`; existing `service/ChatServiceTest.java` remains the regression guard for the compatibility caller and request-scoped callback registration.
+```text
+com.brand.agentpoc.knowledge/
+  application/       # framework-neutral index/source ports, retrieval use case, chunker, answer composer
+  domain/            # document, chunk, query, hit, result, and knowledge-type records
+  infrastructure/   # catalog/resource loader, memory and PGvector adapters, bean config, startup bootstrap
+```
+
+`service.ChatService` may reference these public/application and infrastructure integration boundaries while the rest of chat orchestration remains in the legacy service package. `agent.domain` and `knowledge.domain/application` must stay free of Spring AI, Servlet, repository, JDBC, resource-loader, and model-SDK dependencies; knowledge Spring wiring belongs in infrastructure. The controlled application service reuses existing public services (`DashboardService`, `AnalyticsApiService`, `RuleBasedAnalyticsService`, and `KnowledgeService`) and must not access repositories or vector-store adapters directly. This seam keeps the existing HTTP/SSE contract stable and makes the migration reversible.
+
+Tests mirror the package of the migrated production class. For example, `agent/domain/AgentExecutionPolicy.java` is covered by `agent/domain/AgentExecutionPolicyTest.java`, knowledge application/infrastructure tests mirror their production packages, and existing `service/ChatServiceTest.java` remains the regression guard for the compatibility caller, knowledge routing, and request-scoped callback registration.
 
 ---
 

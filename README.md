@@ -8,6 +8,7 @@
 
 - **未配置模型时**：系统使用内置规则引擎和 Excel 样板数据，直接生成可复现的经营分析结果。
 - **配置模型后**：后端先生成事实锚点和 fallback 报告，再把这些 grounded reference 交给外部模型润色，并通过回答元数据暴露分析口径、数据限制和置信度，降低 KPI 被改写或幻觉扩散的风险。
+- **业务知识问答**：随应用发布的受控 Markdown 资料覆盖 KPI 口径、销售 SOP、经销商政策和产品/活动规则；回答必须携带来源与版本，且知识片段不能覆盖结构化 KPI 事实。
 - **前端体验**：登录后进入聊天工作台，可切换中英文，使用左侧快捷问题，也可配置模型连接并发送自定义问题；分析类回答顶部会展示范围、指标口径、来源、限制与置信度。
 
 ## 技术栈
@@ -16,7 +17,7 @@
 | --- | --- |
 | 前端 | Vue 3、Vite、markdown-it、highlight.js、Mermaid、Vitest |
 | 后端 | Java 21、Spring Boot 3.4、Spring AI 1.0、Spring Web MVC |
-| 数据 | 默认 H2 + Spring Data JPA；`prod` 使用 PostgreSQL + Flyway；Apache POI |
+| 数据 | 默认 H2 + Spring Data JPA；`prod` 使用 PostgreSQL + Flyway + PGvector；Apache POI |
 | 通信 | REST、Server-Sent Events (SSE) |
 
 ## 核心能力
@@ -31,6 +32,7 @@
 - 思考时间线：分析过程以 `step` 事件流式推送（数据加载、过滤、计算、工具调用、模型思考、洞察），前端通过统一时间线面板展示
 - 分析元数据：分析类回答正文前推送 `analysis_metadata`，用于展示分析范围、指标口径、数据来源、关键限制和高/中/低置信度
 - 结构化数据 API：原始数据查询、指标聚合、分页详情查询
+- 受控 RAG：本地/test 使用确定性内存检索，`prod` 使用 PGvector 语义检索；无命中时明确返回 no-match，不从常识补写制度内容
 
 ## 分析场景
 
@@ -63,11 +65,13 @@
 │   └── src/
 │       ├── main/
 │       │   ├── java/com/brand/agentpoc/
+│       │   │   ├── agent/            # 受控工具、请求 scope、Spring AI callbacks、回答守卫
 │       │   │   ├── ai/               # Spring AI 工具、语言检测、提示词工厂
 │       │   │   ├── config/           # 应用配置、API Key 过滤器、CORS
 │       │   │   ├── controller/       # Auth、Chat、DataQuery、Analytics、ModelConfig API
 │       │   │   ├── dto/              # request、response、metrics、detail DTO
 │       │   │   ├── entity/           # Dealer、Opportunity、Campaign、Task、Target、Lead
+│       │   │   ├── knowledge/        # 文档/切片合同、检索应用服务、内存与 PGvector adapters
 │       │   │   ├── repository/       # Spring Data JPA Repository
 │       │   │   └── service/          # 聊天、规则分析、数据查询、Excel 导入、会话记忆
 │       │   └── resources/
@@ -134,7 +138,7 @@ mvn "-Dfrontend.skip=true" spring-boot:run
 
 ### 持久化数据库模式
 
-生产形态使用 PostgreSQL + Flyway。Flyway 会在启动时执行 `backend/src/main/resources/db/migration/` 下尚未应用的迁移，生产环境的 Hibernate 只校验 schema，不自动修改表结构。
+生产形态使用 PostgreSQL + Flyway。Flyway 会在启动时执行 `backend/src/main/resources/db/migration/` 和 `backend/src/main/resources/db/postgresql/` 下尚未应用的迁移，生产环境的 Hibernate 只校验 schema，不自动修改表结构。
 
 PowerShell 示例：
 
@@ -148,6 +152,21 @@ mvn "-Dfrontend.skip=true" spring-boot:run
 ```
 
 `APP_DB_URL`、`APP_DB_USERNAME` 和 `APP_DB_PASSWORD` 必须指向可访问的 PostgreSQL 实例。迁移失败或数据库不可用时，`prod` 不会回退到 H2 或内置样例；本地快速开发仍使用默认 H2 配置。
+
+### RAG 知识库模式
+
+默认 profile 使用 `app.knowledge.vector-store=memory`：启动时校验 `backend/src/main/resources/knowledge/catalog.json`，确定性切分随应用发布的 Markdown，并建立无需 embedding 服务或 PostgreSQL 的本地索引。该路径适合开发和测试，不是生产语义检索实现。
+
+`prod` 默认切换到 `pgvector`。上线前必须在目标 PostgreSQL 安装 `vector` 扩展，并通过 Spring AI 标准 OpenAI embedding 配置提供 `EmbeddingModel`。以默认 1536 维模型为例：
+
+```powershell
+$env:SPRING_AI_OPENAI_API_KEY="change-me"
+$env:SPRING_AI_OPENAI_BASE_URL="https://api.openai.com"
+$env:SPRING_AI_OPENAI_EMBEDDING_OPTIONS_MODEL="text-embedding-ada-002"
+$env:APP_KNOWLEDGE_EMBEDDING_DIMENSIONS="1536"
+```
+
+embedding 模型输出维度必须与 `APP_KNOWLEDGE_EMBEDDING_DIMENSIONS` 及 Flyway 建表语句中的 `VECTOR(...)` 一致。若要改变维度，必须新增前向迁移重建向量列/HNSW 索引并重新摄取知识；不要修改已经应用的迁移，也不要只改环境变量。`prod` 缺少 `EmbeddingModel`、PGvector 扩展、表结构或数据库连接时会明确启动失败，不会静默回退到内存索引。
 
 ### 2. 启动前端
 
@@ -192,6 +211,11 @@ npm run dev
 | `app.model.name` | `APP_MODEL_NAME` | 空 | 可选默认模型名称 |
 | `app.model.allowed-hosts` | `APP_MODEL_ALLOWED_HOSTS` | 空 | 可选模型 Base URL 主机允许列表，支持 `api.example.com,*.example.com` |
 | `app.model.allow-private-hosts` | `APP_MODEL_ALLOW_PRIVATE_HOSTS` | `false` | 是否允许模型 Base URL 指向 localhost 或内网地址 |
+| `app.knowledge.vector-store` | `APP_KNOWLEDGE_VECTOR_STORE` | `memory`（`prod` 为 `pgvector`） | 知识检索 adapter；生产配置不可用时不会自动回退 |
+| `app.knowledge.schema-name` | `APP_KNOWLEDGE_SCHEMA_NAME` | `public` | PGvector 表所在 schema，仅接受 SQL 标识符 |
+| `app.knowledge.table-name` | `APP_KNOWLEDGE_TABLE_NAME` | `knowledge_vector_store` | PGvector 表名，仅接受 SQL 标识符 |
+| `app.knowledge.dimensions` | `APP_KNOWLEDGE_EMBEDDING_DIMENSIONS` | `1536` | embedding 维度，必须与模型和迁移表结构一致 |
+| `app.knowledge.similarity-threshold` | `APP_KNOWLEDGE_SIMILARITY_THRESHOLD` | `0.45` | PGvector 余弦相似度阈值，范围 `0..1` |
 
 安全边界说明：
 
@@ -346,7 +370,11 @@ mvn clean install
 | `backend/src/main/java/com/brand/agentpoc/service/AnalyticsScenarioCatalog.java` | 分析场景目录、示例问题、工具链说明 |
 | `backend/src/main/java/com/brand/agentpoc/service/AnalyticsApiService.java` | 指标聚合与详情分页 API 逻辑 |
 | `backend/src/main/java/com/brand/agentpoc/ai/PromptFactory.java` | 系统提示词、thinking_protocol、证据边界和 0-2 个追问约束 |
-| `backend/src/main/java/com/brand/agentpoc/service/ChatReplyGuard.java` | 模型回答守卫，修正过度确定、追问数量和结构化回答格式 |
+| `backend/src/main/java/com/brand/agentpoc/agent/ChatReplyGuard.java` | 模型回答守卫，修正过度确定、追问数量和结构化回答格式 |
+| `backend/src/main/java/com/brand/agentpoc/agent/infrastructure/ControlledAgentToolCallbacks.java` | 为已认证请求注册五个受控业务工具，并共享单请求四次调用预算 |
+| `backend/src/main/java/com/brand/agentpoc/knowledge/application/KnowledgeService.java` | 框架中立的知识检索应用入口，校验 query/Top-K 并返回引用信息 |
+| `backend/src/main/java/com/brand/agentpoc/knowledge/infrastructure/KnowledgeBootstrap.java` | 校验知识目录、确定性切片并在启动时替换 bundled catalog 索引 |
+| `backend/src/main/java/com/brand/agentpoc/knowledge/infrastructure/PgVectorKnowledgeIndex.java` | 生产 PGvector 语义检索 adapter |
 | `backend/src/main/java/com/brand/agentpoc/service/ExcelImportService.java` | Excel 字段级清洗、必需 Sheet 校验、严格/样例回退导入 |
 | `backend/src/main/java/com/brand/agentpoc/service/ImportQualityService.java` | 保存最近一次导入来源和质量汇总 |
 | `backend/src/main/java/com/brand/agentpoc/controller/DataStatusController.java` | 登录态数据质量状态接口 |
@@ -363,6 +391,7 @@ mvn clean install
 - `0` 只表示源数据确认的真实零值；缺失数值保留为 `null`，未知分类使用“未知”或“未分配”。
 - 目标/活动达成率只使用可比样本计算，总观测值与可比样本值必须分别展示。
 - 规则引擎输出数据来自样板数据或聚合计算，外部模型只负责在事实锚点基础上润色。
+- RAG 只保存业务制度、口径、SOP 和产品/活动知识；当前 KPI、排名、明细和 active batch 事实仍由结构化服务提供。
 - 分析元数据由后端生成，前端只渲染 `analysis_metadata` 事件提供的字段，不从 Markdown 正文反推业务口径。
 - 前端开发时优先通过 Vite 代理访问后端；如果直接部署后端静态资源，则访问 `http://localhost:8081`。
 - 本地启动也需要显式设置访问密钥、session 签名密钥和内部 API key；不要提交真实密钥。

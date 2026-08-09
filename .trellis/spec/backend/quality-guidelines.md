@@ -340,8 +340,8 @@ public static <T> ApiResult<T> error(int code, String message) { return new ApiR
 
 #### 1. Scope / Trigger
 
-- Trigger: an authenticated sync or SSE chat request is classified as dealer operations analytics and a configured model may select read-only business tools.
-- This is a backend security, Spring AI integration, active-batch, fallback, and compatibility contract. A change to callback registration, tool arguments, scope verification, or analytics model handling must follow this scenario.
+- Trigger: an authenticated sync or SSE chat request is classified as dealer operations analytics, business knowledge, or a combination, and a configured model may select read-only business tools.
+- This is a backend security, Spring AI integration, active-batch, knowledge-citation, fallback, and compatibility contract. A change to callback registration, tool arguments, scope verification, analytics/knowledge routing, or model handling must follow this scenario.
 
 #### 2. Signatures
 
@@ -355,6 +355,7 @@ public static <T> ApiResult<T> error(int code, String message) { return new ApiR
   - `queryMetric(String metric, Map<String, String> filters)`
   - `queryDetails(String dataset, Map<String, String> filters, Integer page, Integer pageSize, String sortBy, String sortOrder)`
   - `runScenarioAnalysis(String question, String language)`
+  - `retrieveKnowledge(String query, Integer topK): KnowledgeSearchResult`
 - Default policy:
   - `AgentExecutionPolicy.DEFAULT_MAX_TOOL_CALLS == 4`
   - `AgentExecutionPolicy.DEFAULT_MAX_PAGE_SIZE == 50`
@@ -362,15 +363,16 @@ public static <T> ApiResult<T> error(int code, String message) { return new ApiR
 #### 3. Contracts
 
 - `ChatController` claims/verifies session ownership first, then creates `AgentRequestScope.authenticated(sessionId, tokenSubject)`; it must not pass token values into tool arguments or logs.
-- Only authenticated analytics requests receive callbacks. Each model request gets a new `AgentExecutionContext`, and its four callbacks share the same call budget.
-- Register exactly the four names above. Legacy callbacks such as `searchDealers`, `queryOpportunities`, `queryTargets`, and `queryLeads` remain compatibility code and are not attached to `ChatService`.
+- Only authenticated analytics or business-knowledge requests receive callbacks. Each model request gets a new `AgentExecutionContext`; all five callbacks share one request budget of four calls.
+- Register exactly the five names above. Legacy callbacks such as `searchDealers`, `queryOpportunities`, `queryTargets`, and `queryLeads` remain compatibility code and are not attached to `ChatService`.
 - The scope verifier requires a non-blank session and subject, `activeBatchOnly=true`, and current `SessionOwnershipService.owns(sessionId, subject)`.
-- The application facade calls `DashboardService`, `AnalyticsApiService`, or `RuleBasedAnalyticsService`; it never accepts SQL, repository/bean names, arbitrary dataset names, or import batch IDs, and never accesses a repository directly.
+- The application facade calls `DashboardService`, `AnalyticsApiService`, `RuleBasedAnalyticsService`, or the public `KnowledgeService`; it never accepts SQL, repository/bean names, arbitrary dataset names, import batch IDs, vector-store objects, or resource paths, and never accesses a repository directly.
 - Metric/dataset values, filter keys, detail sort fields, sort direction, page, page size, scenario question length, and language are allowlisted or bounded before delegation.
 - Existing application services remain responsible for active-import-batch filtering. Agent code cannot select a batch.
-- Sync and SSE analytics use the same controlled callbacks and rule fallback semantics without changing `ChatRequest`, `ChatResponse`, HTTP paths, or SSE event names/order.
+- Sync and SSE analytics/knowledge routes use the same controlled callbacks without changing `ChatRequest`, `ChatResponse`, HTTP paths, or SSE event names/order. Analytics failures use the rule report; knowledge-only failures use the deterministic cited/no-match composer.
 - A Spring AI `@Tool` method must return a concrete serializable type such as `AgentToolResult` or `AgentScenarioAnalysis`. Do not declare an `Object` return type; Spring AI 1.0 treats it as a functional type and rejects callback creation.
-- `retrieveKnowledge` and `generateReportDraft` are not registered until the `knowledge` and `reporting` modules provide their own application ports and policies.
+- `retrieveKnowledge` returns the framework-neutral knowledge contract with `documentId`, `source`, `version`, `section`, `chunkId`, `excerpt`, `score`, and explicit `noMatch`. Knowledge excerpts explain policy/SOP/definitions only and never override structured KPI or active-batch facts.
+- `generateReportDraft` is not registered until the `reporting` module provides its own application port and write/export policy.
 - Controlled trace logs contain only `traceId`, tool name, status, and a fixed safe reason. They never contain subject, token, user message, arguments, model output, or business details.
 
 #### 4. Validation & Error Matrix
@@ -379,14 +381,19 @@ public static <T> ApiResult<T> error(int code, String message) { return new ApiR
 - Scope no longer owns the session or `activeBatchOnly=false` -> tool call rejected before delegation; analytics request falls back to the deterministic report.
 - Unknown tool name -> callback indexing/policy rejects it; it is never published.
 - Unsupported metric/dataset/filter/sort/language or malformed integer -> `IllegalArgumentException`; no application query runs.
+- Blank/overlong knowledge query or `topK` outside `1..8` -> `IllegalArgumentException`; no index query runs.
+- Available knowledge index with no relevant hit -> `KnowledgeSearchResult.noMatch=true` and an empty hit list; do not invent policy text.
+- Knowledge index/model/tool unavailable -> knowledge-only sync and SSE return `KnowledgeAnswerComposer` output, or the fixed unavailable message if deterministic retrieval also fails.
 - `page < 1`, `pageSize < 1`, or `pageSize > 50` -> reject before calling `AnalyticsApiService`.
 - Fifth tool call in one request -> `IllegalStateException("Agent tool call budget exceeded.")`; no fifth delegate call.
-- Model creation/call, tool execution, budget, or final reply validation fails -> return/persist `AnalyticsPlan.fallbackReply()` for both sync and SSE analytics.
+- Model creation/call, tool execution, budget, or final reply validation fails -> return/persist `AnalyticsPlan.fallbackReply()` for both sync and SSE analytics; knowledge-only requests return/persist the deterministic knowledge fallback.
 - SSE writer I/O failure or accumulated output above `MAX_STREAMED_REPLY_CHARS` -> preserve the existing stream error/limit behavior; do not attempt to write an additional fallback after the transport is unsafe.
 
 #### 5. Good/Base/Bad Cases
 
-- Good: an authenticated target question receives exactly four callbacks, calls `queryMetric("target", ...)`, reads the active batch through `AnalyticsApiService`, and records a safe success trace.
+- Good: an authenticated target question receives exactly five callbacks, calls `queryMetric("target", ...)`, reads the active batch through `AnalyticsApiService`, and records a safe success trace.
+- Good: “目标达成率口径是什么” routes to knowledge-only, calls `retrieveKnowledge`, and cites source/version without invoking rule analytics.
+- Good: “目标达成率低，按什么 SOP 改善” remains an analytics route with `retrieveKnowledge` available; grounded KPI facts stay authoritative.
 - Good: model creation is rejected by URL policy during analytics; sync and SSE still return the existing rule report, and SSE emits `done` rather than a model error.
 - Base: a general non-analytics chat request uses the existing model path with no controlled callbacks.
 - Bad: injecting the global `aiToolCallbackProvider` into chat exposes raw low-level tools and bypasses the business facade.
@@ -395,12 +402,12 @@ public static <T> ApiResult<T> error(int code, String message) { return new ApiR
 
 #### 6. Tests Required
 
-- `AgentExecutionPolicyTest`: exact four-name allowlist, maximum 4 calls, maximum page size 50, unknown tool rejection, safe trace reasons.
-- `ControlledAgentToolServiceTest`: mapping to existing services plus invalid metric/dataset/filter, pagination, sort, language, and scenario-length rejection without delegate interaction.
+- `AgentExecutionPolicyTest`: exact five-name allowlist, maximum 4 calls, maximum page size 50, unknown tool rejection, safe trace reasons.
+- `ControlledAgentToolServiceTest`: mapping to existing services and `KnowledgeService`, plus invalid metric/dataset/filter, pagination, sort, language, scenario-length, query, and Top-K rejection without unintended delegate interaction.
 - `ControlledAgentToolCallbacksTest`: exact published callback set, shared request budget, ownership denial, and no fifth delegate call.
 - `SessionOwnershipAgentScopeVerifierTest`: authenticated subject/session, `activeBatchOnly`, and current ownership are all required.
 - `ChatControllerTest`: claimed token subject becomes the exact authenticated `AgentRequestScope` for sync and SSE.
-- `ChatServiceTest`: sync and SSE prompt options contain exactly the four controlled callbacks, exclude legacy callbacks, and model creation/call or invalid model output falls back to the same rule report.
+- `ChatServiceTest`: analytics and knowledge sync/SSE prompt options contain exactly the five controlled callbacks, general chat contains none, knowledge-only/combined routing is explicit, and model/tool failures select the route-specific deterministic fallback.
 - Full verification: `mvn "-Dfrontend.skip=true" pmd:check` and `mvn "-Dfrontend.skip=true" test`.
 
 #### 7. Wrong vs Correct
