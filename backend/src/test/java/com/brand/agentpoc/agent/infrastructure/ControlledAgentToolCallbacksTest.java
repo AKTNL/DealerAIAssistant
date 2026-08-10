@@ -35,7 +35,7 @@ class ControlledAgentToolCallbacksTest {
     }
 
     @Test
-    void publishesOnlyTheFiveBusinessLevelCallbacks() {
+    void publishesOnlyTheSixBusinessLevelCallbacks() {
         ControlledAgentToolSession session = toolCallbacks.openSession(scope, "trace-1");
 
         assertThat(session.callbacks())
@@ -45,7 +45,8 @@ class ControlledAgentToolCallbacksTest {
                         "queryMetric",
                         "queryDetails",
                         "runScenarioAnalysis",
-                        "retrieveKnowledge"
+                        "retrieveKnowledge",
+                        "generateReportDraft"
                 )
                 .doesNotContain(
                         "searchDealers",

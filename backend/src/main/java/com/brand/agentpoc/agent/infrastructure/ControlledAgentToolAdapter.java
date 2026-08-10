@@ -4,6 +4,7 @@ import com.brand.agentpoc.agent.application.AgentScenarioAnalysis;
 import com.brand.agentpoc.agent.application.AgentToolResult;
 import com.brand.agentpoc.agent.application.ControlledAgentToolService;
 import com.brand.agentpoc.knowledge.domain.KnowledgeSearchResult;
+import com.brand.agentpoc.reporting.domain.ReportDraft;
 import java.util.Map;
 import org.springframework.ai.tool.annotation.Tool;
 import org.springframework.ai.tool.annotation.ToolParam;
@@ -96,5 +97,20 @@ public class ControlledAgentToolAdapter {
             Integer topK
     ) {
         return toolService.retrieveKnowledge(query, topK);
+    }
+
+    @Tool(
+            name = "generateReportDraft",
+            description = "Generate a deterministic Markdown dealer operations report draft from the current active-batch metrics. Read only; no PDF/Word export or data mutation."
+    )
+    public ReportDraft generateReportDraft(
+            @ToolParam(description = "Report type: daily, weekly, monthly, or topic.", required = true)
+            String reportType,
+            @ToolParam(description = "Response language: zh or en.", required = true)
+            String language,
+            @ToolParam(description = "Required only for a topic report; describe the business topic in at most 500 characters.", required = false)
+            String topic
+    ) {
+        return toolService.generateReportDraft(reportType, language, topic);
     }
 }

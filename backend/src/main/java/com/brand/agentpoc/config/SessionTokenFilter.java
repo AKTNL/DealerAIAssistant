@@ -25,6 +25,7 @@ public class SessionTokenFilter extends OncePerRequestFilter {
             "/api/chat/**",
             "/api/data-status",
             "/api/dashboard",
+            "/api/reports/**",
             "/api/model-config/**"
     );
 

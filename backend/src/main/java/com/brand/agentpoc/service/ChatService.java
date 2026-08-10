@@ -8,6 +8,9 @@ import com.brand.agentpoc.ai.LanguageDetector;
 import com.brand.agentpoc.ai.PromptFactory;
 import com.brand.agentpoc.dto.request.ChatRequest;
 import com.brand.agentpoc.knowledge.application.KnowledgeAnswerComposer;
+import com.brand.agentpoc.reporting.application.ReportGenerationRequest;
+import com.brand.agentpoc.reporting.application.ReportService;
+import com.brand.agentpoc.reporting.domain.ReportDraft;
 import com.brand.agentpoc.repository.DealerRepository;
 import java.io.BufferedWriter;
 import java.io.IOException;
@@ -64,6 +67,7 @@ public class ChatService {
             "购买周期", "购车周期", "年龄", "赢单",
             "市场", "车型", "车款", "哪款车", "哪种车", "卖得", "畅销", "成交", "城市", "集团", "对标", "绩效", "kpi", "crm", "dealer", "dealers",
             "口径", "sop", "政策", "制度", "流程", "规则", "产品知识",
+            "报告", "日报", "周报", "月报", "专题报告", "report",
             "dealership", "store", "stores", "customer", "client", "sales", "target",
             "achievement", "opportunity", "opportunities", "lead", "leads", "task", "tasks",
             "campaign", "campaigns", "conversion", "funnel", "follow-up", "follow up",
@@ -88,6 +92,7 @@ public class ChatService {
     private final ChatReplyGuard replyGuard;
     private final ControlledAgentToolCallbacks agentToolCallbacks;
     private final KnowledgeAnswerComposer knowledgeAnswerComposer;
+    private final ReportService reportService;
 
     @Autowired
     public ChatService(
@@ -99,7 +104,8 @@ public class ChatService {
             DealerRepository dealerRepository,
             ImportBatchService importBatchService,
             ControlledAgentToolCallbacks agentToolCallbacks,
-            KnowledgeAnswerComposer knowledgeAnswerComposer
+            KnowledgeAnswerComposer knowledgeAnswerComposer,
+            ReportService reportService
     ) {
         this.sessionMemoryService = sessionMemoryService;
         this.languageDetector = languageDetector;
@@ -112,6 +118,7 @@ public class ChatService {
         this.replyGuard = new ChatReplyGuard(languageDetector);
         this.agentToolCallbacks = agentToolCallbacks;
         this.knowledgeAnswerComposer = knowledgeAnswerComposer;
+        this.reportService = reportService;
     }
 
     ChatService(
@@ -131,6 +138,32 @@ public class ChatService {
                 dealerRepository,
                 new ImportBatchService(),
                 null,
+                null,
+                null
+        );
+    }
+
+    ChatService(
+            SessionMemoryService sessionMemoryService,
+            LanguageDetector languageDetector,
+            RuleBasedAnalyticsService analyticsService,
+            PromptFactory promptFactory,
+            ModelConfigService modelConfigService,
+            DealerRepository dealerRepository,
+            ImportBatchService importBatchService,
+            ControlledAgentToolCallbacks agentToolCallbacks,
+            KnowledgeAnswerComposer knowledgeAnswerComposer
+    ) {
+        this(
+                sessionMemoryService,
+                languageDetector,
+                analyticsService,
+                promptFactory,
+                modelConfigService,
+                dealerRepository,
+                importBatchService,
+                agentToolCallbacks,
+                knowledgeAnswerComposer,
                 null
         );
     }
@@ -156,6 +189,7 @@ public class ChatService {
             AgentRequestScope agentScope
     ) throws IOException {
         String language = languageDetector.detectLanguage(request.message());
+        boolean reportRequested = looksLikeReportRequest(request.message());
         boolean knowledgeRequested = looksLikeKnowledgeRequest(request.message());
         boolean analyticsRequested = isAnalyticsRoute(request.message(), knowledgeRequested);
         boolean groundedRequested = analyticsRequested || knowledgeRequested;
@@ -186,6 +220,15 @@ public class ChatService {
                 if (directReply != null) {
                     sseEventWriter.writeChunkedEvent(writer, "message", directReply);
                     sessionMemoryService.addAssistantMessage(request.sessionId(), directReply);
+                    sseEventWriter.writeEvent(writer, "done", "[DONE]");
+                    return;
+                }
+
+                if (reportRequested && canGenerateReport(agentScope)) {
+                    ReportDraft draft = generateReportDraft(request.message(), language);
+                    sseEventWriter.writeEvent(writer, "progress", reportProgressMessages(language).getFirst());
+                    sseEventWriter.writeChunkedEvent(writer, "message", draft.markdown());
+                    sessionMemoryService.addAssistantMessage(request.sessionId(), draft.markdown());
                     sseEventWriter.writeEvent(writer, "done", "[DONE]");
                     return;
                 }
@@ -581,9 +624,10 @@ public class ChatService {
 
     private GeneratedReply generateReply(ChatRequest request, AgentRequestScope agentScope) {
         String language = languageDetector.detectLanguage(request.message());
+        boolean reportRequested = looksLikeReportRequest(request.message());
         boolean knowledgeRequested = looksLikeKnowledgeRequest(request.message());
         boolean analyticsRequested = isAnalyticsRoute(request.message(), knowledgeRequested);
-        return generateReply(request, language, analyticsRequested, knowledgeRequested, agentScope);
+        return generateReply(request, language, analyticsRequested, knowledgeRequested, reportRequested, agentScope);
     }
 
     private GeneratedReply generateReply(
@@ -591,6 +635,7 @@ public class ChatService {
             String language,
             boolean analyticsRequested,
             boolean knowledgeRequested,
+            boolean reportRequested,
             AgentRequestScope agentScope
     ) {
         boolean groundedRequested = analyticsRequested || knowledgeRequested;
@@ -604,6 +649,15 @@ public class ChatService {
         }
         if (isOutOfScopeQuestion(request.message(), groundedRequested)) {
             return new GeneratedReply(buildOutOfScopeReply(language), List.of(), "");
+        }
+
+        if (reportRequested && canGenerateReport(agentScope)) {
+            ReportDraft draft = generateReportDraft(request.message(), language);
+            return new GeneratedReply(
+                    draft.markdown(),
+                    reportProgressMessages(language),
+                    reportThinking(language)
+            );
         }
 
         if (!hasConfiguredModelSettings(request)) {
@@ -1328,10 +1382,11 @@ public class ChatService {
                 normalized,
                 "经销商", "门店", "目标", "达成", "销量", "销售", "卖得", "畅销", "成交", "商机", "线索", "任务", "活动", "转化",
                 "分析", "复盘", "对比", "表现", "趋势", "集团", "城市", "车型", "最低", "最高",
+                "报告", "日报", "周报", "月报", "专题报告",
                 "车款", "哪款车", "哪种车", "购买周期", "购车周期", "赢单", "客户", "年龄",
                 "dealer", "dealers", "target", "achievement", "sales", "opportunity", "opportunities",
                 "lead", "leads", "task", "tasks", "campaign", "campaigns", "benchmark", "funnel",
-                "conversion", "city", "model", "performance", "trend", "lowest", "highest", "compare"
+                "conversion", "city", "model", "performance", "trend", "lowest", "highest", "compare", "report"
         );
     }
 
@@ -1349,6 +1404,58 @@ public class ChatService {
         boolean businessSignal = BUSINESS_SCOPE_KEYWORDS.stream().anyMatch(normalized::contains);
         boolean explicitlyNonBusiness = NON_BUSINESS_KEYWORDS.stream().anyMatch(normalized::contains);
         return knowledgeSignal && businessSignal && !explicitlyNonBusiness;
+    }
+
+    private boolean looksLikeReportRequest(String message) {
+        String normalized = message == null ? "" : message.trim().toLowerCase(Locale.ROOT);
+        return containsAny(
+                normalized,
+                "报告", "日报", "周报", "月报", "专题报告", "分析报告", "经营报告", "报告草稿", "生成报告",
+                "daily report", "weekly report", "monthly report", "topic report", "report draft", "create a report", "generate a report"
+        );
+    }
+
+    private boolean canGenerateReport(AgentRequestScope agentScope) {
+        return reportService != null
+                && agentScope != null
+                && agentScope.authenticated()
+                && agentScope.activeBatchOnly();
+    }
+
+    private ReportDraft generateReportDraft(String message, String language) {
+        String normalized = message == null ? "" : message.toLowerCase(Locale.ROOT);
+        String reportType;
+        if (containsAny(normalized, "周报", "weekly report")) {
+            reportType = "weekly";
+        } else if (containsAny(normalized, "月报", "monthly report")) {
+            reportType = "monthly";
+        } else if (containsAny(normalized, "专题报告", "topic report")) {
+            reportType = "topic";
+        } else {
+            reportType = "daily";
+        }
+        String topic = "topic".equals(reportType) ? message : null;
+        return reportService.generate(new ReportGenerationRequest(
+                reportType,
+                language,
+                "GLOBAL",
+                "",
+                topic
+        ));
+    }
+
+    private List<String> reportProgressMessages(String language) {
+        if ("zh".equals(language)) {
+            return List.of("正在读取当前经营快照", "正在生成 Markdown 报告草稿", "报告草稿已记录");
+        }
+        return List.of("Reading the current operations snapshot", "Generating the Markdown report draft", "Report draft recorded");
+    }
+
+    private String reportThinking(String language) {
+        if ("zh".equals(language)) {
+            return "读取 active batch 指标快照，保留数据范围与生成版本，输出可导出的 Markdown 草稿。";
+        }
+        return "Read the active-batch metric snapshot, preserve scope and generation metadata, and produce an exportable Markdown draft.";
     }
 
     private boolean isAnalyticsRoute(String message, boolean knowledgeRequested) {

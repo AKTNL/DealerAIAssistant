@@ -185,6 +185,15 @@ com.brand.agentpoc.knowledge/
   infrastructure/   # catalog/resource loader, memory and PGvector adapters, bean config, startup bootstrap
 ```
 
+P1-5 adds the first complete `reporting` module slice:
+
+```text
+com.brand.agentpoc.reporting/
+  application/       # report generation use case, Markdown renderer, draft store port
+  domain/            # report type, global scope, and draft contracts
+  infrastructure/   # in-memory local adapter and JDBC production adapter
+```
+
 `service.ChatService` may reference these public/application and infrastructure integration boundaries while the rest of chat orchestration remains in the legacy service package. `agent.domain` and `knowledge.domain/application` must stay free of Spring AI, Servlet, repository, JDBC, resource-loader, and model-SDK dependencies; knowledge Spring wiring belongs in infrastructure. The controlled application service reuses existing public services (`DashboardService`, `AnalyticsApiService`, `RuleBasedAnalyticsService`, and `KnowledgeService`) and must not access repositories or vector-store adapters directly. This seam keeps the existing HTTP/SSE contract stable and makes the migration reversible.
 
 Tests mirror the package of the migrated production class. For example, `agent/domain/AgentExecutionPolicy.java` is covered by `agent/domain/AgentExecutionPolicyTest.java`, knowledge application/infrastructure tests mirror their production packages, and existing `service/ChatServiceTest.java` remains the regression guard for the compatibility caller, knowledge routing, and request-scoped callback registration.

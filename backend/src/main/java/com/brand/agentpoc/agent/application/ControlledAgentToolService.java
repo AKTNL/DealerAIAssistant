@@ -4,6 +4,9 @@ import com.brand.agentpoc.agent.domain.AgentDataKind;
 import com.brand.agentpoc.agent.domain.AgentExecutionPolicy;
 import com.brand.agentpoc.knowledge.application.KnowledgeService;
 import com.brand.agentpoc.knowledge.domain.KnowledgeSearchResult;
+import com.brand.agentpoc.reporting.application.ReportGenerationRequest;
+import com.brand.agentpoc.reporting.application.ReportService;
+import com.brand.agentpoc.reporting.domain.ReportDraft;
 import com.brand.agentpoc.service.AnalyticsApiService;
 import com.brand.agentpoc.service.AnalyticsPlan;
 import com.brand.agentpoc.service.DashboardService;
@@ -51,10 +54,44 @@ public class ControlledAgentToolService {
     private final AnalyticsApiService analyticsApiService;
     private final RuleBasedAnalyticsService analyticsService;
     private final KnowledgeService knowledgeService;
+    private final ReportService reportService;
     private final AgentExecutionPolicy executionPolicy;
 
     @Autowired
     public ControlledAgentToolService(
+            DashboardService dashboardService,
+            AnalyticsApiService analyticsApiService,
+            RuleBasedAnalyticsService analyticsService,
+            KnowledgeService knowledgeService,
+            ReportService reportService
+    ) {
+        this(
+                dashboardService,
+                analyticsApiService,
+                analyticsService,
+                knowledgeService,
+                reportService,
+                AgentExecutionPolicy.defaultPolicy()
+        );
+    }
+
+    ControlledAgentToolService(
+            DashboardService dashboardService,
+            AnalyticsApiService analyticsApiService,
+            RuleBasedAnalyticsService analyticsService,
+            KnowledgeService knowledgeService,
+            ReportService reportService,
+            AgentExecutionPolicy executionPolicy
+    ) {
+        this.dashboardService = dashboardService;
+        this.analyticsApiService = analyticsApiService;
+        this.analyticsService = analyticsService;
+        this.knowledgeService = knowledgeService;
+        this.reportService = reportService;
+        this.executionPolicy = executionPolicy;
+    }
+
+    ControlledAgentToolService(
             DashboardService dashboardService,
             AnalyticsApiService analyticsApiService,
             RuleBasedAnalyticsService analyticsService,
@@ -65,22 +102,9 @@ public class ControlledAgentToolService {
                 analyticsApiService,
                 analyticsService,
                 knowledgeService,
+                null,
                 AgentExecutionPolicy.defaultPolicy()
         );
-    }
-
-    ControlledAgentToolService(
-            DashboardService dashboardService,
-            AnalyticsApiService analyticsApiService,
-            RuleBasedAnalyticsService analyticsService,
-            KnowledgeService knowledgeService,
-            AgentExecutionPolicy executionPolicy
-    ) {
-        this.dashboardService = dashboardService;
-        this.analyticsApiService = analyticsApiService;
-        this.analyticsService = analyticsService;
-        this.knowledgeService = knowledgeService;
-        this.executionPolicy = executionPolicy;
     }
 
     public AgentToolResult getDashboardSummary() {
@@ -206,6 +230,19 @@ public class ControlledAgentToolService {
 
     public KnowledgeSearchResult retrieveKnowledge(String query, Integer topK) {
         return knowledgeService.retrieve(query, topK);
+    }
+
+    public ReportDraft generateReportDraft(String reportType, String language, String topic) {
+        if (reportService == null) {
+            throw new IllegalStateException("Report generation service is unavailable.");
+        }
+        return reportService.generate(new ReportGenerationRequest(
+                reportType,
+                language,
+                "GLOBAL",
+                "",
+                topic
+        ));
     }
 
     private Map<String, String> validateFilters(Map<String, String> filters, Set<String> allowedKeys) {

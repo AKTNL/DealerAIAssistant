@@ -72,6 +72,7 @@
 │       │   │   ├── dto/              # request、response、metrics、detail DTO
 │       │   │   ├── entity/           # Dealer、Opportunity、Campaign、Task、Target、Lead
 │       │   │   ├── knowledge/        # 文档/切片合同、检索应用服务、内存与 PGvector adapters
+│       │   │   ├── reporting/        # 报告类型、确定性 Markdown 草稿、记录与导出
 │       │   │   ├── repository/       # Spring Data JPA Repository
 │       │   │   └── service/          # 聊天、规则分析、数据查询、Excel 导入、会话记忆
 │       │   └── resources/
@@ -238,6 +239,28 @@ npm run dev
 | `/api/model-config/test` | POST | 测试模型连接配置 |
 | `/api/data-status` | GET | 查看当前导入来源、样例回退状态和质量汇总 |
 
+### 报告草稿 API
+
+报告 API 复用 Dashboard 的 active-batch 指标服务，默认只允许 `GLOBAL` scope。草稿保存生成时间、数据批次、模型名和 prompt 版本，可直接导出 Markdown；PDF/Word 不在 P1-5 范围内。
+
+| 接口 | 方法 | 说明 |
+| --- | --- | --- |
+| `/api/reports/drafts` | POST | 生成日报、周报、月报或专题 Markdown 草稿 |
+| `/api/reports/drafts` | GET | 列出当前运行实例可见的报告记录 |
+| `/api/reports/drafts/{id}` | GET | 获取草稿及其批次、scope、模型和 prompt 版本 |
+| `/api/reports/drafts/{id}/markdown` | GET | 以 `text/markdown` 下载草稿 |
+
+生成请求示例：
+
+```json
+{
+  "reportType": "weekly",
+  "language": "zh",
+  "scopeType": "GLOBAL",
+  "topic": "本周经营概况与待跟进事项"
+}
+```
+
 SSE 流式聊天事件类型：
 
 | 事件 | 说明 |
@@ -371,10 +394,12 @@ mvn clean install
 | `backend/src/main/java/com/brand/agentpoc/service/AnalyticsApiService.java` | 指标聚合与详情分页 API 逻辑 |
 | `backend/src/main/java/com/brand/agentpoc/ai/PromptFactory.java` | 系统提示词、thinking_protocol、证据边界和 0-2 个追问约束 |
 | `backend/src/main/java/com/brand/agentpoc/agent/ChatReplyGuard.java` | 模型回答守卫，修正过度确定、追问数量和结构化回答格式 |
-| `backend/src/main/java/com/brand/agentpoc/agent/infrastructure/ControlledAgentToolCallbacks.java` | 为已认证请求注册五个受控业务工具，并共享单请求四次调用预算 |
+| `backend/src/main/java/com/brand/agentpoc/agent/infrastructure/ControlledAgentToolCallbacks.java` | 为已认证请求注册六个受控业务工具，并共享单请求四次调用预算 |
 | `backend/src/main/java/com/brand/agentpoc/knowledge/application/KnowledgeService.java` | 框架中立的知识检索应用入口，校验 query/Top-K 并返回引用信息 |
 | `backend/src/main/java/com/brand/agentpoc/knowledge/infrastructure/KnowledgeBootstrap.java` | 校验知识目录、确定性切片并在启动时替换 bundled catalog 索引 |
 | `backend/src/main/java/com/brand/agentpoc/knowledge/infrastructure/PgVectorKnowledgeIndex.java` | 生产 PGvector 语义检索 adapter |
+| `backend/src/main/java/com/brand/agentpoc/reporting/application/ReportService.java` | 复用 Dashboard active-batch 快照生成并记录报告草稿 |
+| `backend/src/main/java/com/brand/agentpoc/reporting/infrastructure/JdbcReportDraftStore.java` | 生产报告记录 JDBC adapter；local/test 使用内存 adapter |
 | `backend/src/main/java/com/brand/agentpoc/service/ExcelImportService.java` | Excel 字段级清洗、必需 Sheet 校验、严格/样例回退导入 |
 | `backend/src/main/java/com/brand/agentpoc/service/ImportQualityService.java` | 保存最近一次导入来源和质量汇总 |
 | `backend/src/main/java/com/brand/agentpoc/controller/DataStatusController.java` | 登录态数据质量状态接口 |

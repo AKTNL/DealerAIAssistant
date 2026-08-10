@@ -356,6 +356,7 @@ public static <T> ApiResult<T> error(int code, String message) { return new ApiR
   - `queryDetails(String dataset, Map<String, String> filters, Integer page, Integer pageSize, String sortBy, String sortOrder)`
   - `runScenarioAnalysis(String question, String language)`
   - `retrieveKnowledge(String query, Integer topK): KnowledgeSearchResult`
+  - `generateReportDraft(String reportType, String language, String topic): ReportDraft`
 - Default policy:
   - `AgentExecutionPolicy.DEFAULT_MAX_TOOL_CALLS == 4`
   - `AgentExecutionPolicy.DEFAULT_MAX_PAGE_SIZE == 50`
@@ -363,8 +364,8 @@ public static <T> ApiResult<T> error(int code, String message) { return new ApiR
 #### 3. Contracts
 
 - `ChatController` claims/verifies session ownership first, then creates `AgentRequestScope.authenticated(sessionId, tokenSubject)`; it must not pass token values into tool arguments or logs.
-- Only authenticated analytics or business-knowledge requests receive callbacks. Each model request gets a new `AgentExecutionContext`; all five callbacks share one request budget of four calls.
-- Register exactly the five names above. Legacy callbacks such as `searchDealers`, `queryOpportunities`, `queryTargets`, and `queryLeads` remain compatibility code and are not attached to `ChatService`.
+- Only authenticated analytics, business-knowledge, or explicit report requests receive callbacks. Each model request gets a new `AgentExecutionContext`; all six callbacks share one request budget of four calls.
+- Register exactly the six names above. Legacy callbacks such as `searchDealers`, `queryOpportunities`, `queryTargets`, and `queryLeads` remain compatibility code and are not attached to `ChatService`.
 - The scope verifier requires a non-blank session and subject, `activeBatchOnly=true`, and current `SessionOwnershipService.owns(sessionId, subject)`.
 - The application facade calls `DashboardService`, `AnalyticsApiService`, `RuleBasedAnalyticsService`, or the public `KnowledgeService`; it never accepts SQL, repository/bean names, arbitrary dataset names, import batch IDs, vector-store objects, or resource paths, and never accesses a repository directly.
 - Metric/dataset values, filter keys, detail sort fields, sort direction, page, page size, scenario question length, and language are allowlisted or bounded before delegation.
@@ -372,7 +373,7 @@ public static <T> ApiResult<T> error(int code, String message) { return new ApiR
 - Sync and SSE analytics/knowledge routes use the same controlled callbacks without changing `ChatRequest`, `ChatResponse`, HTTP paths, or SSE event names/order. Analytics failures use the rule report; knowledge-only failures use the deterministic cited/no-match composer.
 - A Spring AI `@Tool` method must return a concrete serializable type such as `AgentToolResult` or `AgentScenarioAnalysis`. Do not declare an `Object` return type; Spring AI 1.0 treats it as a functional type and rejects callback creation.
 - `retrieveKnowledge` returns the framework-neutral knowledge contract with `documentId`, `source`, `version`, `section`, `chunkId`, `excerpt`, `score`, and explicit `noMatch`. Knowledge excerpts explain policy/SOP/definitions only and never override structured KPI or active-batch facts.
-- `generateReportDraft` is not registered until the `reporting` module provides its own application port and write/export policy.
+- `generateReportDraft` calls only the reporting application port, accepts the same bounded language/type contract as the HTTP API, and records a deterministic Markdown draft without changing business data.
 - Controlled trace logs contain only `traceId`, tool name, status, and a fixed safe reason. They never contain subject, token, user message, arguments, model output, or business details.
 
 #### 4. Validation & Error Matrix
@@ -391,7 +392,8 @@ public static <T> ApiResult<T> error(int code, String message) { return new ApiR
 
 #### 5. Good/Base/Bad Cases
 
-- Good: an authenticated target question receives exactly five callbacks, calls `queryMetric("target", ...)`, reads the active batch through `AnalyticsApiService`, and records a safe success trace.
+- Good: an authenticated target question receives exactly six callbacks, calls `queryMetric("target", ...)`, reads the active batch through `AnalyticsApiService`, and records a safe success trace.
+- Good: an explicit weekly-report request calls `generateReportDraft`, preserves the active batch and `GLOBAL` scope, and returns the recorded Markdown draft on both sync and SSE paths.
 - Good: “目标达成率口径是什么” routes to knowledge-only, calls `retrieveKnowledge`, and cites source/version without invoking rule analytics.
 - Good: “目标达成率低，按什么 SOP 改善” remains an analytics route with `retrieveKnowledge` available; grounded KPI facts stay authoritative.
 - Good: model creation is rejected by URL policy during analytics; sync and SSE still return the existing rule report, and SSE emits `done` rather than a model error.
@@ -402,12 +404,12 @@ public static <T> ApiResult<T> error(int code, String message) { return new ApiR
 
 #### 6. Tests Required
 
-- `AgentExecutionPolicyTest`: exact five-name allowlist, maximum 4 calls, maximum page size 50, unknown tool rejection, safe trace reasons.
+- `AgentExecutionPolicyTest`: exact six-name allowlist, maximum 4 calls, maximum page size 50, unknown tool rejection, safe trace reasons.
 - `ControlledAgentToolServiceTest`: mapping to existing services and `KnowledgeService`, plus invalid metric/dataset/filter, pagination, sort, language, scenario-length, query, and Top-K rejection without unintended delegate interaction.
 - `ControlledAgentToolCallbacksTest`: exact published callback set, shared request budget, ownership denial, and no fifth delegate call.
 - `SessionOwnershipAgentScopeVerifierTest`: authenticated subject/session, `activeBatchOnly`, and current ownership are all required.
 - `ChatControllerTest`: claimed token subject becomes the exact authenticated `AgentRequestScope` for sync and SSE.
-- `ChatServiceTest`: analytics and knowledge sync/SSE prompt options contain exactly the five controlled callbacks, general chat contains none, knowledge-only/combined routing is explicit, and model/tool failures select the route-specific deterministic fallback.
+- `ChatServiceTest`: analytics and knowledge sync/SSE prompt options contain exactly the six controlled callbacks, explicit report requests use the reporting port, general chat contains none, knowledge-only/combined routing is explicit, and model/tool failures select the route-specific deterministic fallback.
 - Full verification: `mvn "-Dfrontend.skip=true" pmd:check` and `mvn "-Dfrontend.skip=true" test`.
 
 #### 7. Wrong vs Correct
@@ -889,6 +891,95 @@ Start-Process -FilePath "mvn.cmd" -ArgumentList @("-Dfrontend.skip=true", "sprin
 - Filter tests: cover allow/deny decisions, error response format
 - DTO tests: verify factory methods and serialization behavior
 - AI tool tests: verify tool registration and parameter handling
+
+---
+
+## Scenario: Report Draft Generation
+
+### 1. Scope / Trigger
+
+- Trigger: an authenticated browser or controlled Agent request needs a daily, weekly, monthly, or topic report derived from the current Dashboard snapshot.
+- This is a cross-layer API, security, application-port, persistence, migration, and chat/SSE contract.
+
+### 2. Signatures
+
+- HTTP:
+  - `POST /api/reports/drafts -> ApiResult<ReportDraft>`
+  - `GET /api/reports/drafts -> ApiResult<List<ReportDraft>>`
+  - `GET /api/reports/drafts/{id} -> ApiResult<ReportDraft>`
+  - `GET /api/reports/drafts/{id}/markdown -> text/markdown;charset=UTF-8`
+- Application entry point: `ReportService.generate(ReportGenerationRequest): ReportDraft`
+- Controlled tool: `generateReportDraft(String reportType, String language, String topic): ReportDraft`
+- Production schema: `db/postgresql/V3__create_report_drafts.sql -> report_drafts`
+- Store profiles: `InMemoryReportDraftStore` for `!prod`; `JdbcReportDraftStore` for `prod`.
+
+### 3. Contracts
+
+- Request fields:
+  - `reportType`: required; `daily`, `weekly`, `monthly`, or `topic` (domain parsing may also accept the documented Chinese aliases).
+  - `language`: required; exactly `zh` or `en` after case normalization.
+  - `scopeType`: optional; defaults to `GLOBAL`. No other scope is supported in P1-5.
+  - `scopeId`: must be blank for `GLOBAL`.
+  - `topic`: required for a topic report and limited to 500 characters.
+- Every persisted draft records `reportType`, `language`, `markdown`, `generatedAt`, `importBatchId`, `scope`, `model`, and `promptVersion`.
+- Generation reads `DashboardService.getSummary()` and the active batch only. It must not infer unavailable trends, causes, organization scopes, or historical facts.
+- The controller returns the standard `ApiResult` envelope for JSON endpoints. The OpenAPI response schema must describe that envelope, not a bare draft or array.
+- `/api/reports/**` bypasses the internal `X-API-Key` filter but remains protected by the browser Bearer session filter.
+- Sync and SSE chat may call the reporting port directly only for an explicit report request with an authenticated, `activeBatchOnly=true` `AgentRequestScope`; both return the same recorded Markdown draft.
+- Markdown is the only export in P1-5. PDF/Word export, subscriptions, organization scope, and tenant history are outside this contract.
+
+### 4. Validation & Error Matrix
+
+- Missing request, report type, or language -> HTTP 400 / `IllegalArgumentException`; do not read Dashboard data.
+- Unsupported report type or language -> HTTP 400; do not save a draft.
+- `topic` report with blank topic, or topic longer than 500 characters -> HTTP 400; do not save a draft.
+- Non-`GLOBAL` scope or non-blank `scopeId` -> HTTP 400; do not read or save data.
+- Missing draft ID -> HTTP 400. Unknown draft ID -> HTTP 404.
+- Missing/invalid Bearer session on `/api/reports/**` -> HTTP 401 from `SessionTokenFilter`.
+- Authenticated chat scope with `activeBatchOnly=false` -> do not generate a report draft through the direct sync/SSE path.
+- Production database or migration failure -> fail production startup/operation; never silently replace the JDBC store with memory.
+
+### 5. Good/Base/Bad Cases
+
+- Good: an authenticated weekly request reads one active-batch Dashboard snapshot, persists its batch/scope/version metadata, and returns the same draft through JSON and Markdown export.
+- Good: local tests use the in-memory adapter without PostgreSQL or model infrastructure.
+- Base: an empty configured model name is recorded as `deterministic`; a configured model name is preserved as generation metadata.
+- Bad: a report aggregates repositories directly, uses inactive batches, or fabricates weekly/monthly trends from a point-in-time snapshot.
+- Bad: a `prod` context creates `InMemoryReportDraftStore` after a JDBC failure.
+
+### 6. Tests Required
+
+- `ReportServiceTest`: type/language/scope/topic validation, active-batch metadata, Chinese encoding, persistence, and newest-first listing.
+- `ReportMarkdownRendererTest`: supported type aliases and deterministic rendering helpers.
+- `JdbcReportDraftStoreTest`: round-trip every persisted metadata field and preserve generated timestamps.
+- `ReportControllerTest`: `ApiResult` JSON envelope, validation/not-found mapping, UTF-8 Markdown body, and attachment filename.
+- `ChatServiceTest`: authenticated sync/SSE report routing uses the same reporting port and bypasses model/rule analytics; unauthenticated compatibility calls must not create drafts.
+- Agent policy/callback tests: exact six-tool allowlist, shared four-call budget, and scope denial before delegate execution.
+- Final gates: UTF-8 JSON parse of `static/openapi.json`, `mvn "-Dfrontend.skip=true" pmd:check`, and `mvn "-Dfrontend.skip=true" test`.
+
+### 7. Wrong vs Correct
+
+Wrong:
+
+```java
+@Profile("prod")
+class ReportService {
+    ReportDraft generate(...) {
+        return memoryStore.save(renderFromAllRepositoryRows());
+    }
+}
+```
+
+Correct:
+
+```java
+DashboardSummary summary = dashboardService.getSummary();
+ReportDraft draft = new ReportDraft(
+        id, reportType, title, language,
+        renderer.render(reportType, language, summary, topic, batchId),
+        generatedAt, batchId, ReportScope.global(), model, PROMPT_VERSION);
+return draftStore.save(draft); // !prod memory adapter; prod JDBC adapter
+```
 
 ---
 

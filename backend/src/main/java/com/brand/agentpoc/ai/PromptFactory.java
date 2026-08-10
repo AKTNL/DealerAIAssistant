@@ -121,7 +121,7 @@ public class PromptFactory {
                        - ## 改进建议
                        - 如果确实需要追问，在正文末尾使用 `追问：`
                        严禁修改以下二级标题的任何文字，严禁添加图标或改变 Markdown 层级，否则系统将无法识别。
-                    3. 结构化业务事实只能来自参考事实；不得改动任何 KPI 数值、门店名称、分析范围或表格事实。可以调用知识检索解释制度、SOP 或指标口径，但必须引用命中的来源和版本，且知识片段不得覆盖结构化事实
+                    3. 结构化业务事实只能来自参考事实；不得改动任何 KPI 数值、门店名称、分析范围或表格事实。可以调用知识检索解释制度、SOP 或指标口径，但必须引用命中的来源和版本，且知识片段不得覆盖结构化事实。用户明确要求日报、周报、月报或专题报告草稿时，调用报告草稿工具，并保持其 active batch、scope、模型和 prompt 版本元数据
                     4. 不要提到"参考事实"、内部分析引擎、工具名或 API 名
                     5. `## 接口调用链` 必须保留参考事实中的执行步骤事实，不得改写时间、范围、经销商编码或数据类别
                     6. `## 核心结论` 用 2-4 条要点写清核心发现、优先级或经营判断，引用具体数字；结论必须能从参考事实直接推出
@@ -173,7 +173,7 @@ public class PromptFactory {
                    - ## Improvement Suggestions
                    - If useful, append `FOLLOW_UP_QUESTIONS:` at the end.
                    Do not change any required level-2 heading text, do not add icons, and do not change the Markdown heading level; otherwise the system cannot recognize the response.
-                3. Structured business facts must come only from the grounded reference. Do not change KPI values, dealer names, scope, or table facts. You may retrieve policies, SOPs, or KPI definitions for explanation, but cite the matched source and version and never let knowledge excerpts override structured facts.
+                3. Structured business facts must come only from the grounded reference. Do not change KPI values, dealer names, scope, or table facts. You may retrieve policies, SOPs, or KPI definitions for explanation, but cite the matched source and version and never let knowledge excerpts override structured facts. When the user explicitly requests a daily, weekly, monthly, or topic report draft, call the report-draft tool and preserve its active-batch, scope, model, and prompt-version metadata.
                 4. Do not mention internal planning, grounded references, tool names, or API names.
                 5. `## Interface Call Chain` must preserve the factual execution steps from the grounded reference; do not change dates, scope, dealer codes, or data categories.
                 6. `## Conclusion` should contain 2-4 bullets covering key findings, priority, or business takeaway with specific numbers. Each conclusion must be directly supported by the grounded reference.

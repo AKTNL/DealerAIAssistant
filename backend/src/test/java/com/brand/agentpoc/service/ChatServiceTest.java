@@ -20,11 +20,17 @@ import com.brand.agentpoc.agent.infrastructure.ControlledAgentToolAdapter;
 import com.brand.agentpoc.agent.infrastructure.ControlledAgentToolCallbacks;
 import com.brand.agentpoc.dto.request.ChatRequest;
 import com.brand.agentpoc.knowledge.application.KnowledgeAnswerComposer;
+import com.brand.agentpoc.reporting.application.ReportGenerationRequest;
+import com.brand.agentpoc.reporting.application.ReportService;
+import com.brand.agentpoc.reporting.domain.ReportDraft;
+import com.brand.agentpoc.reporting.domain.ReportScope;
+import com.brand.agentpoc.reporting.domain.ReportType;
 import com.brand.agentpoc.repository.DealerRepository;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.stream.Collectors;
@@ -750,6 +756,146 @@ class ChatServiceTest {
         assertThat(String.join("", extractEventData(payload, "message")))
                 .contains("Source: Sales SOP v1.0");
         assertThat(payload).contains("event: done").doesNotContain("event: error");
+        verifyNoInteractions(analyticsService);
+    }
+
+    @Test
+    void chatReportRequestGeneratesTheRecordedDraftWithoutAModel() {
+        ReportService reportService = mock(ReportService.class);
+        ReportDraft draft = new ReportDraft(
+                "report-1", ReportType.WEEKLY, "经营周报", "zh", "# 经营周报",
+                Instant.parse("2026-08-10T05:00:00Z"), "batch-1", ReportScope.global(),
+                "deterministic", "reporting-v1"
+        );
+        ReportGenerationRequest generationRequest = new ReportGenerationRequest(
+                "weekly", "zh", "GLOBAL", "", null
+        );
+        when(languageDetector.detectLanguage("生成本周经营周报")).thenReturn("zh");
+        when(reportService.generate(generationRequest)).thenReturn(draft);
+        ChatService reportingChatService = new ChatService(
+                sessionMemoryService,
+                languageDetector,
+                analyticsService,
+                promptFactory,
+                modelConfigService,
+                dealerRepository,
+                new ImportBatchService(),
+                null,
+                knowledgeAnswerComposer,
+                reportService
+        );
+
+        String reply = reportingChatService.chat(
+                new ChatRequest("session-report", "生成本周经营周报", null, null, null),
+                AgentRequestScope.authenticated("session-report", "subject-1")
+        );
+
+        assertThat(reply).isEqualTo("# 经营周报");
+        verify(reportService).generate(generationRequest);
+        verifyNoInteractions(analyticsService);
+    }
+
+    @Test
+    void unauthenticatedCompatibilityChatDoesNotCreateAReportDraft() {
+        String message = "Create a weekly report";
+        ReportService reportService = mock(ReportService.class);
+        AnalyticsPlan plan = analyticsPlan(
+                AnalyticsPlan.Scenario.OPPORTUNITY_FUNNEL,
+                englishAnalyticsFallbackReport()
+        );
+        when(languageDetector.detectLanguage(message)).thenReturn("en");
+        when(analyticsService.plan(message, "en")).thenReturn(plan);
+        ChatService reportingChatService = new ChatService(
+                sessionMemoryService,
+                languageDetector,
+                analyticsService,
+                promptFactory,
+                modelConfigService,
+                dealerRepository,
+                new ImportBatchService(),
+                null,
+                knowledgeAnswerComposer,
+                reportService
+        );
+
+        String reply = reportingChatService.chat(
+                new ChatRequest("session-report", message, null, null, null)
+        );
+
+        assertThat(reply).isEqualTo(plan.fallbackReply().trim());
+        verifyNoInteractions(reportService);
+    }
+
+    @Test
+    void reportChatRejectsAScopeThatCanReadOutsideTheActiveBatch() {
+        String message = "Create a weekly report";
+        ReportService reportService = mock(ReportService.class);
+        AnalyticsPlan plan = analyticsPlan(
+                AnalyticsPlan.Scenario.OPPORTUNITY_FUNNEL,
+                englishAnalyticsFallbackReport()
+        );
+        when(languageDetector.detectLanguage(message)).thenReturn("en");
+        when(analyticsService.plan(message, "en")).thenReturn(plan);
+        ChatService reportingChatService = new ChatService(
+                sessionMemoryService,
+                languageDetector,
+                analyticsService,
+                promptFactory,
+                modelConfigService,
+                dealerRepository,
+                new ImportBatchService(),
+                null,
+                knowledgeAnswerComposer,
+                reportService
+        );
+
+        String reply = reportingChatService.chat(
+                new ChatRequest("session-report", message, null, null, null),
+                new AgentRequestScope("session-report", "subject-1", false)
+        );
+
+        assertThat(reply).isEqualTo(plan.fallbackReply().trim());
+        verifyNoInteractions(reportService);
+    }
+
+    @Test
+    void streamReportRequestUsesTheSameRecordedDraftPath() throws Exception {
+        ReportService reportService = mock(ReportService.class);
+        ReportDraft draft = new ReportDraft(
+                "report-1", ReportType.DAILY, "Daily Report", "en", "# Daily Report",
+                Instant.parse("2026-08-10T05:00:00Z"), "batch-1", ReportScope.global(),
+                "deterministic", "reporting-v1"
+        );
+        ReportGenerationRequest generationRequest = new ReportGenerationRequest(
+                "daily", "en", "GLOBAL", "", null
+        );
+        when(languageDetector.detectLanguage("Create a daily report")).thenReturn("en");
+        when(reportService.generate(generationRequest)).thenReturn(draft);
+        ChatService reportingChatService = new ChatService(
+                sessionMemoryService,
+                languageDetector,
+                analyticsService,
+                promptFactory,
+                modelConfigService,
+                dealerRepository,
+                new ImportBatchService(),
+                null,
+                knowledgeAnswerComposer,
+                reportService
+        );
+        ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
+
+        reportingChatService.streamChat(
+                new ChatRequest("session-report", "Create a daily report", null, null, null),
+                outputStream,
+                AgentRequestScope.authenticated("session-report", "subject-1")
+        );
+
+        String payload = outputStream.toString(StandardCharsets.UTF_8);
+        assertThat(payload).contains("event: progress");
+        assertThat(payload).contains("# Daily Report");
+        assertThat(payload).contains("event: done");
+        verify(reportService).generate(generationRequest);
         verifyNoInteractions(analyticsService);
     }
 
@@ -2158,9 +2304,10 @@ class ChatServiceTest {
                 .containsExactlyInAnyOrder(
                         "getDashboardSummary",
                         "queryMetric",
-                        "queryDetails",
-                        "runScenarioAnalysis",
-                        "retrieveKnowledge"
+                "queryDetails",
+                "runScenarioAnalysis",
+                "retrieveKnowledge",
+                "generateReportDraft"
                 )
                 .doesNotContain("queryOpportunities", "queryTargets", "queryLeads");
     }

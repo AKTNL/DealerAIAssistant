@@ -221,6 +221,7 @@ The following production migration contract is executable and must remain aligne
 - Migration locations: `classpath:db/migration,classpath:db/postgresql`
 - Baseline migration: `V1__create_initial_schema.sql`
 - Knowledge migration: `db/postgresql/V2__create_knowledge_vector_store.sql`
+- Reporting migration: `db/postgresql/V3__create_report_drafts.sql`
 - Production settings: `spring.flyway.enabled=true`, `spring.flyway.validate-on-migrate=true`, `spring.flyway.clean-disabled=true`, `spring.jpa.hibernate.ddl-auto=validate`
 
 #### 3. Contracts
@@ -229,6 +230,7 @@ The following production migration contract is executable and must remain aligne
 - Flyway applies pending versioned SQL before Hibernate validates entity mappings.
 - The baseline creates `import_batches`, all six batch-scoped business tables, the active-batch lookup index, and non-unique batch/business-key indexes.
 - The PostgreSQL-only V2 migration enables `vector`, creates `knowledge_vector_store` with text IDs, JSON metadata, `VECTOR(1536)`, and an HNSW cosine index. It is not applied to the default H2 migration test location.
+- The PostgreSQL-only V3 migration creates `report_drafts` with report type, Markdown body, generation timestamp, import batch, scope, model, and prompt-version metadata plus a newest-first timestamp index.
 - Business IDs may repeat across import batches; do not add global unique constraints to `dealer_code`, `opportunity_id`, `lead_id`, `task_id`, or `campaign_id`.
 - The current physical naming contract includes `Target.asKTarget -> asktarget`; migration SQL must match the existing Hibernate mapping unless the entity explicitly declares another column name.
 
@@ -239,12 +241,15 @@ The following production migration contract is executable and must remain aligne
 - Applied migration file changed -> Flyway validation fails; create a new forward migration instead.
 - Migration schema differs from JPA mappings -> Hibernate `validate` fails before the application becomes ready.
 - H2 unit/demo startup without `prod` -> Flyway remains disabled and Hibernate `ddl-auto: update` remains available.
+- Missing or incompatible V3 schema -> the production `JdbcReportDraftStore` operation fails; never replace it with the `!prod` in-memory adapter.
 
 #### 5. Good/Base/Bad Cases
 
 - Good: A new PostgreSQL database starts with `V1`, imports one active batch, and retains the rows after restart.
+- Good: V3 persists and round-trips the exact report batch, scope, model, prompt version, and timestamp used to generate a draft.
 - Base: H2 tests run without a PostgreSQL server; the migration is explicitly exercised against isolated H2 and Hibernate validation passes.
 - Bad: Setting `ddl-auto: update` in `prod` hides missing migration columns and makes schema drift unauditable.
+- Bad: Creating report history only in memory under `prod` makes drafts disappear on restart and hides a failed V3 deployment.
 - Bad: Naming the column `as_k_target` without changing the entity causes `ddl-auto: validate` to reject the schema because Hibernate expects `asktarget`.
 
 #### 6. Tests Required
@@ -252,6 +257,7 @@ The following production migration contract is executable and must remain aligne
 - Profile configuration test: assert PostgreSQL driver, `ddl-auto=validate`, Flyway enabled, and `clean-disabled=true`.
 - Migration test: apply `V1` to isolated H2 and assert all required tables exist.
 - Mapping test: start a context with Flyway enabled and `ddl-auto=validate` against the migrated schema.
+- Reporting migration test: execute V3 in PostgreSQL-compatible H2, insert a complete draft record, and assert its batch/scope/model/prompt metadata round-trips.
 - Batch coexistence test: insert the same business ID under two batch IDs and assert both rows are accepted.
 - Deployment smoke test: with valid PostgreSQL credentials, assert schema version, first import counts, and unchanged counts after restart.
 

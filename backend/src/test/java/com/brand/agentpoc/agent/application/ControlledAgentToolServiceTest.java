@@ -13,6 +13,11 @@ import com.brand.agentpoc.dto.response.ApiPage;
 import com.brand.agentpoc.dto.response.ApiResult;
 import com.brand.agentpoc.knowledge.application.KnowledgeService;
 import com.brand.agentpoc.knowledge.domain.KnowledgeSearchResult;
+import com.brand.agentpoc.reporting.application.ReportGenerationRequest;
+import com.brand.agentpoc.reporting.application.ReportService;
+import com.brand.agentpoc.reporting.domain.ReportDraft;
+import com.brand.agentpoc.reporting.domain.ReportScope;
+import com.brand.agentpoc.reporting.domain.ReportType;
 import com.brand.agentpoc.service.AnalyticsApiService;
 import com.brand.agentpoc.service.AnalyticsMetadata;
 import com.brand.agentpoc.service.AnalyticsPlan;
@@ -20,6 +25,7 @@ import com.brand.agentpoc.service.DashboardService;
 import com.brand.agentpoc.service.RuleBasedAnalyticsService;
 import java.util.List;
 import java.util.Map;
+import java.time.Instant;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -29,6 +35,7 @@ class ControlledAgentToolServiceTest {
     private AnalyticsApiService analyticsApiService;
     private RuleBasedAnalyticsService analyticsService;
     private KnowledgeService knowledgeService;
+    private ReportService reportService;
     private ControlledAgentToolService toolService;
 
     @BeforeEach
@@ -37,11 +44,13 @@ class ControlledAgentToolServiceTest {
         analyticsApiService = mock(AnalyticsApiService.class);
         analyticsService = mock(RuleBasedAnalyticsService.class);
         knowledgeService = mock(KnowledgeService.class);
+        reportService = mock(ReportService.class);
         toolService = new ControlledAgentToolService(
                 dashboardService,
                 analyticsApiService,
                 analyticsService,
-                knowledgeService
+                knowledgeService,
+                reportService
         );
     }
 
@@ -182,5 +191,31 @@ class ControlledAgentToolServiceTest {
         assertThat(result).isSameAs(expected);
         verify(knowledgeService).retrieve("目标达成率口径", 3);
         verifyNoInteractions(dashboardService, analyticsApiService, analyticsService);
+    }
+
+    @Test
+    void delegatesReportDraftGenerationThroughTheReportingApplicationService() {
+        ReportDraft expected = new ReportDraft(
+                "report-1",
+                ReportType.WEEKLY,
+                "Weekly Report",
+                "en",
+                "# Weekly Report",
+                Instant.parse("2026-08-10T05:00:00Z"),
+                "batch-1",
+                ReportScope.global(),
+                "deterministic",
+                "reporting-v1"
+        );
+        ReportGenerationRequest request = new ReportGenerationRequest(
+                "weekly", "en", "GLOBAL", "", null
+        );
+        when(reportService.generate(request)).thenReturn(expected);
+
+        ReportDraft result = toolService.generateReportDraft("weekly", "en", null);
+
+        assertThat(result).isSameAs(expected);
+        verify(reportService).generate(request);
+        verifyNoInteractions(dashboardService, analyticsApiService, analyticsService, knowledgeService);
     }
 }

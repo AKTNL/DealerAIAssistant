@@ -87,6 +87,41 @@ class AgentPocApplicationStartupTest {
     }
 
     @Test
+    void reportMigrationCreatesTheProductionDraftStoreContract() throws Exception {
+        String migration = new ClassPathResource(
+                "db/postgresql/V3__create_report_drafts.sql"
+        ).getContentAsString(StandardCharsets.UTF_8);
+        String url = "jdbc:h2:mem:report-migration-test;MODE=PostgreSQL;DB_CLOSE_DELAY=-1";
+
+        try (Connection connection = DriverManager.getConnection(url, "sa", "");
+                Statement statement = connection.createStatement()) {
+            statement.execute(migration);
+            statement.executeUpdate("""
+                    INSERT INTO report_drafts (
+                        id, report_type, title, language, markdown, generated_at,
+                        import_batch_id, scope_type, scope_id, model, prompt_version
+                    ) VALUES (
+                        'report-1', 'weekly', 'Weekly Report', 'en', '# Weekly Report',
+                        CURRENT_TIMESTAMP, 'batch-1', 'GLOBAL', NULL, 'deterministic', 'reporting-v1'
+                    )
+                    """);
+
+            try (ResultSet rows = statement.executeQuery("""
+                    SELECT report_type, import_batch_id, scope_type, model, prompt_version
+                    FROM report_drafts
+                    WHERE id = 'report-1'
+                    """)) {
+                assertThat(rows.next()).isTrue();
+                assertThat(rows.getString("report_type")).isEqualTo("weekly");
+                assertThat(rows.getString("import_batch_id")).isEqualTo("batch-1");
+                assertThat(rows.getString("scope_type")).isEqualTo("GLOBAL");
+                assertThat(rows.getString("model")).isEqualTo("deterministic");
+                assertThat(rows.getString("prompt_version")).isEqualTo("reporting-v1");
+            }
+        }
+    }
+
+    @Test
     void baselineMigrationCreatesBatchScopedSchema() throws Exception {
         String url = "jdbc:h2:mem:flyway-migration-test;MODE=PostgreSQL;DB_CLOSE_DELAY=-1";
         Flyway.configure()

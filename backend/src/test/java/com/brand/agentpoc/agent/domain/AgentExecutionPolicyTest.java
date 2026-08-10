@@ -9,7 +9,7 @@ import org.junit.jupiter.api.Test;
 class AgentExecutionPolicyTest {
 
     @Test
-    void defaultPolicyExposesOnlyTheFiveControlledTools() {
+    void defaultPolicyExposesOnlyTheSixControlledTools() {
         AgentExecutionPolicy policy = AgentExecutionPolicy.defaultPolicy();
 
         assertThat(policy.allowedTools()).containsExactlyInAnyOrder(AgentToolName.values());
@@ -18,7 +18,8 @@ class AgentExecutionPolicyTest {
                 "queryMetric",
                 "queryDetails",
                 "runScenarioAnalysis",
-                "retrieveKnowledge"
+                "retrieveKnowledge",
+                "generateReportDraft"
         );
         assertThat(policy.maxToolCalls()).isEqualTo(4);
         assertThat(policy.maxPageSize()).isEqualTo(50);

@@ -420,6 +420,57 @@
             "type": "integer"
           }
         }
+      },
+      "ReportDraft": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string" },
+          "reportType": { "type": "string", "enum": ["daily", "weekly", "monthly", "topic"] },
+          "title": { "type": "string" },
+          "language": { "type": "string", "enum": ["zh", "en"] },
+          "markdown": { "type": "string" },
+          "generatedAt": { "type": "string", "format": "date-time" },
+          "importBatchId": { "type": "string" },
+          "scope": {
+            "type": "object",
+            "properties": {
+              "type": { "type": "string", "enum": ["GLOBAL"] },
+              "id": { "type": "string" }
+            }
+          },
+          "model": { "type": "string" },
+          "promptVersion": { "type": "string" }
+        }
+      },
+      "ReportDraftRequest": {
+        "type": "object",
+        "required": ["reportType", "language"],
+        "properties": {
+          "reportType": { "type": "string", "enum": ["daily", "weekly", "monthly", "topic"] },
+          "language": { "type": "string", "enum": ["zh", "en"] },
+          "scopeType": { "type": "string", "default": "GLOBAL" },
+          "scopeId": { "type": "string" },
+          "topic": { "type": "string", "maxLength": 500 }
+        }
+      },
+      "ReportDraftResponse": {
+        "type": "object",
+        "properties": {
+          "code": { "type": "integer" },
+          "message": { "type": "string" },
+          "data": { "$ref": "#/components/schemas/ReportDraft" }
+        }
+      },
+      "ReportDraftListResponse": {
+        "type": "object",
+        "properties": {
+          "code": { "type": "integer" },
+          "message": { "type": "string" },
+          "data": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/ReportDraft" }
+          }
+        }
       }
     }
   },
@@ -1244,6 +1295,63 @@
               }
             }
           }
+        }
+      }
+    },
+    "/api/reports/drafts": {
+      "post": {
+        "operationId": "createReportDraft",
+        "security": [{ "BearerAuth": [] }],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": { "schema": { "$ref": "#/components/schemas/ReportDraftRequest" } }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "success",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ReportDraftResponse" }
+              }
+            }
+          },
+          "400": { "description": "invalid report request" }
+        }
+      },
+      "get": {
+        "operationId": "listReportDrafts",
+        "security": [{ "BearerAuth": [] }],
+        "responses": {
+          "200": {
+            "description": "success",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/ReportDraftListResponse" } }
+            }
+          }
+        }
+      }
+    },
+    "/api/reports/drafts/{id}": {
+      "get": {
+        "operationId": "getReportDraft",
+        "security": [{ "BearerAuth": [] }],
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "responses": {
+          "200": { "description": "success", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ReportDraftResponse" } } } },
+          "404": { "description": "report draft not found" }
+        }
+      }
+    },
+    "/api/reports/drafts/{id}/markdown": {
+      "get": {
+        "operationId": "exportReportDraftMarkdown",
+        "security": [{ "BearerAuth": [] }],
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "responses": {
+          "200": { "description": "Markdown report draft", "content": { "text/markdown": { "schema": { "type": "string" } } } },
+          "404": { "description": "report draft not found" }
         }
       }
     }

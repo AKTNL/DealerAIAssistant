@@ -9,7 +9,8 @@ public enum AgentToolName {
     QUERY_METRIC("queryMetric"),
     QUERY_DETAILS("queryDetails"),
     RUN_SCENARIO_ANALYSIS("runScenarioAnalysis"),
-    RETRIEVE_KNOWLEDGE("retrieveKnowledge");
+    RETRIEVE_KNOWLEDGE("retrieveKnowledge"),
+    GENERATE_REPORT_DRAFT("generateReportDraft");
 
     private final String wireName;
 
