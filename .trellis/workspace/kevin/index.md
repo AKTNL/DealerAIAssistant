@@ -8,8 +8,8 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 24
-- **Last Active**: 2026-08-09
+- **Total Sessions**: 25
+- **Last Active**: 2026-08-10
 <!-- @@@/auto:current-status -->
 
 ---
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~809 | Active |
+| `journal-1.md` | ~844 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 25 | 2026-08-10 | Complete P1-4 knowledge retrieval and P1-5 report drafts | `4a07a2b`, `e5b22d3`, `42beb3b` | `main` |
 | 24 | 2026-08-09 | Complete P1-3 controlled agent system | `cc9dc5d`, `41bc8ff` | `main` |
 | 23 | 2026-08-02 | P1-2 架构模块化 | `e979c3d`, `2258a3a` | `main` |
 | 22 | 2026-08-02 | 完成 P1-1 持久化数据库与迁移 | `75bede3`, `a0ae290` | `main` |

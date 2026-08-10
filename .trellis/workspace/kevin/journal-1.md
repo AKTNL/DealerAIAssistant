@@ -807,3 +807,38 @@ Implemented four request-scoped read-only Agent tools with allowlist, ownership 
 ### Next Steps
 
 - None - task complete
+
+
+## Session 25: Complete P1-4 knowledge retrieval and P1-5 report drafts
+
+**Date**: 2026-08-10
+**Task**: Complete P1-4 knowledge retrieval and P1-5 report drafts
+**Branch**: `main`
+
+### Summary
+
+Completed citable RAG knowledge retrieval and deterministic active-batch report drafts, including controlled Agent tools, HTTP and SSE integration, production persistence migrations, documentation, and full backend quality verification.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `4a07a2b` | (see git log) |
+| `e5b22d3` | (see git log) |
+| `42beb3b` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
