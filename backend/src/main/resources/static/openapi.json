@@ -17,19 +17,15 @@
   ],
   "security": [
     {
-      "ApiKeyAuth": []
+      "BearerAuth": []
     }
   ],
   "components": {
     "securitySchemes": {
-      "ApiKeyAuth": {
-        "type": "apiKey",
-        "in": "header",
-        "name": "X-API-Key"
-      },
       "BearerAuth": {
         "type": "http",
-        "scheme": "bearer"
+        "scheme": "bearer",
+        "description": "Short-lived opaque access token returned by /api/auth/login or /api/auth/refresh."
       }
     },
     "schemas": {
@@ -475,6 +471,156 @@
     }
   },
   "paths": {
+    "/api/auth/login": {
+      "post": {
+        "operationId": "login",
+        "summary": "使用用户名和密码登录",
+        "security": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["username", "password"],
+                "properties": {
+                  "username": { "type": "string" },
+                  "password": { "type": "string", "format": "password", "writeOnly": true }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": { "description": "返回一次性 opaque access token，并通过 HttpOnly Cookie 设置 refresh token" },
+          "401": { "description": "通用凭据错误" },
+          "429": { "description": "登录尝试过于频繁" }
+        }
+      }
+    },
+    "/api/auth/refresh": {
+      "post": {
+        "operationId": "refreshSession",
+        "summary": "轮换 refresh token 并签发新的 opaque access token",
+        "security": [],
+        "responses": {
+          "200": { "description": "轮换成功；refresh token 仅通过 HttpOnly Cookie 返回" },
+          "401": { "description": "refresh token 过期、撤销或发生重放" },
+          "403": { "description": "Origin 不在可信前端来源列表" }
+        }
+      }
+    },
+    "/api/auth/me": {
+      "get": {
+        "operationId": "getCurrentUser",
+        "summary": "获取当前用户、角色与权限",
+        "responses": {
+          "200": { "description": "当前用户身份、mustChangePassword、角色和权限键" },
+          "401": { "description": "access token 无效或已撤销" }
+        }
+      }
+    },
+    "/api/auth/password": {
+      "post": {
+        "operationId": "changePassword",
+        "summary": "修改当前用户密码并撤销全部会话",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["currentPassword", "newPassword"],
+                "properties": {
+                  "currentPassword": { "type": "string", "format": "password", "writeOnly": true },
+                  "newPassword": { "type": "string", "format": "password", "writeOnly": true }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": { "description": "密码已修改；客户端必须重新登录" },
+          "400": { "description": "新密码不符合策略" },
+          "401": { "description": "当前密码错误" }
+        }
+      }
+    },
+    "/api/auth/logout": {
+      "post": {
+        "operationId": "logout",
+        "summary": "撤销当前会话族",
+        "description": "使用 HttpOnly refresh Cookie 撤销当前浏览器会话族；也接受有效 Bearer 会话作为无 Cookie 客户端的回退。携带 Cookie 时必须来自可信 Origin。",
+        "security": [],
+        "responses": {
+          "200": { "description": "当前会话族已撤销，或客户端已处于退出状态" },
+          "403": { "description": "Cookie 请求的 Origin 不在可信前端来源列表" }
+        }
+      }
+    },
+    "/api/auth/logout-all": {
+      "post": {
+        "operationId": "logoutAll",
+        "summary": "撤销当前用户全部会话",
+        "responses": { "200": { "description": "全部会话已撤销" } }
+      }
+    },
+    "/api/admin/users": {
+      "get": {
+        "operationId": "listUsers",
+        "summary": "列出用户（USER_READ）",
+        "responses": { "200": { "description": "用户列表" }, "403": { "description": "缺少 USER_READ" } }
+      },
+      "post": {
+        "operationId": "createUser",
+        "summary": "使用临时密码创建用户（USER_MANAGE）",
+        "responses": { "200": { "description": "用户已创建且 mustChangePassword=true" }, "403": { "description": "缺少 USER_MANAGE" } }
+      }
+    },
+    "/api/admin/users/{id}/enabled": {
+      "patch": {
+        "operationId": "changeUserEnabled",
+        "summary": "启用或停用用户并即时撤销停用用户会话",
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "integer", "format": "int64" } }],
+        "responses": { "200": { "description": "账号状态已更新" }, "409": { "description": "不能停用最后一个有效管理员" } }
+      }
+    },
+    "/api/admin/users/{id}/roles": {
+      "put": {
+        "operationId": "assignUserRoles",
+        "summary": "替换用户角色并撤销其全部会话",
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "integer", "format": "int64" } }],
+        "responses": { "200": { "description": "角色已更新" }, "409": { "description": "不能移除最后一个有效管理员的管理能力" } }
+      }
+    },
+    "/api/admin/users/{id}/reset-password": {
+      "post": {
+        "operationId": "resetUserPassword",
+        "summary": "设置临时密码并撤销用户全部会话",
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "integer", "format": "int64" } }],
+        "responses": { "200": { "description": "密码已重置且 mustChangePassword=true" } }
+      }
+    },
+    "/api/admin/roles": {
+      "get": {
+        "operationId": "listRoles",
+        "summary": "列出角色与权限（ROLE_READ）",
+        "responses": { "200": { "description": "角色列表" } }
+      },
+      "post": {
+        "operationId": "createRole",
+        "summary": "创建自定义角色（ROLE_MANAGE）",
+        "responses": { "200": { "description": "自定义角色已创建" } }
+      }
+    },
+    "/api/admin/roles/{id}/permissions": {
+      "put": {
+        "operationId": "updateRolePermissions",
+        "summary": "更新自定义角色权限并撤销受影响会话",
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "integer", "format": "int64" } }],
+        "responses": { "200": { "description": "权限已更新" }, "400": { "description": "预置角色受保护或权限键无效" } }
+      }
+    },
     "/api/dashboard": {
       "get": {
         "operationId": "getDashboardSummary",

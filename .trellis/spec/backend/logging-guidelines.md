@@ -16,7 +16,7 @@ Two naming conventions coexist in the codebase:
 
 ### `log` (lowercase, most common)
 
-Used in `ExcelImportService`, `DataQueryService`, `AnalyticsApiService`, `ModelConfigService`, `ApiKeyFilter`, `SessionTokenFilter`:
+Used in `ExcelImportService`, `DataQueryService`, `AnalyticsApiService`, `ModelConfigService`, `OpaqueTokenAuthenticationFilter`, and controlled Agent callbacks:
 
 ```java
 // ExcelImportService.java:51
@@ -111,16 +111,9 @@ Used for **recoverable problems** and security events:
 
 - Authentication failures:
   ```java
-  // ApiKeyFilter.java:68-70
-  log.warn("API key authentication failed: path={}, remoteAddress={}, reason={}",
-          request.getServletPath(), request.getRemoteAddr(), failureReason(apiKey));
-  ```
-
-  ```java
-  // SessionTokenFilter.java:63-65
-  log.warn("Session token authentication failed: path={}, remoteAddress={}, reason={}",
-          request.getServletPath(), request.getRemoteAddr(),
-          failureReason(authorization, token));
+  // OpaqueTokenAuthenticationFilter.java
+  log.warn("Opaque session authentication failed: path={}, remoteAddress={}, reason={}",
+          request.getServletPath(), request.getRemoteAddr(), "invalid_or_expired_token");
   ```
 
 - Missing resources with fallback:
@@ -146,13 +139,6 @@ Used for **unexpected failures** that trigger fallback behavior:
   log.error("Workbook import failed. Falling back to built-in sample data.", exception);
   ```
 
-- Token generation failure after successful auth:
-  ```java
-  // AuthController.java:60-61
-  log.error("Unable to issue session token after successful access-key verification: {}",
-          exception.getMessage());
-  ```
-
 **Important**: When logging an error, always include the exception object as the last argument so the full stack trace is captured.
 
 ---
@@ -164,13 +150,13 @@ Used for **unexpected failures** that trigger fallback behavior:
 Authentication and security logs use `key=value` pairs for machine-parseable logging:
 
 ```java
-log.warn("API key authentication failed: path={}, remoteAddress={}, reason={}",
-        request.getServletPath(), request.getRemoteAddr(), failureReason(apiKey));
+log.warn("Opaque session authentication failed: path={}, remoteAddress={}, reason={}",
+        request.getServletPath(), request.getRemoteAddr(), "invalid_or_expired_token");
 ```
 
 This produces output like:
 ```
-API key authentication failed: path=/api/v1/data/dealers, remoteAddress=203.0.113.10, reason=invalid_api_key
+Opaque session authentication failed: path=/api/dashboard, remoteAddress=203.0.113.10, reason=invalid_or_expired_token
 ```
 
 ### Context Tags
@@ -187,10 +173,6 @@ log.debug("[Import-Normalization] Row {}: eventType is blank, defaulting to '0'"
 When logging exceptions, use `{}` as a placeholder for the exception message, and pass the exception as the last argument:
 
 ```java
-// Simple message-only (no stack trace needed):
-log.error("Unable to issue session token after successful access-key verification: {}",
-        exception.getMessage());
-
 // Full exception with stack trace:
 log.error("Workbook import failed. Falling back to built-in sample data.", exception);
 ```
@@ -204,7 +186,7 @@ log.error("Workbook import failed. Falling back to built-in sample data.", excep
 | Application startup/init | INFO | `"Sample data already initialized, skipping startup import."` |
 | Data import progress | INFO | `"Seeded {} dealers and {} campaign rows from the workbook."` |
 | Fallback/graceful degradation | INFO / WARN | `"Excel resource not found at {}. Seeding built-in sample data instead."` |
-| Auth failures | WARN | `"API key authentication failed: path={}, remoteAddress={}, reason={}"` |
+| Auth failures | WARN | `"Opaque session authentication failed: path={}, remoteAddress={}, reason={}"` |
 | Unexpected errors with fallback | ERROR | `"Workbook import failed. Falling back to built-in sample data."` |
 | Row-level data skipping | DEBUG | `"Skipping opportunity row {} due to missing required values."` |
 | Field defaulting | DEBUG | `"[Import-Normalization] Row {}: campaignName is blank, defaulting to campaignId"` |
@@ -214,7 +196,7 @@ log.error("Workbook import failed. Falling back to built-in sample data.", excep
 
 ## What NOT to Log
 
-- **API keys, session tokens, or access secrets** -- never log these in any form (full or partial)
+- **Passwords, model API keys, access tokens, refresh tokens, or other authentication material** -- never log these in any form (full or partial)
 - **Personally identifiable information (PII)** from user messages or data
 - **Full HTTP request/response bodies** unless strictly for development and behind a flag
 - **Stack traces at INFO or above** -- stack traces should only appear at ERROR level and should not leak sensitive data

@@ -1,6 +1,7 @@
 package com.brand.agentpoc.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
@@ -18,6 +19,7 @@ import com.brand.agentpoc.agent.application.ControlledAgentToolService;
 import com.brand.agentpoc.agent.domain.AgentRequestScope;
 import com.brand.agentpoc.agent.infrastructure.ControlledAgentToolAdapter;
 import com.brand.agentpoc.agent.infrastructure.ControlledAgentToolCallbacks;
+import com.brand.agentpoc.auth.domain.PermissionKey;
 import com.brand.agentpoc.dto.request.ChatRequest;
 import com.brand.agentpoc.knowledge.application.KnowledgeAnswerComposer;
 import com.brand.agentpoc.reporting.application.ReportGenerationRequest;
@@ -32,6 +34,7 @@ import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.EnumSet;
 import java.util.List;
 import java.util.stream.Collectors;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -103,7 +106,7 @@ class ChatServiceTest {
 
         when(languageDetector.detectLanguage("你好")).thenReturn("zh");
 
-        chatService.streamChat(request, outputStream);
+        chatService.streamChat(request, outputStream, fullScope(request.sessionId(), "subject-1"));
 
         String payload = outputStream.toString(StandardCharsets.UTF_8);
         assertThat(payload).contains("event: message");
@@ -143,7 +146,7 @@ class ChatServiceTest {
 
         when(languageDetector.detectLanguage("hello")).thenReturn("en");
 
-        chatService.streamChat(request, outputStream);
+        chatService.streamChat(request, outputStream, fullScope(request.sessionId(), "subject-1"));
 
         String payload = outputStream.toString(StandardCharsets.UTF_8);
         assertThat(payload).contains("event: message");
@@ -180,7 +183,7 @@ class ChatServiceTest {
 
         when(languageDetector.detectLanguage(request.message())).thenReturn("en");
 
-        String reply = chatService.chat(request);
+        String reply = chatService.chat(request, fullScope(request.sessionId(), "subject-1"));
 
         assertThat(reply).contains("dealer AI analytics assistant");
         assertThat(reply).contains("target achievement");
@@ -204,7 +207,7 @@ class ChatServiceTest {
 
         when(languageDetector.detectLanguage("你是谁")).thenReturn("zh");
 
-        String reply = chatService.chat(request);
+        String reply = chatService.chat(request, fullScope(request.sessionId(), "subject-1"));
 
         assertThat(reply).contains("我是经销商 AI 分析助手");
         assertThat(reply).contains("FOLLOW_UP_QUESTIONS:");
@@ -230,7 +233,7 @@ class ChatServiceTest {
 
         when(languageDetector.detectLanguage(request.message())).thenReturn("zh");
 
-        String reply = chatService.chat(request);
+        String reply = chatService.chat(request, fullScope(request.sessionId(), "subject-1"));
 
         assertThat(reply).contains("未找到");
         assertThat(reply).contains("客户A");
@@ -257,7 +260,7 @@ class ChatServiceTest {
 
         when(languageDetector.detectLanguage(message)).thenReturn("zh");
 
-        String reply = chatService.chat(request);
+        String reply = chatService.chat(request, fullScope(request.sessionId(), "subject-1"));
 
         assertThat(reply).contains("\u672a\u627e\u5230");
         assertThat(reply).contains("\u7ecf\u9500\u5546\u4e0d\u5b58\u5728XYZ");
@@ -277,7 +280,7 @@ class ChatServiceTest {
         when(languageDetector.detectLanguage(message)).thenReturn("zh");
         when(analyticsService.plan(message, "zh")).thenReturn(plan);
 
-        String reply = chatService.chat(request);
+        String reply = chatService.chat(request, fullScope(request.sessionId(), "subject-1"));
 
         assertThat(reply).contains("\u7ecf\u9500\u5546F");
         assertThat(reply).contains("555");
@@ -300,7 +303,7 @@ class ChatServiceTest {
 
         when(languageDetector.detectLanguage(request.message())).thenReturn("zh");
 
-        chatService.streamChat(request, outputStream);
+        chatService.streamChat(request, outputStream, fullScope(request.sessionId(), "subject-1"));
 
         String payload = outputStream.toString(StandardCharsets.UTF_8);
         assertThat(payload).contains("event: message");
@@ -331,7 +334,7 @@ class ChatServiceTest {
 
         when(languageDetector.detectLanguage(request.message())).thenReturn("zh");
 
-        String reply = chatService.chat(request);
+        String reply = chatService.chat(request, fullScope(request.sessionId(), "subject-1"));
 
         assertThat(reply).contains("只能回答");
         assertThat(reply).contains("经销商经营分析");
@@ -357,7 +360,7 @@ class ChatServiceTest {
 
         when(languageDetector.detectLanguage(request.message())).thenReturn("zh");
 
-        chatService.streamChat(request, outputStream);
+        chatService.streamChat(request, outputStream, fullScope(request.sessionId(), "subject-1"));
 
         String payload = outputStream.toString(StandardCharsets.UTF_8);
         assertThat(payload).contains("event: message");
@@ -381,7 +384,7 @@ class ChatServiceTest {
 
         when(languageDetector.detectLanguage(GENERAL_MESSAGE)).thenReturn("en");
 
-        chatService.streamChat(request, outputStream);
+        chatService.streamChat(request, outputStream, fullScope(request.sessionId(), "subject-1"));
 
         List<String> progressEvents = extractEventData(outputStream.toString(StandardCharsets.UTF_8), "progress");
         assertThat(progressEvents).containsExactly("Checking the chat model configuration");
@@ -410,7 +413,7 @@ class ChatServiceTest {
         when(languageDetector.detectLanguage(request.message())).thenReturn("en");
         when(analyticsService.plan(eq(request.message()), eq("en"), anyString(), any())).thenReturn(plan);
 
-        chatService.streamChat(request, outputStream);
+        chatService.streamChat(request, outputStream, fullScope(request.sessionId(), "subject-1"));
 
         String payload = outputStream.toString(StandardCharsets.UTF_8).replace("\r\n", "\n");
         assertThat(payload).containsSubsequence(
@@ -463,7 +466,7 @@ class ChatServiceTest {
         when(languageDetector.detectLanguage(request.message())).thenReturn("en");
         when(analyticsService.plan(request.message(), "en")).thenReturn(plan);
 
-        String reply = chatService.chat(request);
+        String reply = chatService.chat(request, fullScope(request.sessionId(), "subject-1"));
 
         assertThat(reply).isEqualTo(plan.fallbackReply().trim());
         verify(analyticsService).plan(request.message(), "en");
@@ -493,7 +496,7 @@ class ChatServiceTest {
         when(languageDetector.detectLanguage(message)).thenReturn("zh");
         when(analyticsService.plan(message, "zh")).thenReturn(plan);
 
-        String reply = chatService.chat(request);
+        String reply = chatService.chat(request, fullScope(request.sessionId(), "subject-1"));
 
         assertThat(reply).contains("More than 10 Months");
         assertThat(reply).doesNotContain("\u8d85\u51fa\u7ecf\u9500\u5546 AI \u5206\u6790\u52a9\u624b\u7684\u4e1a\u52a1\u8303\u56f4");
@@ -524,7 +527,7 @@ class ChatServiceTest {
         when(languageDetector.detectLanguage(message)).thenReturn("zh");
         when(analyticsService.plan(message, "zh")).thenReturn(plan);
 
-        String reply = chatService.chat(request);
+        String reply = chatService.chat(request, fullScope(request.sessionId(), "subject-1"));
 
         assertThat(reply).contains("车型赢单最多");
         assertThat(reply).doesNotContain("超出经销商 AI 分析助手的业务范围");
@@ -552,7 +555,7 @@ class ChatServiceTest {
                 new Generation(new AssistantMessage("Model reply"))
         )));
 
-        String reply = chatService.chat(request);
+        String reply = chatService.chat(request, fullScope(request.sessionId(), "subject-1"));
 
         assertThat(reply).contains("Model reply");
         verify(modelConfigService).createChatModel(request);
@@ -592,7 +595,7 @@ class ChatServiceTest {
 
         String reply = controlledChatService.chat(
                 request,
-                AgentRequestScope.authenticated("s1", "subject-1")
+                fullScope("s1", "subject-1")
         );
 
         verify(chatModel).call(promptCaptor.capture());
@@ -633,7 +636,7 @@ class ChatServiceTest {
         controlledChatService.streamChat(
                 request,
                 outputStream,
-                AgentRequestScope.authenticated("s1", "subject-1")
+                fullScope("s1", "subject-1")
         );
 
         verify(chatModel).stream(promptCaptor.capture());
@@ -669,7 +672,7 @@ class ChatServiceTest {
 
         String reply = controlledChatService().chat(
                 request,
-                AgentRequestScope.authenticated("s1", "subject-1")
+                fullScope("s1", "subject-1")
         );
 
         verify(chatModel).call(promptCaptor.capture());
@@ -687,7 +690,7 @@ class ChatServiceTest {
         when(languageDetector.detectLanguage(request.message())).thenReturn("zh");
         when(knowledgeAnswerComposer.compose(request.message(), "zh")).thenReturn(citedAnswer);
 
-        String reply = controlledChatService().chat(request);
+        String reply = controlledChatService().chat(request, fullScope(request.sessionId(), "subject-1"));
 
         assertThat(reply).isEqualTo(citedAnswer);
         verify(knowledgeAnswerComposer).compose(request.message(), "zh");
@@ -713,7 +716,7 @@ class ChatServiceTest {
 
         String reply = controlledChatService().chat(
                 request,
-                AgentRequestScope.authenticated("s1", "subject-1")
+                fullScope("s1", "subject-1")
         );
 
         assertThat(reply).isEqualTo(citedAnswer);
@@ -747,7 +750,7 @@ class ChatServiceTest {
         controlledChatService().streamChat(
                 request,
                 outputStream,
-                AgentRequestScope.authenticated("s1", "subject-1")
+                fullScope("s1", "subject-1")
         );
 
         verify(chatModel).call(promptCaptor.capture());
@@ -787,7 +790,7 @@ class ChatServiceTest {
 
         String reply = reportingChatService.chat(
                 new ChatRequest("session-report", "生成本周经营周报", null, null, null),
-                AgentRequestScope.authenticated("session-report", "subject-1")
+                fullScope("session-report", "subject-1")
         );
 
         assertThat(reply).isEqualTo("# 经营周报");
@@ -796,15 +799,10 @@ class ChatServiceTest {
     }
 
     @Test
-    void unauthenticatedCompatibilityChatDoesNotCreateAReportDraft() {
+    void unauthenticatedChatIsRejectedBeforeCreatingAReportDraft() {
         String message = "Create a weekly report";
         ReportService reportService = mock(ReportService.class);
-        AnalyticsPlan plan = analyticsPlan(
-                AnalyticsPlan.Scenario.OPPORTUNITY_FUNNEL,
-                englishAnalyticsFallbackReport()
-        );
         when(languageDetector.detectLanguage(message)).thenReturn("en");
-        when(analyticsService.plan(message, "en")).thenReturn(plan);
         ChatService reportingChatService = new ChatService(
                 sessionMemoryService,
                 languageDetector,
@@ -818,11 +816,12 @@ class ChatServiceTest {
                 reportService
         );
 
-        String reply = reportingChatService.chat(
-                new ChatRequest("session-report", message, null, null, null)
-        );
+        ChatRequest request = new ChatRequest("session-report", message, null, null, null);
 
-        assertThat(reply).isEqualTo(plan.fallbackReply().trim());
+        assertThatThrownBy(() -> reportingChatService.chat(
+                request,
+                AgentRequestScope.unauthenticated(request.sessionId())
+        )).isInstanceOf(org.springframework.security.access.AccessDeniedException.class);
         verifyNoInteractions(reportService);
     }
 
@@ -851,7 +850,12 @@ class ChatServiceTest {
 
         String reply = reportingChatService.chat(
                 new ChatRequest("session-report", message, null, null, null),
-                new AgentRequestScope("session-report", "subject-1", false)
+                new AgentRequestScope(
+                        "session-report",
+                        "subject-1",
+                        false,
+                        EnumSet.allOf(PermissionKey.class)
+                )
         );
 
         assertThat(reply).isEqualTo(plan.fallbackReply().trim());
@@ -888,7 +892,7 @@ class ChatServiceTest {
         reportingChatService.streamChat(
                 new ChatRequest("session-report", "Create a daily report", null, null, null),
                 outputStream,
-                AgentRequestScope.authenticated("session-report", "subject-1")
+                fullScope("session-report", "subject-1")
         );
 
         String payload = outputStream.toString(StandardCharsets.UTF_8);
@@ -939,7 +943,7 @@ class ChatServiceTest {
 
         String reply = controlledChatService().chat(
                 request,
-                AgentRequestScope.authenticated("s1", "subject-1")
+                fullScope("s1", "subject-1")
         );
 
         verify(analyticsService).plan(request.message(), "zh");
@@ -973,7 +977,7 @@ class ChatServiceTest {
 
         controlledChatService().chat(
                 request,
-                AgentRequestScope.authenticated("s1", "subject-1")
+                fullScope("s1", "subject-1")
         );
 
         verify(chatModel).call(promptCaptor.capture());
@@ -1005,7 +1009,7 @@ class ChatServiceTest {
 
         String reply = controlledChatService().chat(
                 request,
-                AgentRequestScope.authenticated("s1", "subject-1")
+                fullScope("s1", "subject-1")
         );
 
         assertThat(reply).isEqualTo(plan.fallbackReply().trim());
@@ -1039,7 +1043,7 @@ class ChatServiceTest {
         controlledChatService().streamChat(
                 request,
                 outputStream,
-                AgentRequestScope.authenticated("s1", "subject-1")
+                fullScope("s1", "subject-1")
         );
 
         String payload = outputStream.toString(StandardCharsets.UTF_8);
@@ -1062,7 +1066,7 @@ class ChatServiceTest {
                 new Generation(new AssistantMessage("Backend default reply"))
         )));
 
-        String reply = chatService.chat(request);
+        String reply = chatService.chat(request, fullScope(request.sessionId(), "subject-1"));
 
         assertThat(reply).contains("Backend default reply");
         verify(modelConfigService).hasConfiguredModelSettings(request);
@@ -1097,7 +1101,7 @@ class ChatServiceTest {
                 new Generation(new AssistantMessage("Model reply"))
         )));
 
-        chatService.chat(request);
+        chatService.chat(request, fullScope(request.sessionId(), "subject-1"));
 
         verify(promptFactory).buildConversationModelPrompt(eq("en"), eq(GENERAL_MESSAGE), historyCaptor.capture());
         assertThat(historyCaptor.getValue()).contains("- User: user-1");
@@ -1124,7 +1128,7 @@ class ChatServiceTest {
         when(promptFactory.buildSystemPrompt("en")).thenReturn("System prompt");
         when(chatModel.stream(any(Prompt.class))).thenReturn(Flux.error(new RuntimeException("429 busy")));
 
-        chatService.streamChat(request, outputStream);
+        chatService.streamChat(request, outputStream, fullScope(request.sessionId(), "subject-1"));
 
         String payload = outputStream.toString();
         assertThat(payload).contains("event: progress");
@@ -1150,7 +1154,7 @@ class ChatServiceTest {
         when(modelConfigService.createChatModel(request))
                 .thenThrow(new IllegalArgumentException("Model base URL is not allowed."));
 
-        chatService.streamChat(request, outputStream);
+        chatService.streamChat(request, outputStream, fullScope(request.sessionId(), "subject-1"));
 
         String payload = outputStream.toString(StandardCharsets.UTF_8);
         assertThat(payload).contains("event: progress");
@@ -1194,7 +1198,7 @@ class ChatServiceTest {
             }
         };
 
-        chatService.streamChat(request, outputStream);
+        chatService.streamChat(request, outputStream, fullScope(request.sessionId(), "subject-1"));
 
         assertThat(new String(buffer.toByteArray(), StandardCharsets.UTF_8)).contains("data: Preparing the current conversation context");
         verify(sessionMemoryService).addUserMessage("s1", GENERAL_MESSAGE);
@@ -1222,7 +1226,7 @@ class ChatServiceTest {
                 new ChatResponse(List.of(new Generation(new AssistantMessage("world"))))
         ));
 
-        chatService.streamChat(request, outputStream);
+        chatService.streamChat(request, outputStream, fullScope(request.sessionId(), "subject-1"));
 
         String payload = outputStream.toString(StandardCharsets.UTF_8);
         assertThat(extractEventData(payload, "message")).containsSequence("Hello ", "world");
@@ -1256,7 +1260,7 @@ class ChatServiceTest {
                 new ChatResponse(List.of(new Generation(new AssistantMessage("world"))))
         ));
 
-        chatService.streamChat(request, outputStream);
+        chatService.streamChat(request, outputStream, fullScope(request.sessionId(), "subject-1"));
 
         List<String> messageEvents = extractEventData(outputStream.toString(StandardCharsets.UTF_8), "message").stream()
                 .filter(eventData -> !eventData.startsWith("<think>"))
@@ -1295,7 +1299,7 @@ class ChatServiceTest {
                 Flux.error(new RuntimeException("429 busy"))
         ));
 
-        chatService.streamChat(request, outputStream);
+        chatService.streamChat(request, outputStream, fullScope(request.sessionId(), "subject-1"));
 
         String payload = outputStream.toString(StandardCharsets.UTF_8);
         assertThat(payload).contains("data: Hello ");
@@ -1327,7 +1331,7 @@ class ChatServiceTest {
                 .when(sessionMemoryService)
                 .addAssistantMessage(eq("s1"), any());
 
-        chatService.streamChat(request, outputStream);
+        chatService.streamChat(request, outputStream, fullScope(request.sessionId(), "subject-1"));
 
         String payload = outputStream.toString(StandardCharsets.UTF_8);
         assertThat(payload).contains("data: Hello");
@@ -1357,7 +1361,7 @@ class ChatServiceTest {
                 new ChatResponse(List.of(new Generation(new AssistantMessage(oversizedChunk))))
         ));
 
-        chatService.streamChat(request, outputStream);
+        chatService.streamChat(request, outputStream, fullScope(request.sessionId(), "subject-1"));
 
         String payload = outputStream.toString(StandardCharsets.UTF_8);
         assertThat(payload).contains("event: error");
@@ -1386,7 +1390,7 @@ class ChatServiceTest {
                 new ChatResponse(List.of(new Generation(new AssistantMessage(nearLimitChunk))))
         ));
 
-        chatService.streamChat(request, outputStream);
+        chatService.streamChat(request, outputStream, fullScope(request.sessionId(), "subject-1"));
 
         String payload = outputStream.toString(StandardCharsets.UTF_8);
         assertThat(payload).contains("event: error");
@@ -1417,7 +1421,7 @@ class ChatServiceTest {
                 new ChatResponse(List.of(new Generation(new AssistantMessage(streamedChunk))))
         ));
 
-        chatService.streamChat(request, outputStream);
+        chatService.streamChat(request, outputStream, fullScope(request.sessionId(), "subject-1"));
 
         String payload = outputStream.toString(StandardCharsets.UTF_8);
         List<String> messageEvents = extractEventData(payload, "message").stream()
@@ -1457,7 +1461,7 @@ class ChatServiceTest {
                 new ChatResponse(List.of(new Generation(new AssistantMessage("\n\nFOLLOW_UP_QUESTIONS:\n1. Partial question only"))))
         ));
 
-        chatService.streamChat(request, outputStream);
+        chatService.streamChat(request, outputStream, fullScope(request.sessionId(), "subject-1"));
 
         List<String> messageEvents = extractEventData(outputStream.toString(StandardCharsets.UTF_8), "message").stream()
                 .filter(eventData -> !eventData.startsWith("<think>"))
@@ -1518,7 +1522,7 @@ class ChatServiceTest {
                 new ChatResponse(List.of(new Generation(new AssistantMessage("\n## Short Analysis\nbad"))))
         ));
 
-        chatService.streamChat(request, outputStream);
+        chatService.streamChat(request, outputStream, fullScope(request.sessionId(), "subject-1"));
 
         String payload = outputStream.toString(StandardCharsets.UTF_8);
         List<String> progressEvents = extractEventData(payload, "progress");
@@ -1588,7 +1592,7 @@ class ChatServiceTest {
                 new ChatResponse(List.of(new Generation(new AssistantMessage("\n## 6. Improvement Suggestions\nfallback\nFOLLOW_UP_QUESTIONS:\n1. next?\n2. next?"))))
         ));
 
-        chatService.streamChat(request, outputStream);
+        chatService.streamChat(request, outputStream, fullScope(request.sessionId(), "subject-1"));
 
         String payload = outputStream.toString(StandardCharsets.UTF_8);
         List<String> progressEvents = extractEventData(payload, "progress");
@@ -1651,7 +1655,7 @@ class ChatServiceTest {
                 new ChatResponse(List.of(new Generation(new AssistantMessage(validReply))))
         ));
 
-        chatService.streamChat(request, outputStream);
+        chatService.streamChat(request, outputStream, fullScope(request.sessionId(), "subject-1"));
 
         List<String> messageEvents = extractEventData(outputStream.toString(StandardCharsets.UTF_8), "message")
                 .stream()
@@ -1691,7 +1695,7 @@ class ChatServiceTest {
                 new ChatResponse(List.of(new Generation(new AssistantMessage(validReply))))
         ));
 
-        chatService.streamChat(request, outputStream);
+        chatService.streamChat(request, outputStream, fullScope(request.sessionId(), "subject-1"));
 
         String payload = outputStream.toString(StandardCharsets.UTF_8);
         List<String> progressEvents = extractEventData(payload, "progress");
@@ -1740,7 +1744,7 @@ class ChatServiceTest {
         when(promptFactory.buildSystemPrompt("en")).thenReturn("System prompt");
         when(chatModel.stream(any(Prompt.class))).thenReturn(Flux.error(new RuntimeException("429 busy")));
 
-        chatService.streamChat(request, outputStream);
+        chatService.streamChat(request, outputStream, fullScope(request.sessionId(), "subject-1"));
 
         String payload = outputStream.toString(StandardCharsets.UTF_8);
         List<String> messageEvents = extractEventData(payload, "message").stream()
@@ -1787,7 +1791,7 @@ class ChatServiceTest {
                 new ChatResponse(List.of(new Generation(new AssistantMessage(oversizedChunk))))
         ));
 
-        chatService.streamChat(request, outputStream);
+        chatService.streamChat(request, outputStream, fullScope(request.sessionId(), "subject-1"));
 
         String payload = outputStream.toString(StandardCharsets.UTF_8);
         assertThat(payload).contains("event: error");
@@ -1885,7 +1889,7 @@ class ChatServiceTest {
         when(promptFactory.buildSystemPrompt("en")).thenReturn("System prompt");
         when(chatModel.call(any(Prompt.class))).thenThrow(new RuntimeException("429 busy"));
 
-        String reply = chatService.chat(request);
+        String reply = chatService.chat(request, fullScope(request.sessionId(), "subject-1"));
 
         assertThat(reply).isEqualTo(plan.fallbackReply().trim());
         verify(analyticsService).plan(request.message(), "en");
@@ -1933,7 +1937,7 @@ class ChatServiceTest {
                 ))
         )));
 
-        String reply = chatService.chat(request);
+        String reply = chatService.chat(request, fullScope(request.sessionId(), "subject-1"));
 
         assertThat(reply).isEqualTo(plan.fallbackReply().trim());
         verify(analyticsService).plan(request.message(), "en");
@@ -1993,7 +1997,7 @@ class ChatServiceTest {
                 ))
         )));
 
-        String reply = chatService.chat(request);
+        String reply = chatService.chat(request, fullScope(request.sessionId(), "subject-1"));
 
         assertThat(reply).isEqualTo(plan.fallbackReply().trim());
         verify(analyticsService).plan(request.message(), "en");
@@ -2039,7 +2043,7 @@ class ChatServiceTest {
                         """))
         )));
 
-        String reply = chatService.chat(request);
+        String reply = chatService.chat(request, fullScope(request.sessionId(), "subject-1"));
 
         assertThat(reply).isEqualTo(plan.fallbackReply().trim());
         verify(analyticsService).plan(request.message(), "en");
@@ -2081,7 +2085,7 @@ class ChatServiceTest {
                         """))
         )));
 
-        String reply = chatService.chat(request);
+        String reply = chatService.chat(request, fullScope(request.sessionId(), "subject-1"));
 
         assertThat(reply).isEqualTo(plan.fallbackReply().trim());
         verify(analyticsService).plan(request.message(), "en");
@@ -2111,7 +2115,7 @@ class ChatServiceTest {
                 new Generation(new AssistantMessage(validReply))
         )));
 
-        String reply = chatService.chat(request);
+        String reply = chatService.chat(request, fullScope(request.sessionId(), "subject-1"));
 
         assertThat(reply).isEqualTo(validReply);
         verify(analyticsService).plan(request.message(), "zh");
@@ -2139,7 +2143,7 @@ class ChatServiceTest {
                         "\n\nFOLLOW_UP_QUESTIONS:\nunrelated text\nmore unrelated text"))))
         ));
 
-        chatService.streamChat(request, outputStream);
+        chatService.streamChat(request, outputStream, fullScope(request.sessionId(), "subject-1"));
 
         String payload = outputStream.toString(StandardCharsets.UTF_8);
         assertThat(payload).contains("event: done");
@@ -2241,7 +2245,7 @@ class ChatServiceTest {
                 ))))
         ));
 
-        chatService.streamChat(request, outputStream);
+        chatService.streamChat(request, outputStream, fullScope(request.sessionId(), "subject-1"));
 
         String payload = outputStream.toString(StandardCharsets.UTF_8);
         assertThat(payload).contains("达成率低的主要影响因素是什么");
@@ -2268,7 +2272,7 @@ class ChatServiceTest {
                 ))
         )));
 
-        String reply = chatService.chat(request);
+        String reply = chatService.chat(request, fullScope(request.sessionId(), "subject-1"));
 
         // Irrelevant follow-ups should be replaced with contextual defaults
         assertThat(reply).doesNotContain("你想了解什么");
@@ -2431,6 +2435,14 @@ class ChatServiceTest {
                 1. a
                 2. b
                 """;
+    }
+
+    private static AgentRequestScope fullScope(String sessionId, String subject) {
+        return AgentRequestScope.authenticated(
+                sessionId,
+                subject,
+                EnumSet.allOf(PermissionKey.class)
+        );
     }
 
     private static boolean hasText(String value) {

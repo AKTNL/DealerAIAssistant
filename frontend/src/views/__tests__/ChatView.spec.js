@@ -67,10 +67,16 @@ const dictionary = {
   chatTab: "AI analysis"
 };
 
+const authorizedUser = {
+  id: 1,
+  permissions: ["DASHBOARD_READ", "DATA_READ", "CHAT_USE", "MODEL_CONFIG_TEST"]
+};
+
 function mountChatView(props = {}) {
   return mount(ChatView, {
     props: {
       authVerified: false,
+      currentUser: authorizedUser,
       dictionary,
       locale: "en",
       ...props
@@ -165,6 +171,7 @@ describe("ChatView", () => {
     const wrapper = mount(ChatView, {
       props: {
         authVerified: true,
+        currentUser: authorizedUser,
         dictionary,
         locale: "en"
       },
@@ -228,6 +235,7 @@ describe("ChatView", () => {
     const wrapper = mount(ChatView, {
       props: {
         authVerified: true,
+        currentUser: authorizedUser,
         dictionary,
         locale: "en"
       },
@@ -260,5 +268,30 @@ describe("ChatView", () => {
 
     expect(submitPrompt).toHaveBeenCalledWith("Which dealers are lagging?");
     expect(wrapper.find(".chat-screen").exists()).toBe(true);
+  });
+
+  it("hides protected workspaces when the current user has no permissions", () => {
+    const wrapper = mountChatView({
+      authVerified: true,
+      currentUser: { id: 2, permissions: [] }
+    });
+
+    expect(wrapper.find(".workspace-mode-tab").exists()).toBe(false);
+    expect(wrapper.find(".dashboard-view-stub").exists()).toBe(false);
+    expect(wrapper.find(".chat-screen").exists()).toBe(false);
+    expect(wrapper.find(".example-sidebar-stub").exists()).toBe(false);
+    expect(wrapper.find(".model-settings-panel-stub").exists()).toBe(false);
+  });
+
+  it("shows only the workspace and tools granted by the permission set", () => {
+    const wrapper = mountChatView({
+      authVerified: true,
+      currentUser: { id: 3, permissions: ["CHAT_USE"] }
+    });
+
+    expect(wrapper.find(".chat-screen").exists()).toBe(true);
+    expect(wrapper.find(".dashboard-view-stub").exists()).toBe(false);
+    expect(wrapper.find(".example-sidebar-stub").exists()).toBe(true);
+    expect(wrapper.find(".model-settings-panel-stub").exists()).toBe(false);
   });
 });

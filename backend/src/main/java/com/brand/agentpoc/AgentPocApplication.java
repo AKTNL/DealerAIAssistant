@@ -8,6 +8,7 @@ import org.springframework.ai.model.openai.autoconfigure.OpenAiImageAutoConfigur
 import org.springframework.ai.model.openai.autoconfigure.OpenAiModerationAutoConfiguration;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.boot.autoconfigure.security.servlet.UserDetailsServiceAutoConfiguration;
 import org.springframework.boot.context.properties.ConfigurationPropertiesScan;
 
 @SpringBootApplication(exclude = {
@@ -16,7 +17,8 @@ import org.springframework.boot.context.properties.ConfigurationPropertiesScan;
         OpenAiAudioTranscriptionAutoConfiguration.class,
         OpenAiEmbeddingAutoConfiguration.class,
         OpenAiImageAutoConfiguration.class,
-        OpenAiModerationAutoConfiguration.class
+        OpenAiModerationAutoConfiguration.class,
+        UserDetailsServiceAutoConfiguration.class
 })
 @ConfigurationPropertiesScan
 public class AgentPocApplication {

@@ -31,16 +31,27 @@ const props = defineProps({
   authVerified: {
     type: Boolean,
     required: true
+  },
+  currentUser: {
+    type: Object,
+    default: () => ({
+      permissions: []
+    })
   }
 });
 
 const emit = defineEmits(["sign-out", "toggle-locale"]);
 
 const authVerified = computed(() => props.authVerified);
+const permissions = computed(() => new Set(props.currentUser?.permissions ?? []));
+const canDashboard = computed(() => permissions.value.has("DASHBOARD_READ"));
+const canReadData = computed(() => permissions.value.has("DATA_READ"));
+const canUseChat = computed(() => permissions.value.has("CHAT_USE"));
+const canConfigureModel = computed(() => permissions.value.has("MODEL_CONFIG_TEST"));
 const connectionMessage = ref("");
 const connectionStatus = ref("");
 const fallbackDataActive = ref(false);
-const activeWorkspace = ref("dashboard");
+const activeWorkspace = ref(canDashboard.value ? "dashboard" : "chat");
 const isTestingConnection = ref(false);
 const modelSettingsPanelOpen = ref(false);
 const sidebarCollapsed = ref(true);
@@ -77,10 +88,15 @@ const {
   dashboardLoading,
   loadDashboard
 } = useDashboard({
-  onAuthExpired: () => emit("sign-out")
+  onAuthExpired: () => emit("sign-out"),
+  enabled: canDashboard
 });
 
-onMounted(loadDataStatus);
+onMounted(() => {
+  if (canReadData.value) {
+    loadDataStatus();
+  }
+});
 
 async function loadDataStatus() {
   try {
@@ -106,6 +122,9 @@ function handleStartNewChat() {
 }
 
 function handleDashboardAnalyze(prompt) {
+  if (!canUseChat.value) {
+    return;
+  }
   activeWorkspace.value = "chat";
   submitPrompt(prompt);
 }
@@ -193,11 +212,12 @@ async function handleTestConnection(settings) {
 
 <template>
   <div :class="['app-shell', 'workspace-shell', { 'sidebar-collapsed': sidebarCollapsed }]">
-    <button class="sidebar-expand-tab" type="button" :title="dictionary.newChat" @click="sidebarCollapsed = false">
+    <button v-if="canUseChat" class="sidebar-expand-tab" type="button" :title="dictionary.newChat" @click="sidebarCollapsed = false">
       <span class="material-icons">add_comment</span>
     </button>
 
     <ExampleSidebar
+      v-if="canUseChat"
       :dictionary="dictionary"
       :is-sending="isSending"
       :show-mobile-sidebar="showMobileSidebar"
@@ -212,6 +232,8 @@ async function handleTestConnection(settings) {
     <main class="main-panel workspace-stage">
       <TopNav
         :auth-verified="props.authVerified"
+        :can-configure-model="canConfigureModel"
+        :can-use-chat="canUseChat"
         :dictionary="dictionary"
         :is-sending="isSending"
         :locale="locale"
@@ -230,6 +252,7 @@ async function handleTestConnection(settings) {
       </div>
 
       <ModelSettingsPanel
+        v-if="canConfigureModel"
         :connection-message="connectionMessage"
         :connection-status="connectionStatus"
         :dictionary="dictionary"
@@ -244,6 +267,7 @@ async function handleTestConnection(settings) {
 
       <div class="workspace-mode-tabs" role="tablist" :aria-label="dictionary.workspaceTitle">
         <button
+          v-if="canDashboard"
           :class="['workspace-mode-tab', { active: activeWorkspace === 'dashboard' }]"
           type="button"
           role="tab"
@@ -254,6 +278,7 @@ async function handleTestConnection(settings) {
           <span>{{ dictionary.dashboardTab }}</span>
         </button>
         <button
+          v-if="canUseChat"
           :class="['workspace-mode-tab', { active: activeWorkspace === 'chat' }]"
           type="button"
           role="tab"
@@ -266,7 +291,7 @@ async function handleTestConnection(settings) {
       </div>
 
       <DashboardView
-        v-if="activeWorkspace === 'dashboard'"
+        v-if="canDashboard && activeWorkspace === 'dashboard'"
         :dashboard="dashboard"
         :dictionary="dictionary"
         :error="dashboardError"
@@ -277,7 +302,7 @@ async function handleTestConnection(settings) {
         @reload="loadDashboard"
       />
 
-      <section v-else class="chat-screen">
+      <section v-else-if="canUseChat" class="chat-screen">
         <div ref="scrollContainer" class="chat-scroll" @scroll="handleScroll">
           <ChatMessageList
             :dictionary="dictionary"

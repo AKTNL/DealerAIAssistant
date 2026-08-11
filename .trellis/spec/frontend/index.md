@@ -20,6 +20,7 @@ This directory contains guidelines for frontend development. Each file documents
 | [State Management](./state-management.md) | Local state, global state, server state | Filled |
 | [Quality Guidelines](./quality-guidelines.md) | Code standards, forbidden patterns | Filled |
 | [Type Safety](./type-safety.md) | Type patterns, validation | Filled |
+| [Authentication Session](./authentication-session.md) | Login, refresh recovery, forced password change, and permission UI | Filled |
 
 ---
 

@@ -18,57 +18,41 @@ No external state management library (Vuex, Pinia) is used. Shared state lives i
 
 The dominant pattern. The composable is a named export function that accepts an options object and returns an object with `ref` instances and methods. The caller destructures what it needs.
 
-Example from `frontend/src/composables/useAuth.js` (entire file):
+Current auth shape from `frontend/src/composables/useAuth.js` (abridged):
 ```js
 import { computed, ref } from "vue";
-import { verifyAccessKey } from "../api/auth";
-import { clearAuthSession, isAuthSessionValid, writeAuthSession } from "../api/sessionToken";
+import { loginUser, refreshSession, changePassword, logoutUser } from "../api/auth";
+import { clearAuthSession } from "../api/sessionToken";
 
 export function useAuth({ dictionary }) {
-  const accessKey = ref("");
+  const username = ref("");
+  const password = ref("");
+  const currentUser = ref(null);
   const hasError = ref(false);
   const loginLoading = ref(false);
-  const authVerified = ref(isAuthSessionValid());
+  const initialized = ref(false);
 
-  const loginError = computed(() =>
-    hasError.value ? dictionary.value.loginError : ""
-  );
+  const authVerified = computed(() => Boolean(currentUser.value));
+  const mustChangePassword = computed(() => currentUser.value?.mustChangePassword === true);
+  const loginError = computed(() => (hasError.value ? dictionary.value.loginError : ""));
 
-  async function submitAccessKey() {
-    if (!accessKey.value.trim() || loginLoading.value) return;
-    hasError.value = false;
-    loginLoading.value = true;
+  async function initialize() {
     try {
-      const result = await verifyAccessKey(accessKey.value.trim());
-      if (!result.success || !writeAuthSession(result)) {
-        throw new Error(dictionary.value.loginError);
-      }
-      authVerified.value = true;
-      accessKey.value = "";
+      currentUser.value = (await refreshSession()).user;
     } catch {
-      accessKey.value = "";
-      hasError.value = true;
       clearAuthSession();
     } finally {
-      loginLoading.value = false;
+      initialized.value = true;
     }
   }
 
-  function signOut() {
-    authVerified.value = false;
-    accessKey.value = "";
-    hasError.value = false;
+  async function signOut() {
+    await logoutUser();
+    currentUser.value = null;
     clearAuthSession();
   }
 
-  return {
-    accessKey,
-    authVerified,
-    loginError,
-    loginLoading,
-    signOut,
-    submitAccessKey
-  };
+  return { authVerified, currentUser, initialize, initialized, mustChangePassword, signOut };
 }
 ```
 
@@ -143,7 +127,7 @@ const {
 
 There is no data-fetching library (no TanStack Query, SWR, etc.). Data fetching follows an imperative pattern:
 
-1. The composable exposes an async function (e.g., `submitAccessKey`, `submitPrompt`).
+1. The composable exposes an async function (e.g., `submitCredentials`, `submitPrompt`).
 2. The composable manages loading/error state with `ref()`.
 3. Results are assigned directly to `ref` values or used to update reactive arrays.
 

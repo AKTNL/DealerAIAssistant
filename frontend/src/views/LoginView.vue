@@ -2,155 +2,87 @@
 import { nextTick, ref, watch } from "vue";
 
 const props = defineProps({
-  accessKey: {
-    type: String,
-    default: ""
-  },
-  dictionary: {
-    type: Object,
-    required: true
-  },
-  locale: {
-    type: String,
-    required: true
-  },
-  loginError: {
-    type: String,
-    default: ""
-  },
-  loginLoading: {
-    type: Boolean,
-    default: false
-  }
+  username: { type: String, default: "" },
+  password: { type: String, default: "" },
+  dictionary: { type: Object, required: true },
+  locale: { type: String, required: true },
+  loginError: { type: String, default: "" },
+  loginLoading: { type: Boolean, default: false }
 });
 
-const emit = defineEmits(["submit", "toggle-locale", "update:access-key"]);
-
-const accessKeyInput = ref(null);
+const emit = defineEmits(["submit", "toggle-locale", "update:username", "update:password"]);
+const usernameInput = ref(null);
 const isCardShaking = ref(false);
 
 async function replayLoginError() {
   isCardShaking.value = false;
   await nextTick();
-
-  if (accessKeyInput.value) {
-    void accessKeyInput.value.offsetWidth;
-    accessKeyInput.value.focus();
-  }
-
+  usernameInput.value?.focus();
   isCardShaking.value = true;
 }
 
-watch(
-  () => props.loginError,
-  async (value) => {
-    if (!value) {
-      isCardShaking.value = false;
-      return;
-    }
-
-    await replayLoginError();
-  }
-);
-
-function handleAnimationEnd() {
-  isCardShaking.value = false;
-}
-
-async function handleSubmit() {
-  if (props.loginLoading) {
+watch(() => props.loginError, async (value) => {
+  if (!value) {
+    isCardShaking.value = false;
     return;
   }
+  await replayLoginError();
+});
 
-  if (props.loginError) {
-    await replayLoginError();
+function handleSubmit() {
+  if (!props.loginLoading) {
+    emit("submit");
   }
-
-  emit("submit");
 }
 </script>
 
 <template>
   <div class="login-glass-shell">
-    <!-- Watermark logo -->
-    <div class="login-watermark">
-      <img src="/logo.png" alt="Watermark" class="login-watermark-img" />
-    </div>
-
-    <!-- Glassmorphism card -->
-    <div
-      :class="['login-card', { 'login-card-shake': isCardShaking }]"
-      @animationend="handleAnimationEnd"
-    >
+    <div class="login-watermark"><img src="/logo.png" alt="Watermark" class="login-watermark-img" /></div>
+    <div :class="['login-card', { 'login-card-shake': isCardShaking }]" @animationend="isCardShaking = false">
       <div class="login-card-top-bar"></div>
-
       <div class="login-lang-row">
-        <button
-          class="login-lang-toggle"
-          type="button"
-          @click="$emit('toggle-locale')"
-        >
+        <button class="login-lang-toggle" type="button" @click="$emit('toggle-locale')">
           {{ locale === 'zh' ? '中文 / EN' : 'EN / 中文' }}
         </button>
       </div>
-
       <div class="login-hero">
-        <div class="login-logo-wrap">
-          <div class="login-logo-glow"></div>
-          <img
-            src="/logo.png"
-            alt="Brand Logo"
-            class="login-logo-img"
-          />
-        </div>
-
+        <div class="login-logo-wrap"><div class="login-logo-glow"></div><img src="/logo.png" alt="Brand Logo" class="login-logo-img" /></div>
         <h2 class="login-title">{{ dictionary.loginTitle }}</h2>
         <p class="login-subtitle">{{ dictionary.loginEyebrow }}</p>
       </div>
-
       <div class="login-input-wrap">
-        <div class="login-input-icon">
-          <svg class="login-input-icon-svg" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path
-              stroke-linecap="round"
-              stroke-linejoin="round"
-              stroke-width="2"
-              d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"
-            ></path>
-          </svg>
-        </div>
         <input
-          ref="accessKeyInput"
+          ref="usernameInput"
+          class="login-input-field"
+          :placeholder="dictionary.loginUsernamePlaceholder"
+          :value="username"
+          autocomplete="username"
+          @input="$emit('update:username', $event.target.value)"
+        />
+      </div>
+      <div class="login-input-wrap">
+        <input
           :class="['login-input-field', { 'login-input-error': loginError }]"
-          :placeholder="dictionary.loginPlaceholder"
-          :value="accessKey"
+          :placeholder="dictionary.loginPasswordPlaceholder"
+          :value="password"
           type="password"
-          autocomplete="off"
+          autocomplete="current-password"
           :aria-invalid="loginError ? 'true' : 'false'"
-          @input="$emit('update:access-key', $event.target.value)"
+          @input="$emit('update:password', $event.target.value)"
           @keyup.enter="handleSubmit"
         />
       </div>
-
-      <div class="login-error-row">
-        <p v-show="loginError" class="login-error-text">
-          <span class="login-error-dot"></span>
-          {{ loginError }}
-        </p>
-      </div>
-
+      <div class="login-error-row"><p v-if="loginError" class="login-error-text">{{ loginError }}</p></div>
       <button
-        :disabled="!accessKey.trim() || loginLoading"
+        :disabled="!username.trim() || !password || loginLoading"
         class="login-submit-button"
         type="button"
         @click="handleSubmit"
       >
         {{ loginLoading ? dictionary.loginLoading : dictionary.loginButton }}
       </button>
-
-      <p class="login-footer-text">
-        {{ dictionary.loginNoticeBody }}
-      </p>
+      <p class="login-footer-text">{{ dictionary.loginNoticeBody }}</p>
     </div>
   </div>
 </template>

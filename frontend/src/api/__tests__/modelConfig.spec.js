@@ -17,8 +17,9 @@ describe("modelConfig API", () => {
     window.sessionStorage.setItem(
       "agentpoc.authVerified",
       JSON.stringify({
-        sessionToken: "signed-token",
-        expiresAt: "2999-01-01T00:00:00.000Z"
+        accessToken: "signed-token",
+        accessExpiresAt: "2999-01-01T00:00:00.000Z",
+        user: { id: 1 }
       })
     );
 

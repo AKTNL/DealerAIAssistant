@@ -1,12 +1,16 @@
 import { onMounted, ref } from "vue";
 import { getDashboardSummary } from "../api/dashboard";
 
-export function useDashboard({ onAuthExpired } = {}) {
+export function useDashboard({ onAuthExpired, enabled } = {}) {
   const dashboard = ref(null);
   const dashboardError = ref("");
   const dashboardLoading = ref(false);
 
-  onMounted(loadDashboard);
+  onMounted(() => {
+    if (!enabled || enabled.value !== false) {
+      loadDashboard();
+    }
+  });
 
   async function loadDashboard() {
     dashboardError.value = "";

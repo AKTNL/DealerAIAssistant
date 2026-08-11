@@ -1,52 +1,62 @@
-import { describe, expect, it, vi, beforeEach } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ref } from "vue";
 import { useAuth } from "../useAuth";
 
-const verifyAccessKeyMock = vi.fn();
+const loginUserMock = vi.fn();
+const refreshSessionMock = vi.fn();
+const getCurrentUserMock = vi.fn();
+const changePasswordMock = vi.fn();
+const logoutUserMock = vi.fn();
 
 vi.mock("../../api/auth", () => ({
-  verifyAccessKey: (...args) => verifyAccessKeyMock(...args)
+  loginUser: (...args) => loginUserMock(...args),
+  refreshSession: (...args) => refreshSessionMock(...args),
+  getCurrentUser: (...args) => getCurrentUserMock(...args),
+  changePassword: (...args) => changePasswordMock(...args),
+  logoutUser: (...args) => logoutUserMock(...args)
 }));
 
-const dictionary = ref({
-  loginError: "The access key is invalid. Please try again."
-});
+const dictionary = ref({ loginError: "Invalid credentials" });
+const user = { id: 1, username: "admin", mustChangePassword: true, permissions: [] };
 
 describe("useAuth", () => {
   beforeEach(() => {
     window.sessionStorage.clear();
-    verifyAccessKeyMock.mockReset();
+    vi.clearAllMocks();
   });
 
-  it("stores token and expiry in sessionStorage after a successful access-key login", async () => {
-    verifyAccessKeyMock.mockResolvedValueOnce({
-      success: true,
-      sessionToken: "signed-token",
-      expiresAt: "2999-01-01T00:00:00.000Z"
-    });
+  it("logs in with username and password and exposes the forced-change state", async () => {
+    loginUserMock.mockResolvedValueOnce({ user });
     const auth = useAuth({ dictionary });
-    auth.accessKey.value = "demo123";
+    auth.username.value = "admin";
+    auth.password.value = "temporary-password";
 
-    await auth.submitAccessKey();
+    await auth.submitCredentials();
 
+    expect(loginUserMock).toHaveBeenCalledWith("admin", "temporary-password");
     expect(auth.authVerified.value).toBe(true);
-    expect(JSON.parse(window.sessionStorage.getItem("agentpoc.authVerified"))).toEqual({
-      sessionToken: "signed-token",
-      expiresAt: "2999-01-01T00:00:00.000Z"
-    });
+    expect(auth.mustChangePassword.value).toBe(true);
   });
 
-  it("treats expired stored tokens as logged out", () => {
-    window.sessionStorage.setItem(
-      "agentpoc.authVerified",
-      JSON.stringify({
-        sessionToken: "signed-token",
-        expiresAt: "2000-01-01T00:00:00.000Z"
-      })
-    );
-
+  it("uses the refresh cookie to restore a page without an access token", async () => {
+    refreshSessionMock.mockResolvedValueOnce({ user: { ...user, mustChangePassword: false } });
     const auth = useAuth({ dictionary });
+    await auth.initialize();
+    expect(refreshSessionMock).toHaveBeenCalledOnce();
+    expect(auth.authVerified.value).toBe(true);
+  });
 
+  it("clears identity after a successful forced password change", async () => {
+    loginUserMock.mockResolvedValueOnce({ user });
+    changePasswordMock.mockResolvedValueOnce({});
+    const auth = useAuth({ dictionary });
+    auth.username.value = "admin";
+    auth.password.value = "temporary-password";
+    await auth.submitCredentials();
+    auth.currentPassword.value = "temporary-password";
+    auth.newPassword.value = "permanent-password-2";
+
+    await expect(auth.submitPasswordChange()).resolves.toBe(true);
     expect(auth.authVerified.value).toBe(false);
   });
 });

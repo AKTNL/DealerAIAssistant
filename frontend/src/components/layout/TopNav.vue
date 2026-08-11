@@ -4,6 +4,14 @@ defineProps({
     type: Boolean,
     default: true
   },
+  canConfigureModel: {
+    type: Boolean,
+    default: false
+  },
+  canUseChat: {
+    type: Boolean,
+    default: false
+  },
   dictionary: {
     type: Object,
     required: true
@@ -63,7 +71,7 @@ defineEmits(["clear-session", "open-settings", "sign-out", "toggle-locale"]);
       </button>
 
       <button
-        v-if="authVerified"
+        v-if="authVerified && canConfigureModel"
         class="topbar-icon-btn settings-button"
         type="button"
         :title="dictionary.settingsButton"
@@ -73,7 +81,7 @@ defineEmits(["clear-session", "open-settings", "sign-out", "toggle-locale"]);
       </button>
 
       <button
-        v-if="authVerified"
+        v-if="authVerified && canUseChat"
         class="topbar-icon-btn"
         type="button"
         :title="dictionary.clearChat"

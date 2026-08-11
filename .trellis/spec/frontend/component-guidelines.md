@@ -121,7 +121,7 @@ const emit = defineEmits(["update:modelValue"]);
 // In template or handler: emit("update:modelValue", newValue)
 ```
 
-Example from `App.vue` line 36: `@update:access-key="accessKey = $event"`.
+Example from `App.vue`: `@update:username="auth.username.value = $event"`.
 
 ---
 

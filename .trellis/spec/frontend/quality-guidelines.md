@@ -34,12 +34,16 @@ All HTTP requests must go through `frontend/src/api/client.js` (the `requestJson
 ```js
 // CORRECT
 import { requestJson } from "./client";
-export function verifyAccessKey(key) {
-  return requestJson("/api/auth/verify", { method: "POST", body: JSON.stringify({ key }) });
+export function loginUser(username, password) {
+  return requestJson("/api/auth/login", {
+    method: "POST",
+    skipAuthRefresh: true,
+    body: JSON.stringify({ username, password })
+  });
 }
 
 // WRONG
-const response = await fetch("/api/auth/verify", { ... });
+const response = await fetch("/api/auth/login", { ... });
 ```
 
 ### 3. No Options API Components
@@ -228,9 +232,9 @@ describe("ChatInput accessibility", () => {
 
 ```js
 // useAuth.spec.js
-const verifyAccessKeyMock = vi.fn();
+const loginUserMock = vi.fn();
 vi.mock("../../api/auth", () => ({
-  verifyAccessKey: (...args) => verifyAccessKeyMock(...args)
+  loginUser: (...args) => loginUserMock(...args)
 }));
 
 // useChat.spec.js -- hoisted mock (available before imports)
@@ -467,7 +471,7 @@ Correct:
 
 ### 3. Contracts
 - The request must use `api/client.js`; do not call raw `fetch()`.
-- The session token is supplied by the shared request client.
+- The short-lived opaque access token is supplied by the shared request client.
 - Show the localized warning only for built-in fallback data.
 - A configured-workbook success must leave the normal workspace unchanged.
 - Status-request failure is non-blocking: chat remains usable and no false fallback warning is shown.

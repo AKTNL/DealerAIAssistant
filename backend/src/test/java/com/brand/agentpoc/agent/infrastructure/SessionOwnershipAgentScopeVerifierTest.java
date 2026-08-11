@@ -6,7 +6,9 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.brand.agentpoc.agent.domain.AgentRequestScope;
+import com.brand.agentpoc.auth.domain.PermissionKey;
 import com.brand.agentpoc.service.SessionOwnershipService;
+import java.util.EnumSet;
 import org.junit.jupiter.api.Test;
 
 class SessionOwnershipAgentScopeVerifierTest {
@@ -15,12 +17,21 @@ class SessionOwnershipAgentScopeVerifierTest {
     void requiresAuthenticationActiveBatchAndCurrentSessionOwnership() {
         SessionOwnershipService ownershipService = mock(SessionOwnershipService.class);
         SessionOwnershipAgentScopeVerifier verifier = new SessionOwnershipAgentScopeVerifier(ownershipService);
-        AgentRequestScope allowedScope = AgentRequestScope.authenticated("session-1", "subject-1");
+        AgentRequestScope allowedScope = AgentRequestScope.authenticated(
+                "session-1",
+                "subject-1",
+                EnumSet.allOf(PermissionKey.class)
+        );
         when(ownershipService.owns("session-1", "subject-1")).thenReturn(true);
 
         assertThat(verifier.isAllowed(allowedScope)).isTrue();
         assertThat(verifier.isAllowed(AgentRequestScope.unauthenticated("session-1"))).isFalse();
-        assertThat(verifier.isAllowed(new AgentRequestScope("session-1", "subject-1", false))).isFalse();
+        assertThat(verifier.isAllowed(new AgentRequestScope(
+                "session-1",
+                "subject-1",
+                false,
+                EnumSet.allOf(PermissionKey.class)
+        ))).isFalse();
         verify(ownershipService).owns("session-1", "subject-1");
     }
 }

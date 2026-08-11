@@ -33,9 +33,7 @@ backend/
           ExcelImportService.java
           DataQueryService.java
           AnalyticsApiService.java
-          AuthService.java
           AuthRateLimitService.java
-          SessionTokenService.java
           SessionMemoryService.java
           SessionOwnershipService.java
           ModelConfigService.java
@@ -65,13 +63,11 @@ backend/
         dto/
           request/                     # Inbound payloads
             ChatRequest.java
-            AuthVerifyRequest.java
             ModelConfigRequest.java
           response/                    # Outbound payloads
             ChatResponse.java
             ApiResult.java
             ApiPage.java
-            AuthVerifyResponse.java
             SimpleSuccessResponse.java
             CurrentDateResponse.java
             DataQueryResponse.java
@@ -88,12 +84,16 @@ backend/
             LeadDetail.java
             TaskDetail.java
             CampaignDetail.java
-        config/                        # Spring config and filters
+        config/                        # Shared Spring configuration
           AppProperties.java           # @ConfigurationProperties(prefix = "app")
           AiConfig.java                # @Configuration
           CorsConfig.java              # @Configuration
-          ApiKeyFilter.java            # @Component, OncePerRequestFilter
-          SessionTokenFilter.java      # @Component, OncePerRequestFilter
+        auth/                          # Database identity, session, RBAC module
+          controller/
+          application/
+          domain/
+          infrastructure/
+            persistence/
         ai/                            # Spring AI tool callbacks
           PromptFactory.java
           LanguageDetector.java
@@ -113,15 +113,15 @@ backend/
         # Mirrors main source structure
         controller/
           ChatControllerTest.java
-          AuthControllerTest.java
           ...
         service/
           ChatServiceTest.java
           RuleBasedAnalyticsServiceTest.java
           ...
-        config/
-          ApiKeyFilterTest.java
-          ...
+        auth/
+          AuthHttpIntegrationTest.java
+          controller/
+          infrastructure/
         dto/
           response/
             ApiResultTest.java
@@ -136,7 +136,7 @@ backend/
 
 New features follow these rules:
 
-1. **Controllers** live in `controller/`. Each controller handles one API path prefix (e.g., `/api/chat`, `/api/auth`). Annotated with `@RestController` and `@RequestMapping`.
+1. **Legacy controllers** live in `controller/`. New business-first modules keep protocol adapters in `<module>/controller/` (for example `auth/controller/AuthController`). Each controller handles one API path prefix and uses `@RestController` plus `@RequestMapping`.
 
 2. **Services** live in `service/`. One `@Service` per domain concern. If a service grows large enough to need helper classes, create a sub-package under `service/` (see `service/analytics/`).
 
@@ -194,6 +194,18 @@ com.brand.agentpoc.reporting/
   infrastructure/   # in-memory local adapter and JDBC production adapter
 ```
 
+P2-1 adds the database-backed `auth` module:
+
+```text
+com.brand.agentpoc.auth/
+  controller/        # login/session and user/role administration APIs
+  application/       # session lifecycle, administration, audit, input policy
+  domain/            # principal, fixed permission catalog, built-in role matrix
+  infrastructure/    # Spring Security, bootstrap, JSON errors, JPA persistence
+```
+
+Auth persistence classes stay under `auth/infrastructure/persistence`; do not place them in the legacy root `entity/` or `repository/` packages. See [Authentication and Authorization](./authentication-authorization.md).
+
 `service.ChatService` may reference these public/application and infrastructure integration boundaries while the rest of chat orchestration remains in the legacy service package. `agent.domain` and `knowledge.domain/application` must stay free of Spring AI, Servlet, repository, JDBC, resource-loader, and model-SDK dependencies; knowledge Spring wiring belongs in infrastructure. The controlled application service reuses existing public services (`DashboardService`, `AnalyticsApiService`, `RuleBasedAnalyticsService`, and `KnowledgeService`) and must not access repositories or vector-store adapters directly. This seam keeps the existing HTTP/SSE contract stable and makes the migration reversible.
 
 Tests mirror the package of the migrated production class. For example, `agent/domain/AgentExecutionPolicy.java` is covered by `agent/domain/AgentExecutionPolicyTest.java`, knowledge application/infrastructure tests mirror their production packages, and existing `service/ChatServiceTest.java` remains the regression guard for the compatibility caller, knowledge routing, and request-scoped callback registration.
@@ -209,9 +221,9 @@ Tests mirror the package of the migrated production class. For example, `agent/d
 | Entity | `{SingularEntity}` | `Dealer`, `Opportunity`, `Lead` |
 | Repository | `{Entity}Repository` | `DealerRepository`, `CampaignRepository` |
 | DTO record | `{Purpose}` | `ChatRequest`, `ChatResponse`, `ApiResult` |
-| Config class | `{Feature}Config` or `{Feature}Filter` | `CorsConfig`, `ApiKeyFilter` |
+| Config class | `{Feature}Config` or `{Feature}Configuration` | `CorsConfig`, `AuthSecurityConfiguration` |
 | AI tools | `{Domain}Tools` | `DealerTools`, `CampaignTools` |
-| Test class | `{ClassUnderTest}Test` | `ChatServiceTest`, `ApiKeyFilterTest` |
+| Test class | `{ClassUnderTest}Test` | `ChatServiceTest`, `AuthBootstrapTest` |
 | Table name | Plural lowercase, underscores | `dealers`, `dealer_tasks`, `dealer_targets` |
 
 ---

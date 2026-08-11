@@ -3,6 +3,8 @@ package com.brand.agentpoc.service;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.brand.agentpoc.AgentPocApplication;
+import com.brand.agentpoc.agent.domain.AgentRequestScope;
+import com.brand.agentpoc.auth.domain.PermissionKey;
 import com.brand.agentpoc.dto.request.ChatRequest;
 import com.brand.agentpoc.repository.CampaignRepository;
 import com.brand.agentpoc.repository.DealerRepository;
@@ -16,6 +18,7 @@ import java.nio.file.DirectoryStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.EnumSet;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
@@ -167,7 +170,14 @@ class AccuracyWorkbookRegressionTest {
 
         for (int index = 0; index < paraphrases.size(); index++) {
             ParaphraseCase paraphrase = paraphrases.get(index);
-            String reply = chatService.chat(new ChatRequest("accuracy-paraphrase-" + index, paraphrase.question(), "", "", ""));
+            ChatRequest request = new ChatRequest(
+                    "accuracy-paraphrase-" + index,
+                    paraphrase.question(),
+                    "",
+                    "",
+                    ""
+            );
+            String reply = chatService.chat(request, fullScope(request.sessionId()));
             String normalizedReply = normalizeForContains(reply);
             List<String> missingHits = paraphrase.expectedHits().stream()
                     .filter(hit -> !containsNormalized(normalizedReply, hit))
@@ -183,13 +193,22 @@ class AccuracyWorkbookRegressionTest {
     }
 
     private String chat(WorkbookQuestion question) {
-        return chatService.chat(new ChatRequest(
+        ChatRequest request = new ChatRequest(
                 "accuracy-workbook-row-" + question.rowNumber(),
                 question.question(),
                 "",
                 "",
                 ""
-        ));
+        );
+        return chatService.chat(request, fullScope(request.sessionId()));
+    }
+
+    private AgentRequestScope fullScope(String sessionId) {
+        return AgentRequestScope.authenticated(
+                sessionId,
+                "accuracy-regression",
+                EnumSet.allOf(PermissionKey.class)
+        );
     }
 
     private List<WorkbookQuestion> readWorkbookQuestions() throws Exception {

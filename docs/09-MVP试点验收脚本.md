@@ -36,9 +36,9 @@
 
 ```powershell
 cd backend
-$env:APP_ACCESS_KEY="local-demo-key"
-$env:APP_SESSION_SECRET="local-demo-session-secret-at-least-32-chars"
-$env:APP_API_KEY="local-demo-internal-api-key"
+$env:APP_AUTH_BOOTSTRAP_USERNAME="admin"
+$env:APP_AUTH_BOOTSTRAP_PASSWORD="temporary-password"
+$env:APP_AUTH_BOOTSTRAP_DISPLAY_NAME="Local Administrator"
 mvn "-Dfrontend.skip=true" spring-boot:run
 ```
 
@@ -65,13 +65,13 @@ npm run dev
 
 ### 登录
 
-打开 `http://localhost:5173`，输入：
+打开 `http://localhost:5173`，输入初始化用户名和临时密码：
 
 ```text
-local-demo-key
+admin / temporary-password
 ```
 
-预期：登录后默认进入 Dashboard。
+预期：首次登录进入强制改密视图；改密后使用新密码重新登录，默认进入 Dashboard。
 
 ## 端到端验收步骤
 
@@ -79,7 +79,7 @@ local-demo-key
 | --- | --- | --- | --- |
 | 1 | 启动后端 | 无启动失败；导入数据或明确 fallback | 记录命令和数据来源 |
 | 2 | 启动前端 | 首页可访问，无 Vite 代理错误 | 记录访问地址 |
-| 3 | 登录 | 正确密钥进入工作台，错误密钥不进入 | 记录登录结果 |
+| 3 | 登录与首次改密 | 正确用户凭据进入强制改密；改密重登后进入工作台；错误凭据不进入 | 记录登录结果 |
 | 4 | 查看数据状态 | 能看到 active batch、模拟数据、质量问题或 fallback 警告 | 记录是否影响可信度 |
 | 5 | 查看 Dashboard | 核心 KPI、排名、漏斗、来源、任务、活动模块可见 | 记录 30 秒内发现的问题 |
 | 6 | 触发分析入口 | 从 Dashboard 发起至少 1 个预置分析问题 | 记录问题文本和入口模块 |
@@ -161,11 +161,11 @@ local-demo-key
 | --- | --- |
 | 日期 | 2026-08-01 |
 | 环境 | 本地开发环境 |
-| 后端命令 | 设置 `APP_ACCESS_KEY=local-demo-key`、`APP_SESSION_SECRET=local-demo-session-secret-at-least-32-chars`、`APP_API_KEY=local-demo-internal-api-key` 后，在 `backend/` 运行 `mvn.cmd -Dfrontend.skip=true spring-boot:run` |
+| 后端命令 | 设置 `APP_AUTH_BOOTSTRAP_USERNAME=admin`、`APP_AUTH_BOOTSTRAP_PASSWORD=temporary-password` 后，在 `backend/` 运行 `mvn.cmd -Dfrontend.skip=true spring-boot:run` |
 | 后端结果 | 通过；Tomcat 启动在 `8081`，导入 `configured-workbook`，dealers=112、opportunities=6198、campaigns=715、tasks=57582、targets=5088、leads=1898 |
 | 前端命令 | 在 `frontend/` 运行 `npm ci`，然后 `npm run dev -- --host 127.0.0.1` |
 | 前端结果 | 通过；Vite 启动在 `http://127.0.0.1:5173/` |
-| 登录结果 | 通过；输入 `local-demo-key` 后进入工作台，默认选中 `经营看板` |
+| 登录结果 | 需按当前版本重新试跑：临时密码首次登录、强制改密、新密码重登、opaque refresh 恢复 |
 | Dashboard 结果 | 通过；可见 `configured-workbook`、active batch、71,593 导入行、0 跳过行、9,886 质量问题、模拟/样例数据提示和质量问题提示；核心 KPI、低达成门店、区域对比、商机漏斗、线索来源、跟进积压、活动效果模块可见 |
 | 分析入口结果 | 通过；点击 `低达成门店` 的 `分析` 后切换到 `AI 分析`，提交问题 `哪些经销商目标达成率最低？`；回答包含目标达成口径、范围、数据源、置信度、结论和数据支撑表 |
 | 控制台错误 | 未发现前端 console error |

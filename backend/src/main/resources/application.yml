@@ -22,11 +22,15 @@ spring:
 
 app:
   auth:
-    access-key: ${APP_ACCESS_KEY:}
-    session-secret: ${APP_SESSION_SECRET:}
-    session-ttl: ${APP_SESSION_TTL:8h}
-  security:
-    api-key: ${APP_API_KEY:}
+    access-token-ttl: ${APP_AUTH_ACCESS_TOKEN_TTL:30m}
+    refresh-token-ttl: ${APP_AUTH_REFRESH_TOKEN_TTL:7d}
+    cookie-secure: ${APP_AUTH_COOKIE_SECURE:false}
+    cookie-same-site: ${APP_AUTH_COOKIE_SAME_SITE:Lax}
+    bootstrap:
+      required: ${APP_AUTH_BOOTSTRAP_REQUIRED:false}
+      username: ${APP_AUTH_BOOTSTRAP_USERNAME:}
+      password: ${APP_AUTH_BOOTSTRAP_PASSWORD:}
+      display-name: ${APP_AUTH_BOOTSTRAP_DISPLAY_NAME:System Administrator}
   cors:
     allowed-origins: ${APP_CORS_ALLOWED_ORIGINS:http://localhost:5173,http://127.0.0.1:5173}
   excel:

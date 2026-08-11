@@ -85,6 +85,11 @@ const dictionary = {
   jumpToLatest: "Jump to latest"
 };
 
+const authorizedUser = {
+  id: 1,
+  permissions: ["DASHBOARD_READ", "DATA_READ", "CHAT_USE", "MODEL_CONFIG_TEST"]
+};
+
 async function openChatWorkspace(wrapper) {
   await wrapper.findAll(".workspace-mode-tab")[1].trigger("click");
 }
@@ -122,6 +127,7 @@ describe("Workspace chrome editorial hooks", () => {
     const chatView = mount(ChatView, {
       props: {
         authVerified: true,
+        currentUser: authorizedUser,
         dictionary,
         locale: "en"
       },
@@ -216,6 +222,7 @@ describe("Workspace chrome editorial hooks", () => {
     const chatView = mount(ChatView, {
       props: {
         authVerified: true,
+        currentUser: authorizedUser,
         dictionary,
         locale: "en"
       },
@@ -288,6 +295,7 @@ describe("Workspace chrome editorial hooks", () => {
     const chatView = mount(ChatView, {
       props: {
         authVerified: true,
+        currentUser: authorizedUser,
         dictionary,
         locale: "en"
       },
@@ -334,6 +342,7 @@ describe("Workspace chrome editorial hooks", () => {
     const chatView = mount(ChatView, {
       props: {
         authVerified: true,
+        currentUser: authorizedUser,
         dictionary,
         locale: "en"
       },
@@ -410,6 +419,7 @@ describe("Workspace chrome editorial hooks", () => {
     const chatView = mount(ChatView, {
       props: {
         authVerified: true,
+        currentUser: authorizedUser,
         dictionary,
         locale: "en"
       },
@@ -484,6 +494,7 @@ describe("Workspace chrome editorial hooks", () => {
     const chatView = mount(ChatView, {
       props: {
         authVerified: true,
+        currentUser: authorizedUser,
         dictionary,
         locale: "en"
       },
@@ -550,6 +561,7 @@ describe("Workspace chrome editorial hooks", () => {
     const chatView = mount(ChatView, {
       props: {
         authVerified: true,
+        currentUser: authorizedUser,
         dictionary,
         locale: "en"
       },
@@ -592,6 +604,7 @@ describe("Workspace chrome editorial hooks", () => {
     const chatView = mount(ChatView, {
       props: {
         authVerified: true,
+        currentUser: authorizedUser,
         dictionary,
         locale: "en"
       },
@@ -650,6 +663,7 @@ describe("Workspace chrome editorial hooks", () => {
     const chatView = mount(ChatView, {
       props: {
         authVerified: true,
+        currentUser: authorizedUser,
         dictionary,
         locale: "en"
       },
@@ -708,6 +722,7 @@ describe("Workspace chrome editorial hooks", () => {
     const chatView = mount(ChatView, {
       props: {
         authVerified: true,
+        currentUser: authorizedUser,
         dictionary,
         locale: "en"
       },

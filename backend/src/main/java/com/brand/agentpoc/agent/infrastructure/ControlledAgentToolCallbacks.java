@@ -108,7 +108,7 @@ public class ControlledAgentToolCallbacks {
         }
 
         private String execute(String toolInput, ToolContext toolContext) {
-            if (!verifyScope()) {
+            if (!verifyScope() || !executionContext.scope().hasPermission(toolName.requiredPermission())) {
                 record(TraceStatus.REJECTED, "scope_denied");
                 throw new IllegalStateException("Agent request scope is not authorized.");
             }

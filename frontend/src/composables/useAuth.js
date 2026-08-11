@@ -1,56 +1,115 @@
 import { computed, ref } from "vue";
-import { verifyAccessKey } from "../api/auth";
-import { clearAuthSession, isAuthSessionValid, writeAuthSession } from "../api/sessionToken";
+import {
+  changePassword,
+  getCurrentUser,
+  loginUser,
+  logoutUser,
+  refreshSession
+} from "../api/auth";
+import { clearAuthSession, getStoredUser, isAuthSessionValid } from "../api/sessionToken";
 
 export function useAuth({ dictionary }) {
-  const accessKey = ref("");
+  const username = ref("");
+  const password = ref("");
+  const currentPassword = ref("");
+  const newPassword = ref("");
+  const currentUser = ref(isAuthSessionValid() ? getStoredUser() : null);
   const hasError = ref(false);
   const loginLoading = ref(false);
-  const authVerified = ref(isAuthSessionValid());
+  const initialized = ref(false);
 
-  const loginError = computed(() =>
-    hasError.value ? dictionary.value.loginError : ""
-  );
+  const authVerified = computed(() => Boolean(currentUser.value));
+  const mustChangePassword = computed(() => currentUser.value?.mustChangePassword === true);
+  const loginError = computed(() => (hasError.value ? dictionary.value.loginError : ""));
 
-  async function submitAccessKey() {
-    if (!accessKey.value.trim() || loginLoading.value) {
+  async function initialize() {
+    try {
+      if (isAuthSessionValid()) {
+        currentUser.value = await getCurrentUser();
+      } else {
+        currentUser.value = (await refreshSession()).user;
+      }
+    } catch {
+      resetLocalState();
+    } finally {
+      initialized.value = true;
+    }
+  }
+
+  async function submitCredentials() {
+    if (!username.value.trim() || !password.value || loginLoading.value) {
       return;
     }
-
     hasError.value = false;
     loginLoading.value = true;
-
     try {
-      const result = await verifyAccessKey(accessKey.value.trim());
-
-      if (!result.success || !writeAuthSession(result)) {
-        throw new Error(dictionary.value.loginError);
-      }
-
-      authVerified.value = true;
-      accessKey.value = "";
+      const session = await loginUser(username.value.trim(), password.value);
+      currentUser.value = session.user;
+      password.value = "";
     } catch {
-      accessKey.value = "";
+      resetLocalState();
       hasError.value = true;
-      clearAuthSession();
     } finally {
       loginLoading.value = false;
     }
   }
 
-  function signOut() {
-    authVerified.value = false;
-    accessKey.value = "";
+  async function submitPasswordChange() {
+    if (!currentPassword.value || !newPassword.value || loginLoading.value) {
+      return false;
+    }
+    hasError.value = false;
+    loginLoading.value = true;
+    try {
+      await changePassword(currentPassword.value, newPassword.value);
+      resetLocalState();
+      return true;
+    } catch {
+      hasError.value = true;
+      return false;
+    } finally {
+      currentPassword.value = "";
+      newPassword.value = "";
+      loginLoading.value = false;
+    }
+  }
+
+  async function signOut() {
+    const hadSession = Boolean(currentUser.value);
+    if (hadSession) {
+      try {
+        await logoutUser();
+      } catch {
+        // Local cleanup still runs when the server session was already revoked or expired.
+      }
+    }
+    resetLocalState();
+  }
+
+  function resetLocalState() {
+    currentUser.value = null;
+    username.value = "";
+    password.value = "";
+    currentPassword.value = "";
+    newPassword.value = "";
     hasError.value = false;
     clearAuthSession();
   }
 
   return {
-    accessKey,
     authVerified,
+    currentPassword,
+    currentUser,
+    initialize,
+    initialized,
     loginError,
     loginLoading,
+    mustChangePassword,
+    newPassword,
+    password,
     signOut,
-    submitAccessKey
+    submitCredentials,
+    submitPasswordChange,
+    username
   };
 }

@@ -38,6 +38,7 @@ describe("api client", () => {
     await expect(requestJson("/api/chat", { method: "POST" })).resolves.toEqual(responseBody);
     expect(fetchMock).toHaveBeenCalledWith("/api/chat", {
       method: "POST",
+      credentials: "include",
       headers: {
         "Content-Type": "application/json"
       }

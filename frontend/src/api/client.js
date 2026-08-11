@@ -1,3 +1,5 @@
+import { clearAuthSession, getAuthToken } from "./sessionToken";
+
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "";
 
 export class ApiError extends Error {
@@ -13,16 +15,24 @@ export function buildUrl(path) {
   return `${API_BASE_URL}${path}`;
 }
 
-export async function requestJson(path, options = {}) {
-  const { headers, ...fetchOptions } = options;
-  const response = await fetch(buildUrl(path), {
-    ...fetchOptions,
-    headers: {
-      "Content-Type": "application/json",
-      ...(headers ?? {})
-    }
-  });
+export async function request(path, options = {}) {
+  const response = await execute(path, options);
+  if (response.status !== 401 || options.skipAuthRefresh || isAuthBootstrapPath(path)) {
+    return response;
+  }
 
+  try {
+    const { refreshSession } = await import("./auth");
+    await refreshSession();
+  } catch {
+    clearAuthSession();
+    return response;
+  }
+  return execute(path, { ...options, skipAuthRefresh: true });
+}
+
+export async function requestJson(path, options = {}) {
+  const response = await request(path, options);
   if (!response.ok) {
     const body = await response.text();
     throw new ApiError(extractErrorMessage(body) || `Request failed with status ${response.status}`, {
@@ -30,7 +40,6 @@ export async function requestJson(path, options = {}) {
       body
     });
   }
-
   return response.json();
 }
 
@@ -38,11 +47,29 @@ export function extractErrorMessage(body) {
   if (!body) {
     return "";
   }
-
   try {
     const parsed = JSON.parse(body);
     return parsed?.message ?? parsed?.error ?? body;
   } catch {
     return body;
   }
+}
+
+function execute(path, options) {
+  const { headers, ...fetchOptions } = options;
+  delete fetchOptions.skipAuthRefresh;
+  const token = getAuthToken();
+  return fetch(buildUrl(path), {
+    ...fetchOptions,
+    credentials: "include",
+    headers: {
+      "Content-Type": "application/json",
+      ...(headers ?? {}),
+      ...(token && !isAuthBootstrapPath(path) ? { Authorization: `Bearer ${token}` } : {})
+    }
+  });
+}
+
+function isAuthBootstrapPath(path) {
+  return path === "/api/auth/login" || path === "/api/auth/refresh";
 }

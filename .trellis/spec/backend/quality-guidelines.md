@@ -143,15 +143,16 @@ Configuration properties use `@ConfigurationProperties` with inner static classe
 @ConfigurationProperties(prefix = "app")
 public class AppProperties {
     private final Auth auth = new Auth();
-    private final Security security = new Security();
     private final Cors cors = new Cors();
     private final Excel excel = new Excel();
     private final Model model = new Model();
 
     public static class Auth {
-        private String accessKey = "";
-        private String sessionSecret = "";
-        private Duration sessionTtl = Duration.ofHours(8);
+        private Duration accessTokenTtl = Duration.ofMinutes(30);
+        private Duration refreshTokenTtl = Duration.ofDays(7);
+        private boolean cookieSecure;
+        private String cookieSameSite = "Lax";
+        private final Bootstrap bootstrap = new Bootstrap();
         // getters and setters
     }
     // ...
@@ -177,8 +178,8 @@ Application class enables scanning with:
 - Response record: `dto.response.DashboardSummary`
 - Service entry point: `DashboardService.getSummary(): DashboardSummary`
 - Security:
-  - `ApiKeyFilter` must whitelist `/api/dashboard` from the internal `X-API-Key` gate.
-  - `SessionTokenFilter` must protect `/api/dashboard` with the browser Bearer session token.
+  - `AuthSecurityConfiguration` requires the `DASHBOARD_READ` authority.
+  - `OpaqueTokenAuthenticationFilter` resolves current permissions from the database for every Bearer request.
 - Frontend API wrapper: `frontend/src/api/dashboard.js -> getDashboardSummary()` through `requestJson("/api/dashboard", ...)`.
 - OpenAPI path: `backend/src/main/resources/static/openapi.json -> /api/dashboard` with `BearerAuth`.
 
@@ -195,12 +196,12 @@ Application class enables scanning with:
   - `followUpTasks`
   - `campaignEffect`
 - Rate calculations must preserve comparable-denominator semantics: nullable targets are included in observed counts but excluded from rate denominators.
-- Frontend dashboard requests must use the shared API client and send the stored session token as `Authorization: Bearer <token>`.
+- Frontend dashboard requests must use the shared API client; it supplies the current opaque access token as `Authorization: Bearer <token>`.
 - Dashboard analysis buttons must reuse the existing chat submission path rather than creating a second analysis transport.
 
 #### 4. Validation & Error Matrix
-- Missing or invalid Bearer token -> `SessionTokenFilter` returns HTTP 401 with the existing session-expired JSON body.
-- Missing `X-API-Key` on `/api/dashboard` -> allowed through `ApiKeyFilter`; browser APIs do not require the internal key.
+- Missing or invalid Bearer token -> the Spring Security entry point returns the uniform JSON HTTP 401 body.
+- Valid identity without `DASHBOARD_READ` -> the access-denied handler returns the uniform JSON HTTP 403 body.
 - Repository rows from inactive batches -> excluded before counting, ranking, or calculating rates.
 - No active batch row exists -> `ImportBatchService` legacy fallback rules apply and legacy rows remain visible.
 - Malformed frontend response shape -> API wrapper normalizes to `null`/empty records so the view can render loading/empty/error states safely.
@@ -216,8 +217,7 @@ Application class enables scanning with:
 #### 6. Tests Required
 - `DashboardServiceTest`: assert active-batch filtering and comparable-rate calculations across all dashboard sections.
 - `DashboardControllerTest`: assert the `ApiResult` envelope and representative nested fields.
-- `ApiKeyFilterTest`: assert `/api/dashboard` bypasses internal API-key enforcement.
-- `SessionTokenFilterTest`: assert `/api/dashboard` requires a valid Bearer session token.
+- `AuthHttpIntegrationTest`: assert `/api/dashboard` requires a valid Bearer session and `DASHBOARD_READ`.
 - `frontend/src/api/__tests__/dashboard.spec.js`: assert `requestJson("/api/dashboard", ...)` and Bearer header usage.
 - `DashboardView.spec.js` and `ChatView.spec.js`: assert dashboard states, default workspace behavior, and analysis prompt handoff into chat.
 - Quality verification must include `npm run lint`, `npm test`, `npm run build`, `mvn "-Dfrontend.skip=true" pmd:check`, and `mvn "-Dfrontend.skip=true" test` when this contract changes.
@@ -315,15 +315,15 @@ public boolean hasConfiguredModelSettings(ChatRequest request) {
 }
 ```
 
-### Constant-Time Comparison for Secrets
+### Opaque Credential Persistence
 
-API keys and access keys are compared using `MessageDigest.isEqual()` to prevent timing attacks:
+Passwords use the adaptive delegating encoder. Opaque access/refresh tokens are looked up only by SHA-256 digest; raw values are returned or accepted at the transport boundary and never persisted:
 
 ```java
-// ApiKeyFilter.java:81-83
-return MessageDigest.isEqual(
-        configured.getBytes(StandardCharsets.UTF_8),
-        provided.getBytes(StandardCharsets.UTF_8));
+String hash = HexFormat.of().formatHex(
+        MessageDigest.getInstance("SHA-256").digest(rawToken.getBytes(StandardCharsets.UTF_8))
+);
+return sessionRepository.findByAccessTokenHash(hash);
 ```
 
 ### Static Method Factories for Response Objects
@@ -363,10 +363,11 @@ public static <T> ApiResult<T> error(int code, String message) { return new ApiR
 
 #### 3. Contracts
 
-- `ChatController` claims/verifies session ownership first, then creates `AgentRequestScope.authenticated(sessionId, tokenSubject)`; it must not pass token values into tool arguments or logs.
+- `ChatController` claims/verifies session ownership first, then creates `AgentRequestScope.authenticated(sessionId, stableUserId, principal.permissions())`; it must not pass token values into tool arguments or logs.
 - Only authenticated analytics, business-knowledge, or explicit report requests receive callbacks. Each model request gets a new `AgentExecutionContext`; all six callbacks share one request budget of four calls.
 - Register exactly the six names above. Legacy callbacks such as `searchDealers`, `queryOpportunities`, `queryTargets`, and `queryLeads` remain compatibility code and are not attached to `ChatService`.
 - The scope verifier requires a non-blank session and subject, `activeBatchOnly=true`, and current `SessionOwnershipService.owns(sessionId, subject)`.
+- Each callback additionally checks `AgentToolName.requiredPermission()`; `CHAT_USE` never implies data, knowledge, or report access.
 - The application facade calls `DashboardService`, `AnalyticsApiService`, `RuleBasedAnalyticsService`, or the public `KnowledgeService`; it never accepts SQL, repository/bean names, arbitrary dataset names, import batch IDs, vector-store objects, or resource paths, and never accesses a repository directly.
 - Metric/dataset values, filter keys, detail sort fields, sort direction, page, page size, scenario question length, and language are allowlisted or bounded before delegation.
 - Existing application services remain responsible for active-import-batch filtering. Agent code cannot select a batch.
@@ -378,7 +379,7 @@ public static <T> ApiResult<T> error(int code, String message) { return new ApiR
 
 #### 4. Validation & Error Matrix
 
-- Unauthenticated scope passed through a compatibility overload -> no Agent callbacks are attached.
+- Missing or unauthenticated `AgentRequestScope` -> `AccessDeniedException`; `ChatService` exposes no overload that omits authorization context.
 - Scope no longer owns the session or `activeBatchOnly=false` -> tool call rejected before delegation; analytics request falls back to the deterministic report.
 - Unknown tool name -> callback indexing/policy rejects it; it is never published.
 - Unsupported metric/dataset/filter/sort/language or malformed integer -> `IllegalArgumentException`; no application query runs.
@@ -741,7 +742,7 @@ if (extracted.isPresent() && !isKnownDealer(extracted.get())) {
 
 - **Setters on entities**. Entities are immutable after construction. No setters are present in any entity.
 
-- **Logging secrets or API keys**. Use `MessageDigest.isEqual()` for comparison but never log keys, tokens, or authentication material.
+- **Logging secrets or authentication material**. Never log passwords, access/refresh tokens, model API keys, or partial credential values.
 
 - **Ambiguous keyword detection without priority ordering**. The `AnalyticsTopicClassifier.detect()` chain must order checks so specific combinations win over generic keywords. Example: "来源" alone is ambiguous (could be LEAD_SOURCE or OPPORTUNITY). When the message also contains "商机", the OPPORTUNITY check must execute before LEAD_SOURCE. Never add a high-priority keyword to a routing branch without verifying it doesn't overshadow more specific combinations earlier in the chain.
 
@@ -749,7 +750,7 @@ if (extracted.isPresent() && !isKnownDealer(extracted.get())) {
 
 - **Skipping the `fallback` parameter in `buildEnrichedReply`** when rendering analytics reports. If `fallback` is non-blank, it must be appended to the response body (see Low-Confidence Analytics Reports scenario above).
 
-- **String concatenation for SQL/JPA queries**. Use Spring Data method derivation (`findBy...IgnoreCase`, `findBy...Between`). No `@Query` with JPQL has been needed in this project.
+- **String concatenation for SQL/JPA queries**. Use Spring Data method derivation or parameterized `@Query`; lock-sensitive auth queries must declare the required `@Lock` mode.
 
 ---
 
@@ -771,8 +772,8 @@ Examples:
 | Main Class | Test Class |
 |---|---|
 | `service/ChatService.java` | `service/ChatServiceTest.java` |
-| `config/ApiKeyFilter.java` | `config/ApiKeyFilterTest.java` |
-| `controller/AuthController.java` | `controller/AuthControllerTest.java` |
+| `auth/infrastructure/AuthBootstrap.java` | `auth/infrastructure/AuthBootstrapTest.java` |
+| `auth/controller/AuthController.java` | `auth/AuthHttpIntegrationTest.java` |
 | `dto/response/ApiResult.java` | `dto/response/ApiResultTest.java` |
 
 ### Test Patterns
@@ -807,17 +808,17 @@ class ChatServiceTest {
 }
 ```
 
-**Filter tests with Spring Mock classes**:
+**Security error tests with Spring Mock classes**:
 
 ```java
-// ApiKeyFilterTest.java
-class ApiKeyFilterTest {
+// SecurityErrorHandlersTest.java
+class SecurityErrorHandlersTest {
     @Test
-    void rejectsProtectedRequestsWithoutTheInternalApiKey() throws Exception {
-        MockHttpServletResponse response = doFilter("POST", "/api/v1/data/dealers", null, appProperties("configured-api-key"));
+    void writesTheUniformUnauthorizedBody() throws Exception {
+        MockHttpServletResponse response = new MockHttpServletResponse();
+        entryPoint.commence(new MockHttpServletRequest(), response, new BadCredentialsException("invalid"));
         assertThat(response.getStatus()).isEqualTo(HttpServletResponse.SC_UNAUTHORIZED);
-        assertThat(response.getHeader("WWW-Authenticate")).isEqualTo("Bearer");
-        assertThat(response.getContentAsString()).isEqualTo("{\"code\":401,\"message\":\"Invalid API key\"}");
+        assertThat(response.getContentAsString()).contains("\"code\":401");
     }
 }
 ```
@@ -924,7 +925,7 @@ Start-Process -FilePath "mvn.cmd" -ArgumentList @("-Dfrontend.skip=true", "sprin
 - Every persisted draft records `reportType`, `language`, `markdown`, `generatedAt`, `importBatchId`, `scope`, `model`, and `promptVersion`.
 - Generation reads `DashboardService.getSummary()` and the active batch only. It must not infer unavailable trends, causes, organization scopes, or historical facts.
 - The controller returns the standard `ApiResult` envelope for JSON endpoints. The OpenAPI response schema must describe that envelope, not a bare draft or array.
-- `/api/reports/**` bypasses the internal `X-API-Key` filter but remains protected by the browser Bearer session filter.
+- `/api/reports/**` requires `REPORT_READ` for GET and `REPORT_GENERATE` for POST through `AuthSecurityConfiguration`.
 - Sync and SSE chat may call the reporting port directly only for an explicit report request with an authenticated, `activeBatchOnly=true` `AgentRequestScope`; both return the same recorded Markdown draft.
 - Markdown is the only export in P1-5. PDF/Word export, subscriptions, organization scope, and tenant history are outside this contract.
 
@@ -935,7 +936,7 @@ Start-Process -FilePath "mvn.cmd" -ArgumentList @("-Dfrontend.skip=true", "sprin
 - `topic` report with blank topic, or topic longer than 500 characters -> HTTP 400; do not save a draft.
 - Non-`GLOBAL` scope or non-blank `scopeId` -> HTTP 400; do not read or save data.
 - Missing draft ID -> HTTP 400. Unknown draft ID -> HTTP 404.
-- Missing/invalid Bearer session on `/api/reports/**` -> HTTP 401 from `SessionTokenFilter`.
+- Missing/invalid Bearer session on `/api/reports/**` -> uniform JSON HTTP 401; missing report authority -> uniform JSON HTTP 403.
 - Authenticated chat scope with `activeBatchOnly=false` -> do not generate a report draft through the direct sync/SSE path.
 - Production database or migration failure -> fail production startup/operation; never silently replace the JDBC store with memory.
 
@@ -953,7 +954,7 @@ Start-Process -FilePath "mvn.cmd" -ArgumentList @("-Dfrontend.skip=true", "sprin
 - `ReportMarkdownRendererTest`: supported type aliases and deterministic rendering helpers.
 - `JdbcReportDraftStoreTest`: round-trip every persisted metadata field and preserve generated timestamps.
 - `ReportControllerTest`: `ApiResult` JSON envelope, validation/not-found mapping, UTF-8 Markdown body, and attachment filename.
-- `ChatServiceTest`: authenticated sync/SSE report routing uses the same reporting port and bypasses model/rule analytics; unauthenticated compatibility calls must not create drafts.
+- `ChatServiceTest`: authenticated sync/SSE report routing uses the same reporting port and bypasses model/rule analytics; unauthenticated scopes are rejected before draft creation.
 - Agent policy/callback tests: exact six-tool allowlist, shared four-call budget, and scope denial before delegate execution.
 - Final gates: UTF-8 JSON parse of `static/openapi.json`, `mvn "-Dfrontend.skip=true" pmd:check`, and `mvn "-Dfrontend.skip=true" test`.
 

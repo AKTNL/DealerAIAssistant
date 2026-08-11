@@ -19,6 +19,7 @@ describe("chat API", () => {
     await clearSession("session-1");
 
     expect(fetchMock).toHaveBeenCalledWith("/api/chat/session-1", {
+      credentials: "include",
       headers: {
         "Content-Type": "application/json",
         Authorization: "Bearer signed-token"
@@ -47,6 +48,7 @@ describe("chat API", () => {
     });
 
     expect(fetchMock).toHaveBeenCalledWith("/api/chat/stream", {
+      credentials: "include",
       body: expect.any(String),
       headers: {
         "Content-Type": "application/json",
@@ -69,8 +71,9 @@ describe("chat API", () => {
     window.sessionStorage.setItem(
       "agentpoc.authVerified",
       JSON.stringify({
-        sessionToken: "signed-token",
-        expiresAt: "2999-01-01T00:00:00.000Z"
+        accessToken: "signed-token",
+        accessExpiresAt: "2999-01-01T00:00:00.000Z",
+        user: { id: 1 }
       })
     );
   }

@@ -8,7 +8,6 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 public class AppProperties {
 
     private final Auth auth = new Auth();
-    private final Security security = new Security();
     private final Cors cors = new Cors();
     private final Excel excel = new Excel();
     private final Model model = new Model();
@@ -16,10 +15,6 @@ public class AppProperties {
 
     public Auth getAuth() {
         return auth;
-    }
-
-    public Security getSecurity() {
-        return security;
     }
 
     public Cors getCors() {
@@ -39,44 +34,85 @@ public class AppProperties {
     }
 
     public static class Auth {
-        private String accessKey = "";
-        private String sessionSecret = "";
-        private Duration sessionTtl = Duration.ofHours(8);
+        private Duration accessTokenTtl = Duration.ofMinutes(30);
+        private Duration refreshTokenTtl = Duration.ofDays(7);
+        private boolean cookieSecure;
+        private String cookieSameSite = "Lax";
+        private final Bootstrap bootstrap = new Bootstrap();
 
-        public String getAccessKey() {
-            return accessKey;
+        public Duration getAccessTokenTtl() {
+            return accessTokenTtl;
         }
 
-        public void setAccessKey(String accessKey) {
-            this.accessKey = accessKey;
+        public void setAccessTokenTtl(Duration accessTokenTtl) {
+            this.accessTokenTtl = accessTokenTtl;
         }
 
-        public String getSessionSecret() {
-            return sessionSecret;
+        public Duration getRefreshTokenTtl() {
+            return refreshTokenTtl;
         }
 
-        public void setSessionSecret(String sessionSecret) {
-            this.sessionSecret = sessionSecret;
+        public void setRefreshTokenTtl(Duration refreshTokenTtl) {
+            this.refreshTokenTtl = refreshTokenTtl;
         }
 
-        public Duration getSessionTtl() {
-            return sessionTtl;
+        public boolean isCookieSecure() {
+            return cookieSecure;
         }
 
-        public void setSessionTtl(Duration sessionTtl) {
-            this.sessionTtl = sessionTtl;
-        }
-    }
-
-    public static class Security {
-        private String apiKey = "";
-
-        public String getApiKey() {
-            return apiKey;
+        public void setCookieSecure(boolean cookieSecure) {
+            this.cookieSecure = cookieSecure;
         }
 
-        public void setApiKey(String apiKey) {
-            this.apiKey = apiKey;
+        public String getCookieSameSite() {
+            return cookieSameSite;
+        }
+
+        public void setCookieSameSite(String cookieSameSite) {
+            this.cookieSameSite = cookieSameSite == null ? "" : cookieSameSite.trim();
+        }
+
+        public Bootstrap getBootstrap() {
+            return bootstrap;
+        }
+
+        public static class Bootstrap {
+            private boolean required;
+            private String username = "";
+            private String password = "";
+            private String displayName = "System Administrator";
+
+            public boolean isRequired() {
+                return required;
+            }
+
+            public void setRequired(boolean required) {
+                this.required = required;
+            }
+
+            public String getUsername() {
+                return username;
+            }
+
+            public void setUsername(String username) {
+                this.username = username == null ? "" : username.trim();
+            }
+
+            public String getPassword() {
+                return password;
+            }
+
+            public void setPassword(String password) {
+                this.password = password == null ? "" : password;
+            }
+
+            public String getDisplayName() {
+                return displayName;
+            }
+
+            public void setDisplayName(String displayName) {
+                this.displayName = displayName == null ? "" : displayName.trim();
+            }
         }
     }
 

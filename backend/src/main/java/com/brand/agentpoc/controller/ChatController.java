@@ -1,18 +1,18 @@
 package com.brand.agentpoc.controller;
 
 import com.brand.agentpoc.agent.domain.AgentRequestScope;
+import com.brand.agentpoc.auth.domain.AuthPrincipal;
 import com.brand.agentpoc.dto.request.ChatRequest;
 import com.brand.agentpoc.dto.response.ChatResponse;
 import com.brand.agentpoc.dto.response.SimpleSuccessResponse;
-import com.brand.agentpoc.config.SessionTokenFilter;
 import com.brand.agentpoc.service.ChatService;
 import com.brand.agentpoc.service.SessionMemoryService;
 import com.brand.agentpoc.service.SessionOwnershipService;
-import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -42,28 +42,34 @@ public class ChatController {
     @PostMapping
     public ResponseEntity<ChatResponse> chat(
             @Valid @RequestBody ChatRequest request,
-            HttpServletRequest servletRequest
+            Authentication authentication
     ) {
-        String tokenSubject = tokenSubject(servletRequest);
+        AuthPrincipal principal = principal(authentication);
+        String tokenSubject = principal.stableSubject();
         if (!sessionOwnershipService.claimOrVerify(request.sessionId(), tokenSubject)) {
             return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
         }
 
-        AgentRequestScope agentScope = AgentRequestScope.authenticated(request.sessionId(), tokenSubject);
+        AgentRequestScope agentScope = AgentRequestScope.authenticated(
+                request.sessionId(), tokenSubject, principal.permissions());
+        chatService.authorizeRequest(request, agentScope);
         return ResponseEntity.ok(new ChatResponse(chatService.chat(request, agentScope)));
     }
 
     @PostMapping(path = "/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     public ResponseEntity<StreamingResponseBody> stream(
             @Valid @RequestBody ChatRequest request,
-            HttpServletRequest servletRequest
+            Authentication authentication
     ) {
-        String tokenSubject = tokenSubject(servletRequest);
+        AuthPrincipal principal = principal(authentication);
+        String tokenSubject = principal.stableSubject();
         if (!sessionOwnershipService.claimOrVerify(request.sessionId(), tokenSubject)) {
             return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
         }
 
-        AgentRequestScope agentScope = AgentRequestScope.authenticated(request.sessionId(), tokenSubject);
+        AgentRequestScope agentScope = AgentRequestScope.authenticated(
+                request.sessionId(), tokenSubject, principal.permissions());
+        chatService.authorizeRequest(request, agentScope);
         StreamingResponseBody responseBody = outputStream -> chatService.streamChat(request, outputStream, agentScope);
         return ResponseEntity.ok()
                 .contentType(MediaType.TEXT_EVENT_STREAM)
@@ -73,9 +79,10 @@ public class ChatController {
     @DeleteMapping("/{sessionId}")
     public ResponseEntity<SimpleSuccessResponse> clearSession(
             @PathVariable String sessionId,
-            HttpServletRequest servletRequest
+            Authentication authentication
     ) {
-        String tokenSubject = tokenSubject(servletRequest);
+        AuthPrincipal principal = principal(authentication);
+        String tokenSubject = principal.stableSubject();
         if (!sessionOwnershipService.owns(sessionId, tokenSubject)) {
             return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
         }
@@ -85,9 +92,9 @@ public class ChatController {
         return ResponseEntity.ok(new SimpleSuccessResponse(true));
     }
 
-    private String tokenSubject(HttpServletRequest request) {
-        Object tokenSubject = request.getAttribute(SessionTokenFilter.TOKEN_SUBJECT_ATTRIBUTE);
-        return tokenSubject instanceof String value ? value : "";
+    private AuthPrincipal principal(Authentication authentication) {
+        return (AuthPrincipal) authentication.getPrincipal();
     }
+
 }
 

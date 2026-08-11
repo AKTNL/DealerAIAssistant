@@ -2,6 +2,7 @@ package com.brand.agentpoc.service;
 
 import com.brand.agentpoc.agent.ChatReplyGuard;
 import com.brand.agentpoc.agent.domain.AgentRequestScope;
+import com.brand.agentpoc.auth.domain.PermissionKey;
 import com.brand.agentpoc.agent.infrastructure.ControlledAgentToolCallbacks;
 import com.brand.agentpoc.agent.infrastructure.ControlledAgentToolSession;
 import com.brand.agentpoc.ai.LanguageDetector;
@@ -168,10 +169,6 @@ public class ChatService {
         );
     }
 
-    public String chat(ChatRequest request) {
-        return chat(request, AgentRequestScope.unauthenticated(request.sessionId()));
-    }
-
     public String chat(ChatRequest request, AgentRequestScope agentScope) {
         GeneratedReply generatedReply = generateReply(request, agentScope);
         sessionMemoryService.addUserMessage(request.sessionId(), request.message());
@@ -179,8 +176,14 @@ public class ChatService {
         return generatedReply.reply();
     }
 
-    public void streamChat(ChatRequest request, OutputStream outputStream) throws IOException {
-        streamChat(request, outputStream, AgentRequestScope.unauthenticated(request.sessionId()));
+    public void authorizeRequest(ChatRequest request, AgentRequestScope agentScope) {
+        boolean knowledgeRequested = looksLikeKnowledgeRequest(request.message());
+        requireGroundedRoutePermissions(
+                agentScope,
+                isAnalyticsRoute(request.message(), knowledgeRequested),
+                knowledgeRequested,
+                looksLikeReportRequest(request.message())
+        );
     }
 
     public void streamChat(
@@ -192,6 +195,7 @@ public class ChatService {
         boolean reportRequested = looksLikeReportRequest(request.message());
         boolean knowledgeRequested = looksLikeKnowledgeRequest(request.message());
         boolean analyticsRequested = isAnalyticsRoute(request.message(), knowledgeRequested);
+        requireGroundedRoutePermissions(agentScope, analyticsRequested, knowledgeRequested, reportRequested);
         boolean groundedRequested = analyticsRequested || knowledgeRequested;
         String directReply = buildDirectCasualReply(request.message(), language, groundedRequested);
         if (directReply == null) {
@@ -627,6 +631,7 @@ public class ChatService {
         boolean reportRequested = looksLikeReportRequest(request.message());
         boolean knowledgeRequested = looksLikeKnowledgeRequest(request.message());
         boolean analyticsRequested = isAnalyticsRoute(request.message(), knowledgeRequested);
+        requireGroundedRoutePermissions(agentScope, analyticsRequested, knowledgeRequested, reportRequested);
         return generateReply(request, language, analyticsRequested, knowledgeRequested, reportRequested, agentScope);
     }
 
@@ -1419,7 +1424,28 @@ public class ChatService {
         return reportService != null
                 && agentScope != null
                 && agentScope.authenticated()
-                && agentScope.activeBatchOnly();
+                && agentScope.activeBatchOnly()
+                && agentScope.hasPermission(PermissionKey.REPORT_GENERATE);
+    }
+
+    private void requireGroundedRoutePermissions(
+            AgentRequestScope scope,
+            boolean analyticsRequested,
+            boolean knowledgeRequested,
+            boolean reportRequested
+    ) {
+        if (scope == null || !scope.authenticated()) {
+            throw new org.springframework.security.access.AccessDeniedException("Authenticated chat scope is required.");
+        }
+        if (reportRequested && !scope.hasPermission(PermissionKey.REPORT_GENERATE)) {
+            throw new org.springframework.security.access.AccessDeniedException("Report generation is not allowed.");
+        }
+        if (!reportRequested && analyticsRequested && !scope.hasPermission(PermissionKey.DATA_READ)) {
+            throw new org.springframework.security.access.AccessDeniedException("Data analysis is not allowed.");
+        }
+        if (knowledgeRequested && !scope.hasPermission(PermissionKey.KNOWLEDGE_QUERY)) {
+            throw new org.springframework.security.access.AccessDeniedException("Knowledge query is not allowed.");
+        }
     }
 
     private ReportDraft generateReportDraft(String message, String language) {

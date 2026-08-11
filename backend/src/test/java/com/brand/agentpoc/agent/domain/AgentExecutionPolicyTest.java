@@ -3,6 +3,8 @@ package com.brand.agentpoc.agent.domain;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import com.brand.agentpoc.auth.domain.PermissionKey;
+import java.util.EnumSet;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 
@@ -43,7 +45,11 @@ class AgentExecutionPolicyTest {
     @Test
     void executionContextStopsTheFifthToolCallAndKeepsSafeTraceReasons() {
         AgentExecutionContext context = new AgentExecutionContext(
-                AgentRequestScope.authenticated("session-1", "subject-1"),
+                AgentRequestScope.authenticated(
+                        "session-1",
+                        "subject-1",
+                        EnumSet.allOf(PermissionKey.class)
+                ),
                 AgentExecutionPolicy.defaultPolicy(),
                 "trace-1"
         );

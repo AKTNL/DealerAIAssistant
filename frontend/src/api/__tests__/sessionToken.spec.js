@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   clearAuthSession,
   getAuthToken,
+  getStoredUser,
   isAuthSessionValid,
   readAuthSession,
   writeAuthSession
@@ -13,49 +14,43 @@ describe("sessionToken", () => {
     vi.useRealTimers();
   });
 
-  it("stores and reads auth session tokens from sessionStorage", () => {
-    const expiresAt = new Date(Date.now() + 60 * 60 * 1000).toISOString();
+  it("stores the short-lived access token and normalized current user", () => {
+    const accessExpiresAt = new Date(Date.now() + 60 * 60 * 1000).toISOString();
+    const user = {
+      id: 7,
+      username: "analyst",
+      displayName: "Analyst",
+      enabled: true,
+      mustChangePassword: false,
+      roles: ["ANALYST"],
+      permissions: ["CHAT_USE"]
+    };
+    writeAuthSession({ accessToken: "opaque-token", accessExpiresAt, user });
 
-    writeAuthSession({
-      sessionToken: "signed-token",
-      expiresAt
-    });
-
-    expect(readAuthSession()).toEqual({
-      sessionToken: "signed-token",
-      expiresAt
-    });
-    expect(getAuthToken()).toBe("signed-token");
+    expect(readAuthSession()).toEqual({ accessToken: "opaque-token", accessExpiresAt, user });
+    expect(getAuthToken()).toBe("opaque-token");
+    expect(getStoredUser()).toEqual(user);
   });
 
   it("treats expired sessions as invalid", () => {
-    vi.useFakeTimers();
-    vi.setSystemTime(new Date("2026-05-21T17:00:00.000Z"));
-
     writeAuthSession({
-      sessionToken: "signed-token",
-      expiresAt: "2026-05-21T16:00:00.000Z"
+      accessToken: "opaque-token",
+      accessExpiresAt: "2000-01-01T00:00:00.000Z",
+      user: { id: 7 }
     });
-
     expect(isAuthSessionValid()).toBe(false);
     expect(getAuthToken()).toBe("");
   });
 
-  it("clears malformed stored sessions", () => {
+  it("clears malformed and explicitly cleared sessions", () => {
     window.sessionStorage.setItem("agentpoc.authVerified", "{bad-json");
-
     expect(readAuthSession()).toBeNull();
-    expect(window.sessionStorage.getItem("agentpoc.authVerified")).toBeNull();
-  });
-
-  it("clears auth sessions", () => {
     writeAuthSession({
-      sessionToken: "signed-token",
-      expiresAt: new Date(Date.now() + 60 * 60 * 1000).toISOString()
+      accessToken: "opaque-token",
+      accessExpiresAt: new Date(Date.now() + 10000).toISOString(),
+      user: { id: 7 }
     });
-
     clearAuthSession();
-
     expect(readAuthSession()).toBeNull();
   });
 });

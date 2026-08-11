@@ -11,6 +11,8 @@ import com.brand.agentpoc.agent.application.AgentScopeVerifier;
 import com.brand.agentpoc.agent.application.AgentToolResult;
 import com.brand.agentpoc.agent.application.ControlledAgentToolService;
 import com.brand.agentpoc.agent.domain.AgentRequestScope;
+import com.brand.agentpoc.auth.domain.PermissionKey;
+import java.util.EnumSet;
 import java.util.Map;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -31,7 +33,11 @@ class ControlledAgentToolCallbacksTest {
                 new ControlledAgentToolAdapter(toolService),
                 scopeVerifier
         );
-        scope = AgentRequestScope.authenticated("session-1", "subject-1");
+        scope = AgentRequestScope.authenticated(
+                "session-1",
+                "subject-1",
+                EnumSet.allOf(PermissionKey.class)
+        );
     }
 
     @Test

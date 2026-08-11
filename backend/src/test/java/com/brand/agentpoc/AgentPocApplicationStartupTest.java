@@ -3,6 +3,9 @@ package com.brand.agentpoc;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
 
+import com.brand.agentpoc.auth.infrastructure.persistence.AuthAuditEventRepository;
+import com.brand.agentpoc.auth.infrastructure.persistence.AuthUserEntity;
+import com.brand.agentpoc.auth.infrastructure.persistence.AuthUserRepository;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -19,6 +22,9 @@ import org.springframework.boot.SpringApplication;
 import org.springframework.boot.WebApplicationType;
 import org.springframework.context.ConfigurableApplicationContext;
 import org.springframework.core.io.ClassPathResource;
+import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.security.provisioning.InMemoryUserDetailsManager;
+import org.springframework.security.web.SecurityFilterChain;
 
 class AgentPocApplicationStartupTest {
 
@@ -47,9 +53,69 @@ class AgentPocApplicationStartupTest {
         Properties properties = factory.getObject();
 
         assertThat(properties).isNotNull();
-        assertThat(properties.getProperty("app.auth.access-key")).isEqualTo("${APP_ACCESS_KEY:}");
-        assertThat(properties.getProperty("app.auth.session-secret")).isEqualTo("${APP_SESSION_SECRET:}");
-        assertThat(properties.getProperty("app.security.api-key")).isEqualTo("${APP_API_KEY:}");
+        assertThat(properties).doesNotContainKeys(
+                "app.auth.access-key",
+                "app.auth.session-secret",
+                "app.auth.session-ttl",
+                "app.security.api-key"
+        );
+        assertThat(properties.getProperty("app.auth.access-token-ttl"))
+                .isEqualTo("${APP_AUTH_ACCESS_TOKEN_TTL:30m}");
+        assertThat(properties.getProperty("app.auth.refresh-token-ttl"))
+                .isEqualTo("${APP_AUTH_REFRESH_TOKEN_TTL:7d}");
+        assertThat(properties.getProperty("app.auth.bootstrap.username"))
+                .isEqualTo("${APP_AUTH_BOOTSTRAP_USERNAME:}");
+        assertThat(properties.getProperty("app.auth.bootstrap.password"))
+                .isEqualTo("${APP_AUTH_BOOTSTRAP_PASSWORD:}");
+    }
+
+    @Test
+    void persistsTheInitialAdministratorWithRolesAndAudit() {
+        SpringApplication application = new SpringApplication(AgentPocApplication.class);
+        application.setWebApplicationType(WebApplicationType.NONE);
+
+        try (ConfigurableApplicationContext context = application.run(
+                "--spring.datasource.url=jdbc:h2:mem:bootstrap-integration;MODE=MySQL;DB_CLOSE_DELAY=-1",
+                "--spring.datasource.driver-class-name=org.h2.Driver",
+                "--spring.datasource.username=sa",
+                "--spring.datasource.password=",
+                "--app.excel.path=classpath:missing-for-auth-bootstrap.xlsx",
+                "--app.auth.bootstrap.username=Initial.Admin",
+                "--app.auth.bootstrap.password=temporary-password",
+                "--app.auth.bootstrap.display-name=Initial Administrator"
+        )) {
+            AuthUserRepository users = context.getBean(AuthUserRepository.class);
+            AuthAuditEventRepository auditEvents = context.getBean(AuthAuditEventRepository.class);
+            PasswordEncoder passwordEncoder = context.getBean(PasswordEncoder.class);
+
+            AuthUserEntity administrator = users.findByUsernameIgnoreCase("initial.admin").getFirst();
+            assertThat(administrator.getDisplayName()).isEqualTo("Initial Administrator");
+            assertThat(administrator.getMustChangePassword()).isTrue();
+            assertThat(administrator.getRoles())
+                    .extracting(role -> role.getRoleKey())
+                    .containsExactly("ADMIN");
+            assertThat(passwordEncoder.matches("temporary-password", administrator.getPasswordHash())).isTrue();
+            assertThat(administrator.getPasswordHash()).doesNotContain("temporary-password");
+            assertThat(auditEvents.count()).isEqualTo(1);
+        }
+    }
+
+    @Test
+    void servletApplicationCreatesTheSecurityFilterChain() {
+        SpringApplication application = new SpringApplication(AgentPocApplication.class);
+        application.setWebApplicationType(WebApplicationType.SERVLET);
+
+        try (ConfigurableApplicationContext context = application.run(
+                "--server.port=0",
+                "--spring.datasource.url=jdbc:h2:mem:servlet-security;MODE=MySQL;DB_CLOSE_DELAY=-1",
+                "--spring.datasource.driver-class-name=org.h2.Driver",
+                "--spring.datasource.username=sa",
+                "--spring.datasource.password=",
+                "--app.excel.path=classpath:missing-for-servlet-security.xlsx"
+        )) {
+            assertThat(context.getBean(SecurityFilterChain.class)).isNotNull();
+            assertThat(context.getBeansOfType(InMemoryUserDetailsManager.class)).isEmpty();
+        }
     }
 
     @Test
@@ -68,6 +134,10 @@ class AgentPocApplicationStartupTest {
         assertThat(properties.getProperty("spring.flyway.locations"))
                 .isEqualTo("classpath:db/migration,classpath:db/postgresql");
         assertThat(properties.getProperty("spring.flyway.clean-disabled")).isEqualTo("true");
+        assertThat(properties.getProperty("app.auth.cookie-secure"))
+                .isEqualTo("${APP_AUTH_COOKIE_SECURE:true}");
+        assertThat(properties.getProperty("app.auth.bootstrap.required"))
+                .isEqualTo("${APP_AUTH_BOOTSTRAP_REQUIRED:true}");
         assertThat(properties.getProperty("app.knowledge.vector-store"))
                 .isEqualTo("${APP_KNOWLEDGE_VECTOR_STORE:pgvector}");
     }
@@ -164,6 +234,81 @@ class AgentPocApplicationStartupTest {
     }
 
     @Test
+    void authMigrationCreatesIdentitySessionAndAuditSchema() throws Exception {
+        String url = "jdbc:h2:mem:auth-migration-test;MODE=PostgreSQL;DB_CLOSE_DELAY=-1";
+        Flyway.configure()
+                .dataSource(url, "sa", "")
+                .locations("classpath:db/migration")
+                .load()
+                .migrate();
+
+        try (Connection connection = DriverManager.getConnection(url, "sa", "");
+                Statement statement = connection.createStatement()) {
+            statement.executeUpdate("""
+                    INSERT INTO auth_roles (
+                        id, role_key, display_name, built_in, created_at, updated_at, version
+                    ) VALUES (
+                        10, 'ADMIN', 'Administrator', TRUE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, 0
+                    )
+                    """);
+            statement.executeUpdate("""
+                    INSERT INTO auth_role_permissions (role_id, permission_key)
+                    VALUES (10, 'USER_MANAGE')
+                    """);
+            statement.executeUpdate("""
+                    INSERT INTO auth_users (
+                        id, username, display_name, password_hash, enabled,
+                        must_change_password, created_at, updated_at, version
+                    ) VALUES (
+                        20, 'initial.admin', 'Initial Administrator', '{bcrypt}hash', TRUE,
+                        TRUE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, 0
+                    )
+                    """);
+            statement.executeUpdate("INSERT INTO auth_user_roles (user_id, role_id) VALUES (20, 10)");
+            statement.executeUpdate("""
+                    INSERT INTO auth_sessions (
+                        family_key, user_id, access_token_hash, refresh_token_hash, issued_at,
+                        access_expires_at, refresh_expires_at, version
+                    ) VALUES (
+                        'family-1', 20,
+                        'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+                        'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
+                        CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, 0
+                    )
+                    """);
+            statement.executeUpdate("""
+                    INSERT INTO auth_audit_events (
+                        actor_user_id, action, target_type, target_id, outcome,
+                        trace_id, detail_code, created_at
+                    ) VALUES (
+                        20, 'USER_BOOTSTRAP', 'USER', '20', 'SUCCESS',
+                        'startup', 'initial_administrator_created', CURRENT_TIMESTAMP
+                    )
+                    """);
+
+            try (ResultSet rows = statement.executeQuery("""
+                    SELECT COUNT(*)
+                    FROM auth_users u
+                    JOIN auth_user_roles ur ON ur.user_id = u.id
+                    JOIN auth_roles r ON r.id = ur.role_id
+                    JOIN auth_role_permissions rp ON rp.role_id = r.id
+                    WHERE u.username = 'initial.admin' AND rp.permission_key = 'USER_MANAGE'
+                    """)) {
+                assertThat(rows.next()).isTrue();
+                assertThat(rows.getInt(1)).isEqualTo(1);
+            }
+            try (ResultSet sessions = statement.executeQuery("SELECT COUNT(*) FROM auth_sessions")) {
+                assertThat(sessions.next()).isTrue();
+                assertThat(sessions.getInt(1)).isEqualTo(1);
+            }
+            try (ResultSet audits = statement.executeQuery("SELECT COUNT(*) FROM auth_audit_events")) {
+                assertThat(audits.next()).isTrue();
+                assertThat(audits.getInt(1)).isEqualTo(1);
+            }
+        }
+    }
+
+    @Test
     void flywaySchemaPassesHibernateValidation() {
         SpringApplication application = new SpringApplication(AgentPocApplication.class);
         application.setWebApplicationType(WebApplicationType.NONE);
@@ -187,4 +332,5 @@ class AgentPocApplicationStartupTest {
 
         assertThat(readme).doesNotContain("demo123", "poc-api-key", "从访问密钥派生");
     }
+
 }

@@ -6,7 +6,7 @@
 
 ## Overview
 
-The frontend is a Vue 3 SPA built with Vite. No router library is used -- the app toggles between `LoginView` and `ChatView` via a reactive `authVerified` flag in `App.vue`. The codebase uses JavaScript (not TypeScript).
+The frontend is a Vue 3 SPA built with Vite. No router library is used -- `App.vue` selects `LoginView`, `PasswordChangeView`, or `ChatView` from `useAuth` state. The codebase uses JavaScript (not TypeScript).
 
 Entry point: `frontend/index.html` loads `frontend/src/main.js`, which creates and mounts the Vue app.
 
@@ -26,6 +26,7 @@ frontend/
     ├── views/                          # Page-level (top-level) components
     │   ├── ChatView.vue                # Main chat workspace (orchestrator)
     │   ├── LoginView.vue               # Authentication/login screen
+    │   ├── PasswordChangeView.vue      # Forced temporary-password change screen
     │   └── __tests__/                  # Co-located view tests
     │       ├── ChatView.spec.js
     │       └── LoginView.spec.js
@@ -55,7 +56,7 @@ frontend/
     │       ├── ModelSettingsPanel.spec.js
     │       └── WorkspaceChrome.spec.js
     ├── composables/                    # Vue 3 composables (stateful logic)
-    │   ├── useAuth.js                  # Login / logout / session verification
+    │   ├── useAuth.js                  # Login / refresh / forced password change / logout state
     │   ├── useChat.js                  # Chat orchestration (streaming, messages, scroll)
     │   ├── useI18nState.js             # Locale toggle + dictionary lookup
     │   ├── useModelSettings.js         # Model config CRUD (localStorage-backed)
@@ -68,10 +69,10 @@ frontend/
     │       └── useSseParser.spec.js
     ├── api/                            # API client layer (fetch wrappers)
     │   ├── client.js                   # Base: ApiError, buildUrl, requestJson
-    │   ├── auth.js                     # POST /api/auth/verify
+    │   ├── auth.js                     # Login, refresh, me, password, and logout APIs
     │   ├── chat.js                     # DELETE /api/chat/:id, POST /api/chat/stream
     │   ├── modelConfig.js              # POST /api/model-config/test
-    │   ├── sessionToken.js             # Auth session storage (sessionStorage)
+    │   ├── sessionToken.js             # Short-lived access session storage (sessionStorage)
     │   └── __tests__/                  # Co-located API tests
     │       ├── chat.spec.js
     │       ├── client.spec.js

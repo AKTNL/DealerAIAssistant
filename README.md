@@ -4,7 +4,7 @@
 
 ## 当前交付状态
 
-截至 2026-08-10，P0 MVP 与《[生产化升级路线图](docs/07-生产化升级路线图.md)》定义的 P1 首版范围已完成：
+截至 2026-08-11，P0 MVP、P1 首版与 P2-1A 身份/RBAC/会话基础已完成：
 
 | 阶段 | 状态 | 已交付范围 |
 | --- | --- | --- |
@@ -13,8 +13,9 @@
 | P1-3 受控 Agent | 已完成 | 白名单只读工具、scope/预算/trace 约束、同步与 SSE fallback |
 | P1-4 RAG 知识库 | 已完成 | 受控 Markdown 知识、带引用检索、内存与 PGvector adapters |
 | P1-5 自动报告 | 已完成 | 确定性 Markdown 报告草稿、HTTP/Agent 入口、内存与 JDBC 记录 |
+| P2-1A 身份、RBAC 与会话 | 已完成 | 数据库用户、可配置角色、opaque access/refresh、管理 API、安全审计、统一业务授权 |
 
-这里的“已完成”指 P1 首版代码、回归和文档范围。真实 PostgreSQL 凭据环境仍需部署时手工验收；完整组织权限、多租户、报告 PDF/Word 导出、任意文档上传与知识隔离属于 P2 或后续增强。
+这里的“已完成”指相应代码、回归和文档范围。真实 PostgreSQL 凭据环境仍需部署时手工验收；组织树/数据范围、权限管理图形界面、多租户、报告 PDF/Word 导出、任意文档上传与知识隔离属于后续增强。
 
 ## 项目定位
 
@@ -36,7 +37,7 @@
 
 ## 核心能力
 
-- 访问密钥登录：`POST /api/auth/verify`
+- 用户名/密码登录与可撤销 opaque 会话：`/api/auth/login`、`refresh`、`me`、`password`、`logout`
 - 流式聊天：`POST /api/chat/stream` 返回 `step`、`analysis_metadata`、`progress`、`message`、`done`、`error` 事件
 - 同步聊天：`POST /api/chat`
 - 会话清理：`DELETE /api/chat/{sessionId}`
@@ -131,9 +132,9 @@ PowerShell：
 
 ```powershell
 cd backend
-$env:APP_ACCESS_KEY="local-demo-key"
-$env:APP_SESSION_SECRET="local-demo-session-secret-at-least-32-chars"
-$env:APP_API_KEY="local-demo-internal-api-key"
+$env:APP_AUTH_BOOTSTRAP_USERNAME="admin"
+$env:APP_AUTH_BOOTSTRAP_PASSWORD="temporary-password"
+$env:APP_AUTH_BOOTSTRAP_DISPLAY_NAME="Local Administrator"
 mvn "-Dfrontend.skip=true" spring-boot:run
 ```
 
@@ -141,9 +142,9 @@ Bash：
 
 ```bash
 cd backend
-export APP_ACCESS_KEY="change-me-login-key"
-export APP_SESSION_SECRET="change-me-session-secret-at-least-32-chars"
-export APP_API_KEY="change-me-internal-api-key"
+export APP_AUTH_BOOTSTRAP_USERNAME="admin"
+export APP_AUTH_BOOTSTRAP_PASSWORD="temporary-password"
+export APP_AUTH_BOOTSTRAP_DISPLAY_NAME="Local Administrator"
 mvn "-Dfrontend.skip=true" spring-boot:run
 ```
 
@@ -195,7 +196,7 @@ npm run dev
 
 ### 3. 登录
 
-打开 `http://localhost:5173`，输入你通过 `APP_ACCESS_KEY` 配置的访问密钥。
+打开 `http://localhost:5173`，使用初始化管理员用户名和临时密码登录。首次登录只允许查看当前身份、修改密码和退出；修改密码后旧会话会立即撤销，请使用新密码重新登录。初始化只在用户表为空时执行，重启不会覆盖已有账号或密码。
 
 ### 4. 配置模型连接
 
@@ -214,10 +215,14 @@ npm run dev
 | 配置项 | 环境变量 | 默认值 | 说明 |
 | --- | --- | --- | --- |
 | `server.port` | `SERVER_PORT` | `8081` | 后端服务端口 |
-| `app.auth.access-key` | `APP_ACCESS_KEY` | 空 | 前端登录访问密钥；为空时登录校验失败 |
-| `app.auth.session-secret` | `APP_SESSION_SECRET` | 空 | session token HMAC 签名密钥；必须显式配置后才能签发 token |
-| `app.auth.session-ttl` | `APP_SESSION_TTL` | `8h` | 登录 session token 有效期 |
-| `app.security.api-key` | `APP_API_KEY` | 空 | 受保护后端接口的 `X-API-Key`；为空时内部 API key 校验失败 |
+| `app.auth.access-token-ttl` | `APP_AUTH_ACCESS_TOKEN_TTL` | `30m` | opaque access token 有效期；数据库仅保存 SHA-256 摘要 |
+| `app.auth.refresh-token-ttl` | `APP_AUTH_REFRESH_TOKEN_TTL` | `7d` | refresh token 有效期；原始值仅保存在 HttpOnly Cookie |
+| `app.auth.cookie-secure` | `APP_AUTH_COOKIE_SECURE` | `false`（`prod` 为 `true`） | refresh Cookie 是否仅允许 HTTPS |
+| `app.auth.cookie-same-site` | `APP_AUTH_COOKIE_SAME_SITE` | `Lax` | refresh Cookie 的 SameSite 策略 |
+| `app.auth.bootstrap.required` | `APP_AUTH_BOOTSTRAP_REQUIRED` | `false`（`prod` 为 `true`） | 空用户库是否必须提供初始化管理员凭据 |
+| `app.auth.bootstrap.username` | `APP_AUTH_BOOTSTRAP_USERNAME` | 空 | 仅在用户表为空时创建的初始化管理员用户名 |
+| `app.auth.bootstrap.password` | `APP_AUTH_BOOTSTRAP_PASSWORD` | 空 | 初始化管理员临时密码；不会以明文持久化或记录日志 |
+| `app.auth.bootstrap.display-name` | `APP_AUTH_BOOTSTRAP_DISPLAY_NAME` | `System Administrator` | 初始化管理员显示名 |
 | `app.cors.allowed-origins` | `APP_CORS_ALLOWED_ORIGINS` | `http://localhost:5173,http://127.0.0.1:5173` | CORS 允许来源，逗号分隔 |
 | `app.excel.path` | `APP_EXCEL_PATH` | `classpath:Sample Data.xlsx` | 启动时导入的 Excel 数据源 |
 | `app.excel.fallback-enabled` | `APP_EXCEL_FALLBACK_ENABLED` | `true`（`prod` 为 `false`） | 工作簿失败时是否允许使用内置样例数据；生产环境应关闭 |
@@ -234,9 +239,10 @@ npm run dev
 
 安全边界说明：
 
-- `/api/auth/**`、静态资源、H2 Console 和健康检查保持演示白名单行为。
-- `/api/chat/**` 与 `/api/model-config/**` 需要登录后返回的 `Authorization: Bearer <sessionToken>`；这是相对原始 `X-API-Key` POC 方案的安全增强，避免浏览器直接持有内部 API key。
-- `/api/v1/data/**` 与 `/api/*/metrics`、`/api/*/details` 仍需要请求头 `X-API-Key`。
+- 登录、refresh、静态资源和健康检查显式公开；其余 `/api/**` 默认需要短期 opaque Bearer 会话。
+- refresh token 只通过 HttpOnly Cookie 传输，并在每次刷新时轮换；旧 refresh token 重放会撤销整个会话族。前端对并发 401 只发起一个 refresh 请求。
+- Dashboard、数据、Chat、知识、报告、模型测试和管理 API 分别检查固定权限键；权限和账号状态来自数据库，变更会即时撤销受影响会话。
+- `ADMIN`、`ANALYST`、`VIEWER` 是幂等预置角色；自定义角色只能组合代码内固定的权限目录。系统拒绝停用或移除最后一个有效管理员的管理能力。
 - 可通过 `APP_MODEL_BASE_URL`、`APP_MODEL_API_KEY`、`APP_MODEL_NAME` 配置后端默认模型连接；浏览器 `localStorage` 中的模型设置会随聊天请求发送，并优先覆盖后端默认值。
 - 模型 `Base URL` 会拒绝 localhost、内网地址和未进入允许列表的主机，允许列表可通过 `APP_MODEL_ALLOWED_HOSTS` 配置。
 
@@ -246,7 +252,13 @@ npm run dev
 
 | 接口 | 方法 | 说明 |
 | --- | --- | --- |
-| `/api/auth/verify` | POST | 校验访问密钥，成功时返回 `sessionToken` 和 `expiresAt` |
+| `/api/auth/login` | POST | 用户名/密码登录，返回短期 access token 并设置 refresh Cookie |
+| `/api/auth/refresh` | POST | 轮换 refresh token 并恢复 access token |
+| `/api/auth/me` | GET | 返回当前用户、角色和权限 |
+| `/api/auth/password` | POST | 修改密码并撤销该用户全部会话 |
+| `/api/auth/logout` / `/api/auth/logout-all` | POST | 通过受 Origin 保护的 refresh Cookie 撤销当前会话族 / 通过 Bearer 撤销全部会话 |
+| `/api/admin/users/**` | GET/POST/PATCH/PUT | 用户查询、创建、启停、重置密码与角色分配 |
+| `/api/admin/roles/**` | GET/POST/PUT | 角色查询、创建和权限组合更新 |
 | `/api/chat` | POST | 同步聊天 |
 | `/api/chat/stream` | POST | SSE 流式聊天 |
 | `/api/chat/{sessionId}` | DELETE | 清空指定会话记忆 |
@@ -417,7 +429,7 @@ mvn clean install
 | `backend/src/main/java/com/brand/agentpoc/service/ExcelImportService.java` | Excel 字段级清洗、必需 Sheet 校验、严格/样例回退导入 |
 | `backend/src/main/java/com/brand/agentpoc/service/ImportQualityService.java` | 保存最近一次导入来源和质量汇总 |
 | `backend/src/main/java/com/brand/agentpoc/controller/DataStatusController.java` | 登录态数据质量状态接口 |
-| `backend/src/main/java/com/brand/agentpoc/config/ApiKeyFilter.java` | 受保护接口的 `X-API-Key` 校验 |
+| `backend/src/main/java/com/brand/agentpoc/auth/` | 用户身份、RBAC、opaque access/refresh 会话、管理 API 与安全审计 |
 | `frontend/src/composables/useChat.js` | 前端聊天状态、SSE 解析（step/analysis_metadata/progress/message/done/error）、`<think>` 标签流式解析、streamPhase 管理 |
 | `frontend/src/utils/markdown.js` | Markdown、HTML 表格、Mermaid fence 渲染 |
 | `frontend/src/components/chat/AssistantMessage.vue` | AI 消息、分析口径横幅、统一时间线面板、追问按钮和 Mermaid 图表交互 |

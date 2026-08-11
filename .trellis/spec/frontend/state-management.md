@@ -18,7 +18,7 @@ Composables hold the application's shared reactive state. When multiple componen
 
 | Composable | File | Key State |
 |---|---|---|
-| `useAuth` | `src/composables/useAuth.js` | `accessKey`, `authVerified`, `loginLoading`, `loginError` |
+| `useAuth` | `src/composables/useAuth.js` | `currentUser`, `authVerified`, `mustChangePassword`, credentials, loading/error state |
 | `useChat` | `src/composables/useChat.js` | `messages`, `isSending`, `promptInput`, `streamPhase`, `sessionId`, `requestError`, `toastMessage` |
 | `useI18nState` | `src/composables/useI18nState.js` | `locale`, `dictionary` |
 | `useModelSettings` | `src/composables/useModelSettings.js` | Module-level `modelSettingsState` (singleton) |
@@ -30,12 +30,12 @@ Composables hold the application's shared reactive state. When multiple componen
 ```
 App.vue
   ├── useI18nState(messages) → locale, dictionary
-  ├── useAuth({ dictionary }) → accessKey, authVerified, loginError, loginLoading
+  ├── useAuth({ dictionary }) → currentUser, authVerified, mustChangePassword, initialized
   │
-  ├── LoginView (props: dictionary, locale, accessKey, loginError, loginLoading)
+  ├── LoginView / PasswordChangeView (credential lifecycle)
   │     └── emits: toggle-locale, update:access-key, submit
   │
-  └── ChatView (props: authVerified, dictionary, locale)
+  └── ChatView (props: authVerified, currentUser, dictionary, locale)
         ├── useChat(...) → messages, promptInput, isSending, streamPhase, ...
         ├── useModelSettings (plain functions)
         ├── TopNav (props: authVerified, dictionary, isSending, locale, statusMessage, streamPhase)
@@ -101,7 +101,8 @@ export const STORAGE_KEYS = {
 ```
 
 **When to persist vs. not:**
-- **Auth token**: sessionStorage (clears when tab closes).
+- **Access token + expiry + normalized current user**: sessionStorage (clears when tab closes).
+- **Refresh token**: HttpOnly Cookie only; JavaScript must never read or persist it.
 - **Locale preference**: localStorage (persists across visits).
 - **Model settings**: localStorage (persists across visits).
 - **Chat session ID**: localStorage (persists across page reloads within same session).
@@ -138,7 +139,7 @@ Since there is no store library, "global" means "owned by a composable and passe
 
 | State | Where it lives | Rationale |
 |---|---|---|
-| Auth status | `useAuth` composable | Shared by App.vue, ChatView, TopNav |
+| Auth identity/permissions | `useAuth` composable | Shared by App.vue, ChatView, TopNav |
 | Chat messages | `useChat` composable | Core data, shared by message list + input |
 | Locale | `useI18nState` composable | Every component needs translations |
 | Model settings | `useModelSettings` (module-level) | Needed by ChatView + useChat for API calls |
@@ -153,7 +154,8 @@ Since there is no store library, "global" means "owned by a composable and passe
 
 There is no server-state cache. Every interaction with the backend is a fresh fetch:
 
-- **Login**: `verifyAccessKey(key)` POST called on form submit.
+- **Login**: `loginUser(username, password)` POST called on form submit.
+- **Recovery**: `refreshSession()` restores identity from the HttpOnly refresh Cookie and is single-flight.
 - **Chat streaming**: `streamChat(...)` POST with SSE response, called on each message send.
 - **Clear session**: `clearSession(sessionId)` DELETE called on button click.
 - **Test model connection**: `testModelConnection(config)` POST called from settings panel.

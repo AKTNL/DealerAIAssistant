@@ -1,5 +1,5 @@
 import { useSseParser } from "../composables/useSseParser";
-import { ApiError, buildUrl, extractErrorMessage, requestJson } from "./client";
+import { ApiError, extractErrorMessage, request, requestJson } from "./client";
 import { getAuthToken } from "./sessionToken";
 
 export function clearSession(sessionId) {
@@ -10,7 +10,7 @@ export function clearSession(sessionId) {
 }
 
 export async function streamChat({ sessionId, message, baseUrl, apiKey, model, signal, onEvent }) {
-  const response = await fetch(buildUrl("/api/chat/stream"), {
+  const response = await request("/api/chat/stream", {
     method: "POST",
     headers: {
       "Content-Type": "application/json",

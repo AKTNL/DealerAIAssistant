@@ -17,6 +17,10 @@ spring:
     clean-disabled: true
 
 app:
+  auth:
+    cookie-secure: ${APP_AUTH_COOKIE_SECURE:true}
+    bootstrap:
+      required: ${APP_AUTH_BOOTSTRAP_REQUIRED:true}
   excel:
     fallback-enabled: false
   knowledge:

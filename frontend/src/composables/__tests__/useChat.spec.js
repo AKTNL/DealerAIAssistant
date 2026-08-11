@@ -35,7 +35,7 @@ const dictionary = {
   modelErrorUnavailable:
     "The model service is temporarily unavailable. Check the base URL or network connection.",
   prompts: ["Prompt one", "Prompt two"],
-  statusGuest: "Enter your access key",
+  statusGuest: "Enter your username and password",
   statusReady: "System connected and ready",
   statusThinking: "Assistant is preparing a reply",
   streamPhaseThinking: "Thinking…",

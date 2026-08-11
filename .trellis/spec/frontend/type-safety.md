@@ -62,22 +62,23 @@ function isModelSettingsRecord(settings) {
 
 ### Auth session validation
 ```js
-// sessionToken.js lines 49-66
+// sessionToken.js
 function normalizeAuthSession(session) {
   if (
     !session ||
     typeof session !== "object" ||
     Array.isArray(session) ||
-    typeof session.sessionToken !== "string" ||
-    typeof session.expiresAt !== "string" ||
-    !session.sessionToken.trim() ||
-    !isFiniteDate(session.expiresAt)
+    typeof session.accessToken !== "string" ||
+    typeof session.accessExpiresAt !== "string" ||
+    !session.accessToken.trim() ||
+    !isFiniteDate(session.accessExpiresAt)
   ) {
     return null;
   }
   return {
-    sessionToken: session.sessionToken.trim(),
-    expiresAt: session.expiresAt
+    accessToken: session.accessToken.trim(),
+    accessExpiresAt: session.accessExpiresAt,
+    user: normalizeUser(session.user)
   };
 }
 ```
@@ -88,7 +89,7 @@ function normalizeAuthSession(session) {
 if (!normalized) { ... }
 
 // useAuth.js line 16
-if (!accessKey.value.trim() || loginLoading.value) return;
+if (!username.value.trim() || !password.value || loginLoading.value) return;
 ```
 
 ---
@@ -208,5 +209,5 @@ if (import.meta.env.DEV && import.meta.env.MODE !== "test") {
 
 1. **Assuming API responses have a shape without validation.** Always normalize/validate before accessing properties.
 2. **Using `Array.isArray()` on `null`/`undefined` without a guard.** The codebase pattern is `Array.isArray(value) ? value : []`.
-3. **Not trimming strings before comparison.** `accessKey.value.trim()`, `settings.baseUrl.trim()`, etc.
+3. **Not trimming strings before comparison.** `username.value.trim()`, `settings.baseUrl.trim()`, etc.
 4. **Forgetting `typeof window === "undefined"` guard in SSR contexts.** Although the project is SPA-only, some utility functions (storage.js, useModelSettings.js) include SSR guards defensively. New code in `utils/` and `composables/` that touches `window`/`document` should follow this pattern.
