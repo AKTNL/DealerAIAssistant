@@ -1,0 +1,30 @@
+{
+  "id": "p2-1-permissions-organization",
+  "name": "p2-1-permissions-organization",
+  "title": "P2-1 完整用户权限与组织范围",
+  "description": "",
+  "status": "planning",
+  "dev_type": null,
+  "scope": null,
+  "package": null,
+  "priority": "P2",
+  "creator": "kevin",
+  "assignee": "kevin",
+  "createdAt": "2026-08-11",
+  "completedAt": null,
+  "branch": null,
+  "base_branch": "main",
+  "worktree_path": null,
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [
+    "08-11-p2-1-user-permissions-org-scope",
+    "08-11-p2-1b-organization-data-scope",
+    "08-11-p2-1c-permission-organization-admin-ui"
+  ],
+  "parent": "08-11-p2-productization",
+  "relatedFiles": [],
+  "notes": "",
+  "meta": {}
+}

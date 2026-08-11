@@ -908,3 +908,37 @@ Updated the root README, documentation index, and production roadmap to mark P1-
 ### Next Steps
 
 - None - task complete
+
+
+## Session 28: P2-1B 组织树与数据范围
+
+**Date**: 2026-08-11
+**Task**: P2-1B 组织树与数据范围
+**Branch**: `main`
+
+### Summary
+
+完成数据库驱动的组织树与数据范围控制，覆盖查询、分析、对话、知识与报告链路；补充契约文档并通过后端、前端及迁移验证。
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `ff2333d` | (see git log) |
+| `4329bdd` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
