@@ -9,7 +9,7 @@ import jakarta.persistence.Table;
 
 @Entity
 @Table(name = "dealers")
-public class Dealer implements BatchScoped {
+public class Dealer implements BatchScoped, DealerScoped {
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)

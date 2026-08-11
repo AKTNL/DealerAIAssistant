@@ -2,6 +2,7 @@ package com.brand.agentpoc.reporting.application;
 
 import com.brand.agentpoc.config.AppProperties;
 import com.brand.agentpoc.dto.response.DashboardSummary;
+import com.brand.agentpoc.organization.domain.OrganizationDataScope;
 import com.brand.agentpoc.reporting.domain.ReportDraft;
 import com.brand.agentpoc.reporting.domain.ReportScope;
 import com.brand.agentpoc.reporting.domain.ReportType;
@@ -15,6 +16,7 @@ import java.util.UUID;
 import java.util.stream.Collectors;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
+import org.springframework.security.access.AccessDeniedException;
 
 @Service
 public class ReportService {
@@ -57,14 +59,25 @@ public class ReportService {
     }
 
     public ReportDraft generate(ReportGenerationRequest request) {
+        return generate(request, OrganizationDataScope.unrestrictedScope());
+    }
+
+    public ReportDraft generate(ReportGenerationRequest request, OrganizationDataScope dataScope) {
         if (request == null) {
             throw new IllegalArgumentException("report request is required.");
         }
+        OrganizationDataScope requiredScope = dataScope == null ? OrganizationDataScope.empty() : dataScope;
+        requiredScope.requireDataAccess();
         ReportType reportType = ReportType.parse(request.reportType());
         String language = validateLanguage(request.language());
         String topic = normalizeTopic(request.topic(), reportType);
-        ReportScope scope = new ReportScope(request.scopeType(), request.scopeId());
-        DashboardSummary summary = dashboardService.getSummary();
+        ReportScope requestedScope = new ReportScope(request.scopeType(), request.scopeId());
+        ReportScope scope = requiredScope.unrestricted()
+                ? requestedScope
+                : ReportScope.organization(requiredScope.grantNodeIds());
+        DashboardSummary summary = requiredScope.unrestricted()
+                ? dashboardService.getSummary()
+                : dashboardService.getSummary(requiredScope);
         String batchId = summary.dataStatus() != null && summary.dataStatus().batch() != null
                 ? summary.dataStatus().batch().id()
                 : importBatchService.activeBatchId();
@@ -89,17 +102,43 @@ public class ReportService {
     }
 
     public ReportDraft require(String id) {
+        return require(id, OrganizationDataScope.unrestrictedScope());
+    }
+
+    public ReportDraft require(String id, OrganizationDataScope dataScope) {
         if (id == null || id.isBlank()) {
             throw new IllegalArgumentException("report id is required.");
         }
-        return draftStore.findById(id.trim())
+        ReportDraft draft = draftStore.findById(id.trim())
                 .orElseThrow(() -> new java.util.NoSuchElementException("Report draft was not found."));
+        if (!canRead(draft, dataScope)) {
+            throw new AccessDeniedException("Report draft is outside the active organization scope.");
+        }
+        return draft;
     }
 
     public List<ReportDraft> list() {
+        return list(OrganizationDataScope.unrestrictedScope());
+    }
+
+    public List<ReportDraft> list(OrganizationDataScope dataScope) {
+        OrganizationDataScope requiredScope = dataScope == null ? OrganizationDataScope.empty() : dataScope;
+        requiredScope.requireDataAccess();
         return draftStore.findAll().stream()
+                .filter(draft -> canRead(draft, requiredScope))
                 .sorted(Comparator.comparing(ReportDraft::generatedAt).reversed())
                 .collect(Collectors.toUnmodifiableList());
+    }
+
+    private boolean canRead(ReportDraft draft, OrganizationDataScope dataScope) {
+        OrganizationDataScope requiredScope = dataScope == null ? OrganizationDataScope.empty() : dataScope;
+        if (requiredScope.unrestricted()) {
+            return true;
+        }
+        if ("GLOBAL".equals(draft.scope().type())) {
+            return requiredScope.rootCoverage();
+        }
+        return requiredScope.containsAllNodes(draft.scope().organizationNodeIds());
     }
 
     private String validateLanguage(String language) {

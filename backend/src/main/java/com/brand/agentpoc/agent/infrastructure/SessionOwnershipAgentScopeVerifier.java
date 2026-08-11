@@ -19,6 +19,7 @@ public class SessionOwnershipAgentScopeVerifier implements AgentScopeVerifier {
         return scope != null
                 && scope.authenticated()
                 && scope.activeBatchOnly()
+                && scope.organizationDataScope().hasDataAccess()
                 && sessionOwnershipService.owns(scope.sessionId(), scope.subject());
     }
 }

@@ -96,7 +96,9 @@ class AgentPocApplicationStartupTest {
                     .containsExactly("ADMIN");
             assertThat(passwordEncoder.matches("temporary-password", administrator.getPasswordHash())).isTrue();
             assertThat(administrator.getPasswordHash()).doesNotContain("temporary-password");
-            assertThat(auditEvents.count()).isEqualTo(1);
+            assertThat(auditEvents.findAll())
+                    .extracting(event -> event.getAction())
+                    .containsExactlyInAnyOrder("USER_BOOTSTRAP", "ORG_BOOTSTRAP");
         }
     }
 
@@ -304,6 +306,93 @@ class AgentPocApplicationStartupTest {
             try (ResultSet audits = statement.executeQuery("SELECT COUNT(*) FROM auth_audit_events")) {
                 assertThat(audits.next()).isTrue();
                 assertThat(audits.getInt(1)).isEqualTo(1);
+            }
+        }
+    }
+
+    @Test
+    void organizationMigrationCreatesTreeMappingsAndGrantSchema() throws Exception {
+        String url = "jdbc:h2:mem:organization-migration-test;MODE=PostgreSQL;DB_CLOSE_DELAY=-1";
+        Flyway.configure()
+                .dataSource(url, "sa", "")
+                .locations("classpath:db/migration")
+                .load()
+                .migrate();
+
+        try (Connection connection = DriverManager.getConnection(url, "sa", "");
+                Statement statement = connection.createStatement()) {
+            statement.executeUpdate("""
+                    INSERT INTO auth_roles (
+                        id, role_key, display_name, built_in, created_at, updated_at, version
+                    ) VALUES (10, 'TEST_ROLE', 'Test Role', FALSE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, 0)
+                    """);
+            statement.executeUpdate("""
+                    INSERT INTO auth_users (
+                        id, username, display_name, password_hash, enabled,
+                        must_change_password, created_at, updated_at, version
+                    ) VALUES (
+                        20, 'scope.user', 'Scope User', '{bcrypt}hash', TRUE,
+                        FALSE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, 0
+                    )
+                    """);
+            statement.executeUpdate("""
+                    INSERT INTO organization_nodes (
+                        node_key, display_name, node_type, parent_id, enabled,
+                        created_at, updated_at, version
+                    ) VALUES (
+                        'REGION_TEST', 'Region Test', 'REGION',
+                        (SELECT id FROM organization_nodes WHERE node_key = 'GLOBAL_ROOT'),
+                        TRUE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, 0
+                    )
+                    """);
+            statement.executeUpdate("""
+                    INSERT INTO organization_nodes (
+                        node_key, display_name, node_type, parent_id, enabled,
+                        created_at, updated_at, version
+                    ) VALUES (
+                        'CITY_TEST', 'City Test', 'CITY',
+                        (SELECT id FROM organization_nodes WHERE node_key = 'REGION_TEST'),
+                        TRUE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, 0
+                    )
+                    """);
+            statement.executeUpdate("""
+                    INSERT INTO organization_nodes (
+                        node_key, display_name, node_type, parent_id, enabled,
+                        created_at, updated_at, version
+                    ) VALUES (
+                        'DEALER_TEST', 'Dealer Test', 'DEALER',
+                        (SELECT id FROM organization_nodes WHERE node_key = 'CITY_TEST'),
+                        TRUE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, 0
+                    )
+                    """);
+            statement.executeUpdate("""
+                    INSERT INTO organization_dealer_mappings (
+                        organization_node_id, dealer_code, created_at
+                    ) SELECT id, 'D001', CURRENT_TIMESTAMP
+                    FROM organization_nodes WHERE node_key = 'DEALER_TEST'
+                    """);
+            statement.executeUpdate("""
+                    INSERT INTO organization_user_grants (
+                        user_id, organization_node_id, include_descendants, created_at
+                    ) SELECT 20, id, FALSE, CURRENT_TIMESTAMP
+                    FROM organization_nodes WHERE node_key = 'DEALER_TEST'
+                    """);
+            statement.executeUpdate("""
+                    INSERT INTO organization_role_grants (
+                        role_id, organization_node_id, include_descendants, created_at
+                    ) SELECT 10, id, TRUE, CURRENT_TIMESTAMP
+                    FROM organization_nodes WHERE node_key = 'GLOBAL_ROOT'
+                    """);
+
+            try (ResultSet rows = statement.executeQuery("""
+                    SELECT COUNT(*)
+                    FROM organization_user_grants ug
+                    JOIN organization_nodes n ON n.id = ug.organization_node_id
+                    JOIN organization_dealer_mappings m ON m.organization_node_id = n.id
+                    WHERE ug.user_id = 20 AND m.dealer_code = 'D001'
+                    """)) {
+                assertThat(rows.next()).isTrue();
+                assertThat(rows.getInt(1)).isEqualTo(1);
             }
         }
     }

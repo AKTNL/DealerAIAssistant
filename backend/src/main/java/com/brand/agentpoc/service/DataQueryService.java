@@ -2,6 +2,7 @@ package com.brand.agentpoc.service;
 
 import com.brand.agentpoc.dto.response.DataQueryResponse;
 import com.brand.agentpoc.entity.BatchScoped;
+import com.brand.agentpoc.entity.DealerScoped;
 import com.brand.agentpoc.entity.Campaign;
 import com.brand.agentpoc.entity.Dealer;
 import com.brand.agentpoc.entity.Lead;
@@ -14,6 +15,7 @@ import com.brand.agentpoc.repository.OpportunityRepository;
 import com.brand.agentpoc.repository.TargetRepository;
 import com.brand.agentpoc.repository.TaskRepository;
 import com.brand.agentpoc.entity.Task;
+import com.brand.agentpoc.organization.domain.OrganizationDataScope;
 import java.time.LocalDate;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
@@ -39,6 +41,7 @@ public class DataQueryService {
     private final TargetRepository targetRepository;
     private final LeadRepository leadRepository;
     private final ImportBatchService importBatchService;
+    private final ThreadLocal<OrganizationDataScope> organizationScope = new ThreadLocal<>();
 
     @Autowired
     public DataQueryService(
@@ -79,6 +82,19 @@ public class DataQueryService {
     }
 
     public DataQueryResponse query(String dataset, Map<String, String> filters) {
+        return query(dataset, filters, OrganizationDataScope.unrestrictedScope());
+    }
+
+    public DataQueryResponse query(
+            String dataset,
+            Map<String, String> filters,
+            OrganizationDataScope dataScope
+    ) {
+        OrganizationDataScope requiredScope = dataScope == null ? OrganizationDataScope.empty() : dataScope;
+        requiredScope.requireDataAccess();
+        OrganizationDataScope previous = organizationScope.get();
+        organizationScope.set(requiredScope);
+        try {
         Map<String, String> normalizedFilters = Map.copyOf(filters);
 
         return switch (dataset) {
@@ -90,6 +106,13 @@ public class DataQueryService {
             case "leads" -> queryLeads(normalizedFilters);
             default -> throw new IllegalArgumentException("Unsupported dataset: " + dataset);
         };
+        } finally {
+            if (previous == null) {
+                organizationScope.remove();
+            } else {
+                organizationScope.set(previous);
+            }
+        }
     }
 
     private DataQueryResponse queryDealers(Map<String, String> filters) {
@@ -423,8 +446,10 @@ public class DataQueryService {
         return active(leadRepository.findAll());
     }
 
-    private <T extends BatchScoped> List<T> active(List<T> rows) {
-        return importBatchService.filterActive(rows);
+    private <T extends BatchScoped & DealerScoped> List<T> active(List<T> rows) {
+        List<T> activeRows = importBatchService.filterActive(rows);
+        OrganizationDataScope dataScope = organizationScope.get();
+        return dataScope == null ? activeRows : dataScope.filter(activeRows, DealerScoped::getDealerCode);
     }
 
     private Map<String, Object> toDealerMap(Dealer dealer) {

@@ -20,6 +20,9 @@ import com.brand.agentpoc.agent.domain.AgentRequestScope;
 import com.brand.agentpoc.auth.domain.AuthPrincipal;
 import com.brand.agentpoc.auth.domain.PermissionKey;
 import com.brand.agentpoc.dto.request.ChatRequest;
+import com.brand.agentpoc.organization.application.OrganizationAuthorizationService;
+import com.brand.agentpoc.organization.domain.OrganizationAuthorizationContext;
+import com.brand.agentpoc.organization.domain.OrganizationDataScope;
 import com.brand.agentpoc.service.ChatService;
 import com.brand.agentpoc.service.SessionMemoryService;
 import com.brand.agentpoc.service.SessionOwnershipService;
@@ -102,6 +105,44 @@ class ChatControllerTest {
     }
 
     @Test
+    void propagatesTheSameResolvedOrganizationScopeToSyncAndSseChat() throws Exception {
+        OrganizationAuthorizationService authorizationService = mock(OrganizationAuthorizationService.class);
+        OrganizationDataScope dataScope = new OrganizationDataScope(
+                Set.of(2L, 3L, 4L), Set.of(2L), Set.of("NORTH-1"), false, false);
+        when(authorizationService.resolve(any(AuthPrincipal.class)))
+                .thenReturn(new OrganizationAuthorizationContext(principal(42L), dataScope));
+        when(sessionOwnershipService.claimOrVerify("session-1", "42")).thenReturn(true);
+        when(chatService.chat(any(ChatRequest.class), any(AgentRequestScope.class))).thenReturn("hello");
+        doAnswer(invocation -> null).when(chatService).streamChat(any(), any(OutputStream.class), any());
+        MockMvc scopedMockMvc = MockMvcBuilders.standaloneSetup(new ChatController(
+                        chatService,
+                        sessionMemoryService,
+                        sessionOwnershipService,
+                        authorizationService
+                ))
+                .build();
+        AgentRequestScope expectedScope = AgentRequestScope.authenticated(
+                "session-1", "42", EnumSet.allOf(PermissionKey.class), dataScope);
+
+        scopedMockMvc.perform(post("/api/chat")
+                        .principal(authentication(42L))
+                        .contentType(APPLICATION_JSON)
+                        .content("{\"sessionId\":\"session-1\",\"message\":\"hi\"}"))
+                .andExpect(status().isOk());
+
+        MvcResult streamResult = scopedMockMvc.perform(post("/api/chat/stream")
+                        .principal(authentication(42L))
+                        .contentType(APPLICATION_JSON)
+                        .content("{\"sessionId\":\"session-1\",\"message\":\"hi\"}"))
+                .andExpect(request().asyncStarted())
+                .andReturn();
+        scopedMockMvc.perform(asyncDispatch(streamResult)).andExpect(status().isOk());
+
+        verify(chatService).chat(any(ChatRequest.class), eq(expectedScope));
+        verify(chatService).streamChat(any(), any(OutputStream.class), eq(expectedScope));
+    }
+
+    @Test
     void clearsOnlyAConversationOwnedByTheCurrentUser() throws Exception {
         when(sessionOwnershipService.owns("session-1", "42")).thenReturn(true);
 
@@ -118,10 +159,13 @@ class ChatControllerTest {
     }
 
     private UsernamePasswordAuthenticationToken authentication(Long userId) {
-        AuthPrincipal principal = new AuthPrincipal(
+        return UsernamePasswordAuthenticationToken.authenticated(principal(userId), "token", Set.of());
+    }
+
+    private AuthPrincipal principal(Long userId) {
+        return new AuthPrincipal(
                 userId, 100L + userId, "family", "user-" + userId, "User " + userId,
                 true, false, Set.of("ADMIN"), EnumSet.allOf(PermissionKey.class)
         );
-        return UsernamePasswordAuthenticationToken.authenticated(principal, "token", Set.of());
     }
 }

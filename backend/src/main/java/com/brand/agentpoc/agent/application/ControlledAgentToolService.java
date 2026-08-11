@@ -4,6 +4,7 @@ import com.brand.agentpoc.agent.domain.AgentDataKind;
 import com.brand.agentpoc.agent.domain.AgentExecutionPolicy;
 import com.brand.agentpoc.knowledge.application.KnowledgeService;
 import com.brand.agentpoc.knowledge.domain.KnowledgeSearchResult;
+import com.brand.agentpoc.organization.domain.OrganizationDataScope;
 import com.brand.agentpoc.reporting.application.ReportGenerationRequest;
 import com.brand.agentpoc.reporting.application.ReportService;
 import com.brand.agentpoc.reporting.domain.ReportDraft;
@@ -108,14 +109,29 @@ public class ControlledAgentToolService {
     }
 
     public AgentToolResult getDashboardSummary() {
-        return new AgentToolResult("dashboardSummary", dashboardService.getSummary());
+        return getDashboardSummary(OrganizationDataScope.unrestrictedScope());
+    }
+
+    public AgentToolResult getDashboardSummary(OrganizationDataScope dataScope) {
+        Object summary = dataScope.unrestricted()
+                ? dashboardService.getSummary()
+                : dashboardService.getSummary(dataScope);
+        return new AgentToolResult("dashboardSummary", summary);
     }
 
     public AgentToolResult queryMetric(String metric, Map<String, String> filters) {
+        return queryMetric(metric, filters, OrganizationDataScope.unrestrictedScope());
+    }
+
+    public AgentToolResult queryMetric(
+            String metric,
+            Map<String, String> filters,
+            OrganizationDataScope dataScope
+    ) {
         AgentDataKind dataKind = AgentDataKind.parse(metric);
         Map<String, String> safeFilters = validateFilters(filters, METRIC_FILTERS.get(dataKind));
 
-        Object result = switch (dataKind) {
+        java.util.function.Supplier<Object> operation = () -> switch (dataKind) {
             case TARGET -> analyticsApiService.getTargetMetrics(
                     optionalInteger(safeFilters, "targetYear"),
                     optionalInteger(safeFilters, "targetMonth"),
@@ -137,6 +153,9 @@ public class ControlledAgentToolService {
             case TASK -> analyticsApiService.getTaskMetrics(safeFilters.get("dealerCode"));
             case CAMPAIGN -> analyticsApiService.getCampaignMetrics(safeFilters.get("campaignType"));
         };
+        Object result = dataScope.unrestricted()
+                ? operation.get()
+                : analyticsApiService.withOrganizationScope(dataScope, operation);
         return new AgentToolResult(dataKind.name().toLowerCase(java.util.Locale.ROOT) + "Metric", result);
     }
 
@@ -148,6 +167,26 @@ public class ControlledAgentToolService {
             String sortBy,
             String sortOrder
     ) {
+        return queryDetails(
+                dataset,
+                filters,
+                page,
+                pageSize,
+                sortBy,
+                sortOrder,
+                OrganizationDataScope.unrestrictedScope()
+        );
+    }
+
+    public AgentToolResult queryDetails(
+            String dataset,
+            Map<String, String> filters,
+            Integer page,
+            Integer pageSize,
+            String sortBy,
+            String sortOrder,
+            OrganizationDataScope dataScope
+    ) {
         AgentDataKind dataKind = AgentDataKind.parse(dataset);
         Map<String, String> safeFilters = validateFilters(filters, DETAIL_FILTERS.get(dataKind));
         int safePage = page == null ? DEFAULT_PAGE : page;
@@ -156,7 +195,7 @@ public class ControlledAgentToolService {
         String safeSortBy = validateSortBy(dataKind, sortBy);
         String safeSortOrder = validateSortOrder(sortOrder);
 
-        Object result = switch (dataKind) {
+        java.util.function.Supplier<Object> operation = () -> switch (dataKind) {
             case TARGET -> analyticsApiService.getTargetDetails(
                     optionalInteger(safeFilters, "targetYear"),
                     optionalInteger(safeFilters, "targetMonth"),
@@ -206,10 +245,21 @@ public class ControlledAgentToolService {
                     safeSortOrder
             );
         };
+        Object result = dataScope.unrestricted()
+                ? operation.get()
+                : analyticsApiService.withOrganizationScope(dataScope, operation);
         return new AgentToolResult(dataKind.name().toLowerCase(java.util.Locale.ROOT) + "Details", result);
     }
 
     public AgentScenarioAnalysis runScenarioAnalysis(String question, String language) {
+        return runScenarioAnalysis(question, language, OrganizationDataScope.unrestrictedScope());
+    }
+
+    public AgentScenarioAnalysis runScenarioAnalysis(
+            String question,
+            String language,
+            OrganizationDataScope dataScope
+    ) {
         if (question == null || question.isBlank()) {
             throw new IllegalArgumentException("question is required.");
         }
@@ -218,7 +268,9 @@ public class ControlledAgentToolService {
         }
 
         String safeLanguage = validateLanguage(language);
-        AnalyticsPlan plan = analyticsService.plan(question.trim(), safeLanguage);
+        AnalyticsPlan plan = dataScope.unrestricted()
+                ? analyticsService.plan(question.trim(), safeLanguage)
+                : analyticsService.plan(question.trim(), safeLanguage, dataScope);
         return new AgentScenarioAnalysis(
                 plan.scenario().name(),
                 plan.scopeSummary(),
@@ -229,20 +281,41 @@ public class ControlledAgentToolService {
     }
 
     public KnowledgeSearchResult retrieveKnowledge(String query, Integer topK) {
+        return retrieveKnowledge(query, topK, OrganizationDataScope.unrestrictedScope());
+    }
+
+    public KnowledgeSearchResult retrieveKnowledge(
+            String query,
+            Integer topK,
+            OrganizationDataScope dataScope
+    ) {
+        dataScope.requireDataAccess();
         return knowledgeService.retrieve(query, topK);
     }
 
     public ReportDraft generateReportDraft(String reportType, String language, String topic) {
+        return generateReportDraft(reportType, language, topic, OrganizationDataScope.unrestrictedScope());
+    }
+
+    public ReportDraft generateReportDraft(
+            String reportType,
+            String language,
+            String topic,
+            OrganizationDataScope dataScope
+    ) {
         if (reportService == null) {
             throw new IllegalStateException("Report generation service is unavailable.");
         }
-        return reportService.generate(new ReportGenerationRequest(
+        ReportGenerationRequest request = new ReportGenerationRequest(
                 reportType,
                 language,
                 "GLOBAL",
                 "",
                 topic
-        ));
+        );
+        return dataScope.unrestricted()
+                ? reportService.generate(request)
+                : reportService.generate(request, dataScope);
     }
 
     private Map<String, String> validateFilters(Map<String, String> filters, Set<String> allowedKeys) {

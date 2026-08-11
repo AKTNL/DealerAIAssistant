@@ -4,8 +4,10 @@ import com.brand.agentpoc.agent.application.AgentScenarioAnalysis;
 import com.brand.agentpoc.agent.application.AgentToolResult;
 import com.brand.agentpoc.agent.application.ControlledAgentToolService;
 import com.brand.agentpoc.knowledge.domain.KnowledgeSearchResult;
+import com.brand.agentpoc.organization.domain.OrganizationDataScope;
 import com.brand.agentpoc.reporting.domain.ReportDraft;
 import java.util.Map;
+import java.util.function.Supplier;
 import org.springframework.ai.tool.annotation.Tool;
 import org.springframework.ai.tool.annotation.ToolParam;
 import org.springframework.stereotype.Component;
@@ -14,6 +16,7 @@ import org.springframework.stereotype.Component;
 public class ControlledAgentToolAdapter {
 
     private final ControlledAgentToolService toolService;
+    private final ThreadLocal<OrganizationDataScope> organizationScope = new ThreadLocal<>();
 
     public ControlledAgentToolAdapter(ControlledAgentToolService toolService) {
         this.toolService = toolService;
@@ -24,7 +27,10 @@ public class ControlledAgentToolAdapter {
             description = "Get the current active-batch dealer operations dashboard summary. Read only."
     )
     public AgentToolResult getDashboardSummary() {
-        return toolService.getDashboardSummary();
+        OrganizationDataScope dataScope = requireOrganizationScope();
+        return dataScope.unrestricted()
+                ? toolService.getDashboardSummary()
+                : toolService.getDashboardSummary(dataScope);
     }
 
     @Tool(
@@ -43,7 +49,10 @@ public class ControlledAgentToolAdapter {
             )
             Map<String, String> filters
     ) {
-        return toolService.queryMetric(metric, filters);
+        OrganizationDataScope dataScope = requireOrganizationScope();
+        return dataScope.unrestricted()
+                ? toolService.queryMetric(metric, filters)
+                : toolService.queryMetric(metric, filters, dataScope);
     }
 
     @Tool(
@@ -70,7 +79,10 @@ public class ControlledAgentToolAdapter {
             @ToolParam(description = "Optional sort order: asc or desc.", required = false)
             String sortOrder
     ) {
-        return toolService.queryDetails(dataset, filters, page, pageSize, sortBy, sortOrder);
+        OrganizationDataScope dataScope = requireOrganizationScope();
+        return dataScope.unrestricted()
+                ? toolService.queryDetails(dataset, filters, page, pageSize, sortBy, sortOrder)
+                : toolService.queryDetails(dataset, filters, page, pageSize, sortBy, sortOrder, dataScope);
     }
 
     @Tool(
@@ -83,7 +95,10 @@ public class ControlledAgentToolAdapter {
             @ToolParam(description = "Response language: zh or en.", required = true)
             String language
     ) {
-        return toolService.runScenarioAnalysis(question, language);
+        OrganizationDataScope dataScope = requireOrganizationScope();
+        return dataScope.unrestricted()
+                ? toolService.runScenarioAnalysis(question, language)
+                : toolService.runScenarioAnalysis(question, language, dataScope);
     }
 
     @Tool(
@@ -96,7 +111,10 @@ public class ControlledAgentToolAdapter {
             @ToolParam(description = "Optional result limit from 1 to 8. Defaults to 4.", required = false)
             Integer topK
     ) {
-        return toolService.retrieveKnowledge(query, topK);
+        OrganizationDataScope dataScope = requireOrganizationScope();
+        return dataScope.unrestricted()
+                ? toolService.retrieveKnowledge(query, topK)
+                : toolService.retrieveKnowledge(query, topK, dataScope);
     }
 
     @Tool(
@@ -111,6 +129,32 @@ public class ControlledAgentToolAdapter {
             @ToolParam(description = "Required only for a topic report; describe the business topic in at most 500 characters.", required = false)
             String topic
     ) {
-        return toolService.generateReportDraft(reportType, language, topic);
+        OrganizationDataScope dataScope = requireOrganizationScope();
+        return dataScope.unrestricted()
+                ? toolService.generateReportDraft(reportType, language, topic)
+                : toolService.generateReportDraft(reportType, language, topic, dataScope);
+    }
+
+    <T> T withOrganizationScope(OrganizationDataScope dataScope, Supplier<T> operation) {
+        OrganizationDataScope previous = organizationScope.get();
+        organizationScope.set(dataScope == null ? OrganizationDataScope.empty() : dataScope);
+        try {
+            return operation.get();
+        } finally {
+            if (previous == null) {
+                organizationScope.remove();
+            } else {
+                organizationScope.set(previous);
+            }
+        }
+    }
+
+    private OrganizationDataScope requireOrganizationScope() {
+        OrganizationDataScope current = organizationScope.get();
+        if (current == null) {
+            throw new IllegalStateException("Agent organization scope is unavailable.");
+        }
+        current.requireDataAccess();
+        return current;
     }
 }

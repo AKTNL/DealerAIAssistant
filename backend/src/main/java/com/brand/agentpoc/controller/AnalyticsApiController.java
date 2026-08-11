@@ -4,7 +4,10 @@ import com.brand.agentpoc.dto.detail.*;
 import com.brand.agentpoc.dto.metrics.*;
 import com.brand.agentpoc.dto.response.ApiPage;
 import com.brand.agentpoc.dto.response.ApiResult;
+import com.brand.agentpoc.organization.application.OrganizationAuthorizationService;
 import com.brand.agentpoc.service.AnalyticsApiService;
+import java.util.function.Supplier;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.*;
 
 @RestController
@@ -12,9 +15,19 @@ import org.springframework.web.bind.annotation.*;
 public class AnalyticsApiController {
 
     private final AnalyticsApiService analyticsApiService;
+    private final OrganizationAuthorizationService authorizationService;
 
     public AnalyticsApiController(AnalyticsApiService analyticsApiService) {
+        this(analyticsApiService, null);
+    }
+
+    @Autowired
+    public AnalyticsApiController(
+            AnalyticsApiService analyticsApiService,
+            OrganizationAuthorizationService authorizationService
+    ) {
         this.analyticsApiService = analyticsApiService;
+        this.authorizationService = authorizationService;
     }
 
     @GetMapping("/targets/metrics")
@@ -27,8 +40,8 @@ public class AnalyticsApiController {
             @RequestParam(required = false) String dealerName,
             @RequestParam(required = false) String dealerGroupName
     ) {
-        return analyticsApiService.getTargetMetrics(year, month, productModel, dealerCode,
-                city, dealerName, dealerGroupName);
+        return scoped(() -> analyticsApiService.getTargetMetrics(
+                year, month, productModel, dealerCode, city, dealerName, dealerGroupName));
     }
 
     @GetMapping("/targets/details")
@@ -45,9 +58,9 @@ public class AnalyticsApiController {
             @RequestParam(defaultValue = "dealerCode") String sortBy,
             @RequestParam(defaultValue = "asc") String sortOrder
     ) {
-        return analyticsApiService.getTargetDetails(year, month, productModel, dealerCode,
+        return scoped(() -> analyticsApiService.getTargetDetails(year, month, productModel, dealerCode,
                 city, dealerName, dealerGroupName,
-                page, pageSize, sortBy, sortOrder);
+                page, pageSize, sortBy, sortOrder));
     }
 
     @GetMapping("/opportunities/metrics")
@@ -56,7 +69,7 @@ public class AnalyticsApiController {
             @RequestParam(required = false) String startDate,
             @RequestParam(required = false) String endDate
     ) {
-        return analyticsApiService.getOpportunityMetrics(dealerCode, startDate, endDate);
+        return scoped(() -> analyticsApiService.getOpportunityMetrics(dealerCode, startDate, endDate));
     }
 
     @GetMapping("/opportunities/details")
@@ -71,8 +84,8 @@ public class AnalyticsApiController {
             @RequestParam(defaultValue = "createdDate") String sortBy,
             @RequestParam(defaultValue = "desc") String sortOrder
     ) {
-        return analyticsApiService.getOpportunityDetails(dealerCode, startDate, endDate,
-                keyword, stageName, page, pageSize, sortBy, sortOrder);
+        return scoped(() -> analyticsApiService.getOpportunityDetails(
+                dealerCode, startDate, endDate, keyword, stageName, page, pageSize, sortBy, sortOrder));
     }
 
     @GetMapping("/leads/metrics")
@@ -80,7 +93,7 @@ public class AnalyticsApiController {
             @RequestParam(required = false) String leadSource,
             @RequestParam(required = false) String dealerCode
     ) {
-        return analyticsApiService.getLeadMetrics(leadSource, dealerCode);
+        return scoped(() -> analyticsApiService.getLeadMetrics(leadSource, dealerCode));
     }
 
     @GetMapping("/leads/details")
@@ -92,15 +105,13 @@ public class AnalyticsApiController {
             @RequestParam(defaultValue = "createdDate") String sortBy,
             @RequestParam(defaultValue = "desc") String sortOrder
     ) {
-        return analyticsApiService.getLeadDetails(leadSource, dealerCode,
-                page, pageSize, sortBy, sortOrder);
+        return scoped(() -> analyticsApiService.getLeadDetails(
+                leadSource, dealerCode, page, pageSize, sortBy, sortOrder));
     }
 
     @GetMapping("/tasks/metrics")
-    public ApiResult<TaskMetrics> getTaskMetrics(
-            @RequestParam(required = false) String dealerCode
-    ) {
-        return analyticsApiService.getTaskMetrics(dealerCode);
+    public ApiResult<TaskMetrics> getTaskMetrics(@RequestParam(required = false) String dealerCode) {
+        return scoped(() -> analyticsApiService.getTaskMetrics(dealerCode));
     }
 
     @GetMapping("/tasks/details")
@@ -112,15 +123,13 @@ public class AnalyticsApiController {
             @RequestParam(defaultValue = "createdDate") String sortBy,
             @RequestParam(defaultValue = "desc") String sortOrder
     ) {
-        return analyticsApiService.getTaskDetails(dealerCode, keyword,
-                page, pageSize, sortBy, sortOrder);
+        return scoped(() -> analyticsApiService.getTaskDetails(
+                dealerCode, keyword, page, pageSize, sortBy, sortOrder));
     }
 
     @GetMapping("/campaigns/metrics")
-    public ApiResult<CampaignMetrics> getCampaignMetrics(
-            @RequestParam(required = false) String campaignType
-    ) {
-        return analyticsApiService.getCampaignMetrics(campaignType);
+    public ApiResult<CampaignMetrics> getCampaignMetrics(@RequestParam(required = false) String campaignType) {
+        return scoped(() -> analyticsApiService.getCampaignMetrics(campaignType));
     }
 
     @GetMapping("/campaigns/details")
@@ -132,7 +141,17 @@ public class AnalyticsApiController {
             @RequestParam(defaultValue = "createdDate") String sortBy,
             @RequestParam(defaultValue = "desc") String sortOrder
     ) {
-        return analyticsApiService.getCampaignDetails(campaignType, keyword,
-                page, pageSize, sortBy, sortOrder);
+        return scoped(() -> analyticsApiService.getCampaignDetails(
+                campaignType, keyword, page, pageSize, sortBy, sortOrder));
+    }
+
+    private <T> T scoped(Supplier<T> operation) {
+        if (authorizationService == null) {
+            return operation.get();
+        }
+        return analyticsApiService.withOrganizationScope(
+                authorizationService.resolveCurrent().dataScope(),
+                operation
+        );
     }
 }

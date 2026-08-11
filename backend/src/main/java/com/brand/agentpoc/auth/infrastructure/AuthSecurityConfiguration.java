@@ -64,6 +64,12 @@ public class AuthSecurityConfiguration {
                         .requestMatchers("/api/admin/users/**").hasAuthority("USER_MANAGE")
                         .requestMatchers(HttpMethod.GET, "/api/admin/roles/**").hasAuthority("ROLE_READ")
                         .requestMatchers("/api/admin/roles/**").hasAuthority("ROLE_MANAGE")
+                        .requestMatchers(HttpMethod.GET, "/api/admin/organizations/**")
+                                .hasAuthority("ORGANIZATION_READ")
+                        .requestMatchers("/api/admin/organizations/user-grants/**",
+                                "/api/admin/organizations/role-grants/**")
+                                .hasAuthority("ORGANIZATION_GRANT_MANAGE")
+                        .requestMatchers("/api/admin/organizations/**").hasAuthority("ORGANIZATION_MANAGE")
                         .requestMatchers("/api/dashboard").hasAuthority("DASHBOARD_READ")
                         .requestMatchers("/api/data-status", "/api/v1/data/**", "/api/*/metrics", "/api/*/details")
                                 .hasAuthority("DATA_READ")

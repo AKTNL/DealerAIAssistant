@@ -4,6 +4,7 @@ import com.brand.agentpoc.dto.response.DashboardSummary;
 import com.brand.agentpoc.dto.response.ImportDataStatus;
 import com.brand.agentpoc.entity.Campaign;
 import com.brand.agentpoc.entity.Dealer;
+import com.brand.agentpoc.entity.DealerScoped;
 import com.brand.agentpoc.entity.Lead;
 import com.brand.agentpoc.entity.Opportunity;
 import com.brand.agentpoc.entity.Target;
@@ -13,6 +14,7 @@ import com.brand.agentpoc.repository.LeadRepository;
 import com.brand.agentpoc.repository.OpportunityRepository;
 import com.brand.agentpoc.repository.TargetRepository;
 import com.brand.agentpoc.repository.TaskRepository;
+import com.brand.agentpoc.organization.domain.OrganizationDataScope;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -63,15 +65,27 @@ public class DashboardService {
     }
 
     public DashboardSummary getSummary() {
-        List<Dealer> dealers = active(dealerRepository.findAll());
-        List<Target> targets = active(targetRepository.findAll());
-        List<Opportunity> opportunities = active(opportunityRepository.findAll());
-        List<Lead> leads = active(leadRepository.findAll());
-        List<com.brand.agentpoc.entity.Task> tasks = active(taskRepository.findAll());
-        List<Campaign> campaigns = active(campaignRepository.findAll());
+        return getSummary(OrganizationDataScope.unrestrictedScope());
+    }
+
+    public DashboardSummary getSummary(OrganizationDataScope dataScope) {
+        OrganizationDataScope requiredScope = dataScope == null ? OrganizationDataScope.empty() : dataScope;
+        requiredScope.requireDataAccess();
+        List<Dealer> dealers = scoped(dealerRepository.findAll(), requiredScope);
+        List<Target> targets = scoped(targetRepository.findAll(), requiredScope);
+        List<Opportunity> opportunities = scoped(opportunityRepository.findAll(), requiredScope);
+        List<Lead> leads = scoped(leadRepository.findAll(), requiredScope);
+        List<com.brand.agentpoc.entity.Task> tasks = scoped(taskRepository.findAll(), requiredScope);
+        List<Campaign> campaigns = scoped(campaignRepository.findAll(), requiredScope);
+        int visibleRowCount = dealers.size()
+                + targets.size()
+                + opportunities.size()
+                + leads.size()
+                + tasks.size()
+                + campaigns.size();
 
         return new DashboardSummary(
-                dataStatus(),
+                dataStatus(requiredScope, visibleRowCount),
                 overview(dealers, targets, opportunities, leads, tasks, campaigns),
                 targetAchievement(targets),
                 opportunityFunnel(opportunities),
@@ -81,8 +95,26 @@ public class DashboardService {
         );
     }
 
-    private DashboardSummary.DataStatus dataStatus() {
+    private DashboardSummary.DataStatus dataStatus(
+            OrganizationDataScope dataScope,
+            int visibleRowCount
+    ) {
         ImportDataStatus status = importQualityService.getLatest();
+        if (!dataScope.unrestricted() && !dataScope.rootCoverage()) {
+            return new DashboardSummary.DataStatus(
+                    status.source(),
+                    status.fallbackActive(),
+                    isSimulatedData(status),
+                    false,
+                    "Organization-scoped active data view.",
+                    status.batch(),
+                    visibleRowCount,
+                    visibleRowCount,
+                    0,
+                    0,
+                    List.of()
+            );
+        }
         int issueCount = issueCount(status);
         int skippedRows = status.totals().skippedRows();
         return new DashboardSummary.DataStatus(
@@ -437,6 +469,13 @@ public class DashboardService {
 
     private <T extends com.brand.agentpoc.entity.BatchScoped> List<T> active(List<T> rows) {
         return importBatchService.filterActive(rows);
+    }
+
+    private <T extends com.brand.agentpoc.entity.BatchScoped & DealerScoped> List<T> scoped(
+            List<T> rows,
+            OrganizationDataScope dataScope
+    ) {
+        return dataScope.filter(active(rows), DealerScoped::getDealerCode);
     }
 
     @FunctionalInterface

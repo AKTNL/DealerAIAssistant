@@ -10,6 +10,7 @@ import static org.mockito.Mockito.when;
 import com.brand.agentpoc.config.AppProperties;
 import com.brand.agentpoc.dto.response.DashboardSummary;
 import com.brand.agentpoc.dto.response.ImportDataStatus;
+import com.brand.agentpoc.organization.domain.OrganizationDataScope;
 import com.brand.agentpoc.reporting.domain.ReportDraft;
 import com.brand.agentpoc.reporting.infrastructure.InMemoryReportDraftStore;
 import com.brand.agentpoc.service.DashboardService;
@@ -18,8 +19,10 @@ import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.List;
+import java.util.Set;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.springframework.security.access.AccessDeniedException;
 
 class ReportServiceTest {
 
@@ -89,8 +92,29 @@ class ReportServiceTest {
         assertThatThrownBy(() -> reportService.generate(new ReportGenerationRequest(
                 "daily", "zh", "DEALER", "D001", null
         ))).isInstanceOf(IllegalArgumentException.class)
-                .hasMessage("Only GLOBAL report scope is supported.");
+                .hasMessage("Unsupported report scope type.");
         verifyNoInteractions(dashboardService);
+    }
+
+    @Test
+    void scopesGenerationAndReadbackToServerResolvedOrganizationGrants() {
+        OrganizationDataScope northScope = new OrganizationDataScope(
+                Set.of(2L, 3L, 4L), Set.of(2L), Set.of("NORTH-1"), false, false);
+        OrganizationDataScope southScope = new OrganizationDataScope(
+                Set.of(5L, 6L, 7L), Set.of(5L), Set.of("SOUTH-1"), false, false);
+        when(dashboardService.getSummary(northScope)).thenReturn(summary());
+
+        ReportDraft draft = reportService.generate(new ReportGenerationRequest(
+                "weekly", "en", "GLOBAL", "", null
+        ), northScope);
+
+        assertThat(draft.scope().type()).isEqualTo("ORGANIZATION");
+        assertThat(draft.scope().organizationNodeIds()).containsExactly(2L);
+        assertThat(reportService.require(draft.id(), northScope)).isEqualTo(draft);
+        assertThat(reportService.list(southScope)).isEmpty();
+        assertThatThrownBy(() -> reportService.require(draft.id(), southScope))
+                .isInstanceOf(AccessDeniedException.class)
+                .hasMessageContaining("outside the active organization scope");
     }
 
     @Test

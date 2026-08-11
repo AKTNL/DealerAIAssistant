@@ -12,6 +12,7 @@ import com.brand.agentpoc.knowledge.application.KnowledgeAnswerComposer;
 import com.brand.agentpoc.reporting.application.ReportGenerationRequest;
 import com.brand.agentpoc.reporting.application.ReportService;
 import com.brand.agentpoc.reporting.domain.ReportDraft;
+import com.brand.agentpoc.organization.domain.OrganizationDataScope;
 import com.brand.agentpoc.repository.DealerRepository;
 import java.io.BufferedWriter;
 import java.io.IOException;
@@ -199,8 +200,9 @@ public class ChatService {
         boolean groundedRequested = analyticsRequested || knowledgeRequested;
         String directReply = buildDirectCasualReply(request.message(), language, groundedRequested);
         if (directReply == null) {
-            if (mentionsUnknownDemoEntity(request.message())) {
-                String unknownEntity = extractUnknownDemoEntityName(request.message());
+            if (mentionsUnknownDemoEntity(request.message(), agentScope.organizationDataScope())) {
+                String unknownEntity = extractUnknownDemoEntityName(
+                        request.message(), agentScope.organizationDataScope());
                 directReply = buildEntityNotFoundReply(language, unknownEntity);
             } else if (isOutOfScopeQuestion(request.message(), groundedRequested)) {
                 directReply = buildOutOfScopeReply(language);
@@ -229,7 +231,8 @@ public class ChatService {
                 }
 
                 if (reportRequested && canGenerateReport(agentScope)) {
-                    ReportDraft draft = generateReportDraft(request.message(), language);
+                    ReportDraft draft = generateReportDraft(
+                            request.message(), language, agentScope.organizationDataScope());
                     sseEventWriter.writeEvent(writer, "progress", reportProgressMessages(language).getFirst());
                     sseEventWriter.writeChunkedEvent(writer, "message", draft.markdown());
                     sessionMemoryService.addAssistantMessage(request.sessionId(), draft.markdown());
@@ -239,7 +242,7 @@ public class ChatService {
 
                 boolean configuredModel = hasConfiguredModelSettings(request);
                 AnalyticsPlan analyticsPlan = analyticsRequested
-                        ? analyticsService.plan(request.message(), language, traceId, onStep)
+                        ? planAnalytics(request.message(), language, traceId, onStep, agentScope)
                         : null;
                 List<String> progressMessages = resolveStreamProgressMessages(
                         language,
@@ -648,8 +651,9 @@ public class ChatService {
         if (directReply != null) {
             return new GeneratedReply(directReply, List.of(), "");
         }
-        if (mentionsUnknownDemoEntity(request.message())) {
-            String unknownEntity = extractUnknownDemoEntityName(request.message());
+        if (mentionsUnknownDemoEntity(request.message(), agentScope.organizationDataScope())) {
+            String unknownEntity = extractUnknownDemoEntityName(
+                    request.message(), agentScope.organizationDataScope());
             return new GeneratedReply(buildEntityNotFoundReply(language, unknownEntity), List.of(), "");
         }
         if (isOutOfScopeQuestion(request.message(), groundedRequested)) {
@@ -657,7 +661,8 @@ public class ChatService {
         }
 
         if (reportRequested && canGenerateReport(agentScope)) {
-            ReportDraft draft = generateReportDraft(request.message(), language);
+            ReportDraft draft = generateReportDraft(
+                    request.message(), language, agentScope.organizationDataScope());
             return new GeneratedReply(
                     draft.markdown(),
                     reportProgressMessages(language),
@@ -667,7 +672,7 @@ public class ChatService {
 
         if (!hasConfiguredModelSettings(request)) {
             if (analyticsRequested) {
-                AnalyticsPlan plan = analyticsService.plan(request.message(), language);
+                AnalyticsPlan plan = planAnalytics(request.message(), language, agentScope);
                 return new GeneratedReply(
                         plan.fallbackReply().trim(),
                         plan.progressMessages(),
@@ -742,7 +747,7 @@ public class ChatService {
             String language,
             AgentRequestScope agentScope
     ) {
-        AnalyticsPlan plan = analyticsService.plan(request.message(), language);
+        AnalyticsPlan plan = planAnalytics(request.message(), language, agentScope);
 
         try {
             ChatModel chatModel = modelConfigService.createChatModel(request);
@@ -1225,11 +1230,11 @@ public class ChatService {
             "(?:客户|客戶|顾客|顧客|经销商|门店)\\s*[A-Za-z0-9Ａ-Ｚａ-ｚ０-９_-]{1,30}(?:\\s*(?:的|之))?\\s*(?:目标|商机|线索|任务|活动|达成|转化)"
     );
 
-    private boolean mentionsUnknownDemoEntity(String message) {
-        return extractUnknownDemoEntityName(message) != null;
+    private boolean mentionsUnknownDemoEntity(String message, OrganizationDataScope dataScope) {
+        return extractUnknownDemoEntityName(message, dataScope) != null;
     }
 
-    private String extractUnknownDemoEntityName(String message) {
+    private String extractUnknownDemoEntityName(String message, OrganizationDataScope dataScope) {
         if (!hasText(message)) {
             return null;
         }
@@ -1265,7 +1270,7 @@ public class ChatService {
             if (isGenericInterrogativeEntity(dealerName)) {
                 return null;
             }
-            return isKnownDealer(dealerName) ? null : explicitExtract("经销商" + dealerName);
+            return isKnownDealer(dealerName, dataScope) ? null : explicitExtract("经销商" + dealerName);
         }
 
         Matcher genericUnknownMatcher = UNKNOWN_GENERIC_ENTITY_PATTERN.matcher(message);
@@ -1278,7 +1283,9 @@ public class ChatService {
             if (isGenericInterrogativeEntity(entityName)) {
                 return null;
             }
-            return isKnownDealer(entityName.replaceAll("^经销商|^门店|^店", "")) ? null : explicitExtract(entityName);
+            return isKnownDealer(entityName.replaceAll("^经销商|^门店|^店", ""), dataScope)
+                    ? null
+                    : explicitExtract(entityName);
         }
 
         return null;
@@ -1304,12 +1311,14 @@ public class ChatService {
                 "\u6700\u4f4e");
     }
 
-    private boolean isKnownDealer(String dealerName) {
+    private boolean isKnownDealer(String dealerName, OrganizationDataScope dataScope) {
         if (!hasText(dealerName)) {
             return true;
         }
         String normalizedName = dealerName.trim();
-        return importBatchService.filterActive(dealerRepository.findAll()).stream()
+        List<com.brand.agentpoc.entity.Dealer> activeDealers = importBatchService.filterActive(dealerRepository.findAll());
+        OrganizationDataScope requiredScope = dataScope == null ? OrganizationDataScope.empty() : dataScope;
+        return requiredScope.filter(activeDealers, com.brand.agentpoc.entity.Dealer::getDealerCode).stream()
                 .anyMatch(dealer -> {
                     String code = dealer.getDealerCode();
                     String name = dealer.getDealerName();
@@ -1437,6 +1446,9 @@ public class ChatService {
         if (scope == null || !scope.authenticated()) {
             throw new org.springframework.security.access.AccessDeniedException("Authenticated chat scope is required.");
         }
+        if (analyticsRequested || knowledgeRequested || reportRequested) {
+            scope.organizationDataScope().requireDataAccess();
+        }
         if (reportRequested && !scope.hasPermission(PermissionKey.REPORT_GENERATE)) {
             throw new org.springframework.security.access.AccessDeniedException("Report generation is not allowed.");
         }
@@ -1448,7 +1460,11 @@ public class ChatService {
         }
     }
 
-    private ReportDraft generateReportDraft(String message, String language) {
+    private ReportDraft generateReportDraft(
+            String message,
+            String language,
+            OrganizationDataScope dataScope
+    ) {
         String normalized = message == null ? "" : message.toLowerCase(Locale.ROOT);
         String reportType;
         if (containsAny(normalized, "周报", "weekly report")) {
@@ -1461,13 +1477,40 @@ public class ChatService {
             reportType = "daily";
         }
         String topic = "topic".equals(reportType) ? message : null;
-        return reportService.generate(new ReportGenerationRequest(
+        ReportGenerationRequest request = new ReportGenerationRequest(
                 reportType,
                 language,
                 "GLOBAL",
                 "",
                 topic
-        ));
+        );
+        return dataScope.unrestricted()
+                ? reportService.generate(request)
+                : reportService.generate(request, dataScope);
+    }
+
+    private AnalyticsPlan planAnalytics(
+            String message,
+            String language,
+            AgentRequestScope agentScope
+    ) {
+        OrganizationDataScope dataScope = agentScope.organizationDataScope();
+        return dataScope.unrestricted()
+                ? analyticsService.plan(message, language)
+                : analyticsService.plan(message, language, dataScope);
+    }
+
+    private AnalyticsPlan planAnalytics(
+            String message,
+            String language,
+            String traceId,
+            Consumer<StepEvent> onStep,
+            AgentRequestScope agentScope
+    ) {
+        OrganizationDataScope dataScope = agentScope.organizationDataScope();
+        return dataScope.unrestricted()
+                ? analyticsService.plan(message, language, traceId, onStep)
+                : analyticsService.plan(message, language, traceId, onStep, dataScope);
     }
 
     private List<String> reportProgressMessages(String language) {

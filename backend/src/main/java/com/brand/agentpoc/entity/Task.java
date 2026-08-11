@@ -10,7 +10,7 @@ import java.time.LocalDate;
 
 @Entity
 @Table(name = "dealer_tasks")
-public class Task implements BatchScoped {
+public class Task implements BatchScoped, DealerScoped {
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)

@@ -27,12 +27,14 @@ public class ControlledAgentToolCallbacks {
 
     private final Map<AgentToolName, ToolCallback> callbacksByName;
     private final AgentScopeVerifier scopeVerifier;
+    private final ControlledAgentToolAdapter toolAdapter;
 
     public ControlledAgentToolCallbacks(
             ControlledAgentToolAdapter toolAdapter,
             AgentScopeVerifier scopeVerifier
     ) {
         this.scopeVerifier = scopeVerifier;
+        this.toolAdapter = toolAdapter;
         this.callbacksByName = indexCallbacks(toolAdapter);
     }
 
@@ -44,7 +46,7 @@ public class ControlledAgentToolCallbacks {
         );
         List<ToolCallback> guardedCallbacks = context.policy().allowedTools().stream()
                 .map(callbacksByName::get)
-                .map(callback -> new GuardedToolCallback(callback, context, scopeVerifier))
+                .map(callback -> new GuardedToolCallback(callback, context, scopeVerifier, toolAdapter))
                 .map(ToolCallback.class::cast)
                 .toList();
         return new ControlledAgentToolSession(context.traceId(), guardedCallbacks);
@@ -74,16 +76,19 @@ public class ControlledAgentToolCallbacks {
         private final ToolCallback delegate;
         private final AgentExecutionContext executionContext;
         private final AgentScopeVerifier scopeVerifier;
+        private final ControlledAgentToolAdapter toolAdapter;
         private final AgentToolName toolName;
 
         private GuardedToolCallback(
                 ToolCallback delegate,
                 AgentExecutionContext executionContext,
-                AgentScopeVerifier scopeVerifier
+                AgentScopeVerifier scopeVerifier,
+                ControlledAgentToolAdapter toolAdapter
         ) {
             this.delegate = delegate;
             this.executionContext = executionContext;
             this.scopeVerifier = scopeVerifier;
+            this.toolAdapter = toolAdapter;
             this.toolName = executionContext.policy().requireAllowed(delegate.getToolDefinition().name());
         }
 
@@ -121,9 +126,12 @@ public class ControlledAgentToolCallbacks {
             }
 
             try {
-                String result = toolContext == null
-                        ? delegate.call(toolInput)
-                        : delegate.call(toolInput, toolContext);
+                String result = toolAdapter.withOrganizationScope(
+                        executionContext.scope().organizationDataScope(),
+                        () -> toolContext == null
+                                ? delegate.call(toolInput)
+                                : delegate.call(toolInput, toolContext)
+                );
                 record(TraceStatus.SUCCESS, "completed");
                 return result;
             } catch (IllegalArgumentException exception) {

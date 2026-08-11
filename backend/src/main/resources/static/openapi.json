@@ -430,7 +430,7 @@
           "scope": {
             "type": "object",
             "properties": {
-              "type": { "type": "string", "enum": ["GLOBAL"] },
+              "type": { "type": "string", "enum": ["GLOBAL", "ORGANIZATION"] },
               "id": { "type": "string" }
             }
           },
@@ -444,8 +444,8 @@
         "properties": {
           "reportType": { "type": "string", "enum": ["daily", "weekly", "monthly", "topic"] },
           "language": { "type": "string", "enum": ["zh", "en"] },
-          "scopeType": { "type": "string", "default": "GLOBAL" },
-          "scopeId": { "type": "string" },
+          "scopeType": { "type": "string", "default": "GLOBAL", "description": "兼容字段；认证请求的实际范围始终由服务端组织 grant 决定。" },
+          "scopeId": { "type": "string", "description": "不作为可信授权范围；服务端不会用它扩大当前用户范围。" },
           "topic": { "type": "string", "maxLength": 500 }
         }
       },
@@ -465,6 +465,65 @@
           "data": {
             "type": "array",
             "items": { "$ref": "#/components/schemas/ReportDraft" }
+          }
+        }
+      },
+      "OrganizationNode": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "integer", "format": "int64" },
+          "nodeKey": { "type": "string" },
+          "displayName": { "type": "string" },
+          "nodeType": { "type": "string", "enum": ["GROUP", "REGION", "CITY", "DEALER"] },
+          "parentId": { "type": "integer", "format": "int64", "nullable": true },
+          "enabled": { "type": "boolean" }
+        }
+      },
+      "OrganizationNodeRequest": {
+        "type": "object",
+        "required": ["nodeKey", "displayName", "nodeType", "enabled"],
+        "properties": {
+          "nodeKey": { "type": "string", "pattern": "^[A-Z0-9:_-]{2,128}$" },
+          "displayName": { "type": "string", "maxLength": 128 },
+          "nodeType": { "type": "string", "enum": ["GROUP", "REGION", "CITY", "DEALER"] },
+          "parentId": { "type": "integer", "format": "int64", "nullable": true },
+          "enabled": { "type": "boolean" }
+        }
+      },
+      "OrganizationNodeUpdateRequest": {
+        "type": "object",
+        "required": ["displayName", "nodeType", "enabled"],
+        "properties": {
+          "displayName": { "type": "string", "maxLength": 128 },
+          "nodeType": { "type": "string", "enum": ["GROUP", "REGION", "CITY", "DEALER"] },
+          "parentId": { "type": "integer", "format": "int64", "nullable": true },
+          "enabled": { "type": "boolean" }
+        }
+      },
+      "OrganizationDealerMapping": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "integer", "format": "int64" },
+          "organizationNodeId": { "type": "integer", "format": "int64" },
+          "dealerCode": { "type": "string" }
+        }
+      },
+      "OrganizationGrant": {
+        "type": "object",
+        "required": ["organizationNodeId", "includeDescendants"],
+        "properties": {
+          "organizationNodeId": { "type": "integer", "format": "int64" },
+          "includeDescendants": { "type": "boolean" }
+        }
+      },
+      "OrganizationGrantsRequest": {
+        "type": "object",
+        "required": ["grants"],
+        "properties": {
+          "grants": {
+            "type": "array",
+            "uniqueItems": true,
+            "items": { "$ref": "#/components/schemas/OrganizationGrant" }
           }
         }
       }
@@ -619,6 +678,71 @@
         "summary": "更新自定义角色权限并撤销受影响会话",
         "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "integer", "format": "int64" } }],
         "responses": { "200": { "description": "权限已更新" }, "400": { "description": "预置角色受保护或权限键无效" } }
+      }
+    },
+    "/api/admin/organizations/nodes": {
+      "get": {
+        "operationId": "listOrganizationNodes",
+        "summary": "列出组织树节点（ORGANIZATION_READ）",
+        "responses": { "200": { "description": "组织节点列表" }, "403": { "description": "缺少 ORGANIZATION_READ" } }
+      },
+      "post": {
+        "operationId": "createOrganizationNode",
+        "summary": "创建组织树节点（ORGANIZATION_MANAGE）",
+        "requestBody": {
+          "required": true,
+          "content": { "application/json": { "schema": { "$ref": "#/components/schemas/OrganizationNodeRequest" } } }
+        },
+        "responses": { "200": { "description": "节点已创建" }, "400": { "description": "层级、类型或节点键无效" } }
+      }
+    },
+    "/api/admin/organizations/nodes/{nodeId}": {
+      "put": {
+        "operationId": "updateOrganizationNode",
+        "summary": "更新节点并拒绝组织环或跨根挂载（ORGANIZATION_MANAGE）",
+        "parameters": [{ "name": "nodeId", "in": "path", "required": true, "schema": { "type": "integer", "format": "int64" } }],
+        "requestBody": {
+          "required": true,
+          "content": { "application/json": { "schema": { "$ref": "#/components/schemas/OrganizationNodeUpdateRequest" } } }
+        },
+        "responses": { "200": { "description": "节点已更新" }, "400": { "description": "组织环、跨根挂载、未知或禁用父节点" } }
+      }
+    },
+    "/api/admin/organizations/dealer-mappings": {
+      "get": {
+        "operationId": "listOrganizationDealerMappings",
+        "summary": "列出经销商到组织节点的映射（ORGANIZATION_READ）",
+        "responses": { "200": { "description": "经销商映射列表" } }
+      }
+    },
+    "/api/admin/organizations/dealer-mappings/{dealerCode}": {
+      "put": {
+        "operationId": "mapDealerToOrganization",
+        "summary": "把 active batch 经销商映射到启用的 DEALER 节点（ORGANIZATION_MANAGE）",
+        "parameters": [{ "name": "dealerCode", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "requestBody": {
+          "required": true,
+          "content": { "application/json": { "schema": { "type": "object", "required": ["organizationNodeId"], "properties": { "organizationNodeId": { "type": "integer", "format": "int64" } } } } }
+        },
+        "responses": { "200": { "description": "映射已替换" }, "400": { "description": "未知经销商或组织节点" } }
+      }
+    },
+    "/api/admin/organizations/user-grants/{userId}": {
+      "put": {
+        "operationId": "replaceUserOrganizationGrants",
+        "summary": "替换用户组织 grant（ORGANIZATION_GRANT_MANAGE）",
+        "parameters": [{ "name": "userId", "in": "path", "required": true, "schema": { "type": "integer", "format": "int64" } }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/OrganizationGrantsRequest" } } } },
+        "responses": { "200": { "description": "用户 grant 已替换；下一请求生效" }, "400": { "description": "未知用户、未知或禁用节点" } }
+      }
+    },
+    "/api/admin/organizations/role-grants/{roleId}": {
+      "put": {
+        "operationId": "replaceRoleOrganizationGrants",
+        "summary": "替换角色组织 grant（ORGANIZATION_GRANT_MANAGE）",
+        "parameters": [{ "name": "roleId", "in": "path", "required": true, "schema": { "type": "integer", "format": "int64" } }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/OrganizationGrantsRequest" } } } },
+        "responses": { "200": { "description": "角色 grant 已替换；下一请求生效" }, "400": { "description": "未知角色、未知或禁用节点" } }
       }
     },
     "/api/dashboard": {

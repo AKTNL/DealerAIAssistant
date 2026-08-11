@@ -6,6 +6,7 @@ import com.brand.agentpoc.dto.response.DataQueryResponse;
 import com.brand.agentpoc.entity.BatchScoped;
 import com.brand.agentpoc.entity.Campaign;
 import com.brand.agentpoc.entity.Dealer;
+import com.brand.agentpoc.entity.DealerScoped;
 import com.brand.agentpoc.entity.Lead;
 import com.brand.agentpoc.entity.Opportunity;
 import com.brand.agentpoc.entity.Target;
@@ -16,6 +17,7 @@ import com.brand.agentpoc.repository.LeadRepository;
 import com.brand.agentpoc.repository.OpportunityRepository;
 import com.brand.agentpoc.repository.TargetRepository;
 import com.brand.agentpoc.repository.TaskRepository;
+import com.brand.agentpoc.organization.domain.OrganizationDataScope;
 import com.brand.agentpoc.service.analytics.AnalyticsCalculator;
 import com.brand.agentpoc.service.analytics.AnalyticsChartRenderer;
 import com.brand.agentpoc.service.analytics.AnalyticsChartRenderer.ChartEntityType;
@@ -165,7 +167,13 @@ public class RuleBasedAnalyticsService {
     }
 
     public AnalyticsPlan plan(String message, String language) {
-        analysisDataCache.set(new AnalysisDataCache());
+        return plan(message, language, OrganizationDataScope.unrestrictedScope());
+    }
+
+    public AnalyticsPlan plan(String message, String language, OrganizationDataScope dataScope) {
+        OrganizationDataScope requiredScope = dataScope == null ? OrganizationDataScope.empty() : dataScope;
+        requiredScope.requireDataAccess();
+        analysisDataCache.set(new AnalysisDataCache(requiredScope));
         try {
             AnalysisTopic topic = detectTopic(message);
             AnalyticsPlan.Scenario scenario = mapScenario(topic);
@@ -213,7 +221,19 @@ public class RuleBasedAnalyticsService {
     }
 
     public AnalyticsPlan plan(String message, String language, String traceId, Consumer<StepEvent> onStep) {
-        analysisDataCache.set(new AnalysisDataCache());
+        return plan(message, language, traceId, onStep, OrganizationDataScope.unrestrictedScope());
+    }
+
+    public AnalyticsPlan plan(
+            String message,
+            String language,
+            String traceId,
+            Consumer<StepEvent> onStep,
+            OrganizationDataScope dataScope
+    ) {
+        OrganizationDataScope requiredScope = dataScope == null ? OrganizationDataScope.empty() : dataScope;
+        requiredScope.requireDataAccess();
+        analysisDataCache.set(new AnalysisDataCache(requiredScope));
         AtomicInteger seq = new AtomicInteger(1);
         try {
             AnalysisTopic topic = detectTopic(message);
@@ -423,7 +443,14 @@ public class RuleBasedAnalyticsService {
 
     private AnalysisDataCache cache() {
         AnalysisDataCache cache = analysisDataCache.get();
-        return cache != null ? cache : new AnalysisDataCache();
+        return cache != null ? cache : new AnalysisDataCache(OrganizationDataScope.unrestrictedScope());
+    }
+
+    private DataQueryResponse queryData(String dataset, Map<String, String> filters) {
+        OrganizationDataScope dataScope = cache().dataScope();
+        return dataScope.unrestricted()
+                ? dataQueryService.query(dataset, filters)
+                : dataQueryService.query(dataset, filters, dataScope);
     }
 
     private SalesFollowUpFocus detectSalesFollowUpFocus(String message) {
@@ -906,7 +933,7 @@ public class RuleBasedAnalyticsService {
             return directResult;
         }
 
-        DataQueryResponse response = dataQueryService.query("opportunities", buildQueryFilters(scope, true));
+        DataQueryResponse response = queryData("opportunities", buildQueryFilters(scope, true));
         if (!response.items().isEmpty()) {
             return analyzeOpportunityFunnelFromQuery(response, scope, language);
         }
@@ -1166,7 +1193,7 @@ public class RuleBasedAnalyticsService {
             return directResult;
         }
 
-        DataQueryResponse response = dataQueryService.query("tasks", buildQueryFilters(scope, false));
+        DataQueryResponse response = queryData("tasks", buildQueryFilters(scope, false));
         if (!response.items().isEmpty()) {
             return analyzeSalesFollowUpFromQuery(response, scope, language, focus);
         }
@@ -1688,7 +1715,7 @@ public class RuleBasedAnalyticsService {
             return directResult;
         }
 
-        DataQueryResponse response = dataQueryService.query("campaigns", buildQueryFilters(scope, true));
+        DataQueryResponse response = queryData("campaigns", buildQueryFilters(scope, true));
         if (!response.items().isEmpty()) {
             return analyzeCampaignPerformanceFromQuery(response, scope, language, traceId, seq, onStep);
         }
@@ -1930,7 +1957,7 @@ public class RuleBasedAnalyticsService {
             return directResult;
         }
 
-        DataQueryResponse response = dataQueryService.query("leads", buildQueryFilters(scope, true));
+        DataQueryResponse response = queryData("leads", buildQueryFilters(scope, true));
         if (!response.items().isEmpty()) {
             return analyzeLeadSourceFromQuery(response, scope, language, traceId, seq, onStep);
         }
@@ -5308,6 +5335,7 @@ public class RuleBasedAnalyticsService {
 
     private final class AnalysisDataCache {
 
+        private final OrganizationDataScope dataScope;
         private List<Dealer> dealers;
         private List<Target> targets;
         private List<Opportunity> opportunities;
@@ -5315,51 +5343,62 @@ public class RuleBasedAnalyticsService {
         private List<Task> tasks;
         private List<Lead> leads;
 
+        private AnalysisDataCache(OrganizationDataScope dataScope) {
+            this.dataScope = dataScope;
+        }
+
+        private OrganizationDataScope dataScope() {
+            return dataScope;
+        }
+
         private List<Dealer> dealers() {
             if (dealers == null) {
-                dealers = active(dealerRepository.findAll());
+                dealers = scoped(dealerRepository.findAll(), dataScope);
             }
             return dealers;
         }
 
         private List<Target> targets() {
             if (targets == null) {
-                targets = active(targetRepository.findAll());
+                targets = scoped(targetRepository.findAll(), dataScope);
             }
             return targets;
         }
 
         private List<Opportunity> opportunities() {
             if (opportunities == null) {
-                opportunities = active(opportunityRepository.findAll());
+                opportunities = scoped(opportunityRepository.findAll(), dataScope);
             }
             return opportunities;
         }
 
         private List<Campaign> campaigns() {
             if (campaigns == null) {
-                campaigns = active(campaignRepository.findAll());
+                campaigns = scoped(campaignRepository.findAll(), dataScope);
             }
             return campaigns;
         }
 
         private List<Task> tasks() {
             if (tasks == null) {
-                tasks = active(taskRepository.findAll());
+                tasks = scoped(taskRepository.findAll(), dataScope);
             }
             return tasks;
         }
 
         private List<Lead> leads() {
             if (leads == null) {
-                leads = active(leadRepository.findAll());
+                leads = scoped(leadRepository.findAll(), dataScope);
             }
             return leads;
         }
     }
 
-    private <T extends BatchScoped> List<T> active(List<T> rows) {
-        return importBatchService.filterActive(rows);
+    private <T extends BatchScoped & DealerScoped> List<T> scoped(
+            List<T> rows,
+            OrganizationDataScope dataScope
+    ) {
+        return dataScope.filter(importBatchService.filterActive(rows), DealerScoped::getDealerCode);
     }
 
     private enum SalesFollowUpFocus {

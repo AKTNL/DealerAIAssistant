@@ -6,9 +6,11 @@ import com.brand.agentpoc.dto.response.ApiPage;
 import com.brand.agentpoc.dto.response.ApiResult;
 import com.brand.agentpoc.entity.*;
 import com.brand.agentpoc.repository.*;
+import com.brand.agentpoc.organization.domain.OrganizationDataScope;
 import java.time.LocalDate;
 import java.util.*;
 import java.util.function.Function;
+import java.util.function.Supplier;
 import java.util.stream.Collectors;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.slf4j.Logger;
@@ -29,6 +31,7 @@ public class AnalyticsApiService {
     private final TargetRepository targetRepository;
     private final LeadRepository leadRepository;
     private final ImportBatchService importBatchService;
+    private final ThreadLocal<OrganizationDataScope> organizationScope = new ThreadLocal<>();
 
     @Autowired
     public AnalyticsApiService(
@@ -69,6 +72,22 @@ public class AnalyticsApiService {
     }
 
     // ── Targets ────────────────────────────────────────
+
+    public <T> T withOrganizationScope(OrganizationDataScope dataScope, Supplier<T> operation) {
+        OrganizationDataScope requiredScope = dataScope == null ? OrganizationDataScope.empty() : dataScope;
+        requiredScope.requireDataAccess();
+        OrganizationDataScope previous = organizationScope.get();
+        organizationScope.set(requiredScope);
+        try {
+            return operation.get();
+        } finally {
+            if (previous == null) {
+                organizationScope.remove();
+            } else {
+                organizationScope.set(previous);
+            }
+        }
+    }
 
     @Transactional(readOnly = true)
     public ApiResult<TargetMetrics> getTargetMetrics(Integer year, Integer month, String productModel, String dealerCode) {
@@ -510,8 +529,10 @@ public class AnalyticsApiService {
         return active(campaignRepository.findAll());
     }
 
-    private <T extends BatchScoped> List<T> active(List<T> rows) {
-        return importBatchService.filterActive(rows);
+    private <T extends BatchScoped & DealerScoped> List<T> active(List<T> rows) {
+        List<T> activeRows = importBatchService.filterActive(rows);
+        OrganizationDataScope dataScope = organizationScope.get();
+        return dataScope == null ? activeRows : dataScope.filter(activeRows, DealerScoped::getDealerCode);
     }
 
     private LocalDate parseDate(String fieldName, String value) {

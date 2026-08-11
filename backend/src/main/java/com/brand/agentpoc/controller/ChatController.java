@@ -2,6 +2,8 @@ package com.brand.agentpoc.controller;
 
 import com.brand.agentpoc.agent.domain.AgentRequestScope;
 import com.brand.agentpoc.auth.domain.AuthPrincipal;
+import com.brand.agentpoc.organization.application.OrganizationAuthorizationService;
+import com.brand.agentpoc.organization.domain.OrganizationDataScope;
 import com.brand.agentpoc.dto.request.ChatRequest;
 import com.brand.agentpoc.dto.response.ChatResponse;
 import com.brand.agentpoc.dto.response.SimpleSuccessResponse;
@@ -9,6 +11,7 @@ import com.brand.agentpoc.service.ChatService;
 import com.brand.agentpoc.service.SessionMemoryService;
 import com.brand.agentpoc.service.SessionOwnershipService;
 import jakarta.validation.Valid;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
@@ -28,15 +31,27 @@ public class ChatController {
     private final ChatService chatService;
     private final SessionMemoryService sessionMemoryService;
     private final SessionOwnershipService sessionOwnershipService;
+    private final OrganizationAuthorizationService authorizationService;
 
     public ChatController(
             ChatService chatService,
             SessionMemoryService sessionMemoryService,
             SessionOwnershipService sessionOwnershipService
     ) {
+        this(chatService, sessionMemoryService, sessionOwnershipService, null);
+    }
+
+    @Autowired
+    public ChatController(
+            ChatService chatService,
+            SessionMemoryService sessionMemoryService,
+            SessionOwnershipService sessionOwnershipService,
+            OrganizationAuthorizationService authorizationService
+    ) {
         this.chatService = chatService;
         this.sessionMemoryService = sessionMemoryService;
         this.sessionOwnershipService = sessionOwnershipService;
+        this.authorizationService = authorizationService;
     }
 
     @PostMapping
@@ -51,7 +66,7 @@ public class ChatController {
         }
 
         AgentRequestScope agentScope = AgentRequestScope.authenticated(
-                request.sessionId(), tokenSubject, principal.permissions());
+                request.sessionId(), tokenSubject, principal.permissions(), dataScope(principal));
         chatService.authorizeRequest(request, agentScope);
         return ResponseEntity.ok(new ChatResponse(chatService.chat(request, agentScope)));
     }
@@ -68,7 +83,7 @@ public class ChatController {
         }
 
         AgentRequestScope agentScope = AgentRequestScope.authenticated(
-                request.sessionId(), tokenSubject, principal.permissions());
+                request.sessionId(), tokenSubject, principal.permissions(), dataScope(principal));
         chatService.authorizeRequest(request, agentScope);
         StreamingResponseBody responseBody = outputStream -> chatService.streamChat(request, outputStream, agentScope);
         return ResponseEntity.ok()
@@ -94,6 +109,12 @@ public class ChatController {
 
     private AuthPrincipal principal(Authentication authentication) {
         return (AuthPrincipal) authentication.getPrincipal();
+    }
+
+    private OrganizationDataScope dataScope(AuthPrincipal principal) {
+        return authorizationService == null
+                ? OrganizationDataScope.unrestrictedScope()
+                : authorizationService.resolve(principal).dataScope();
     }
 
 }
