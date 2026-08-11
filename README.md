@@ -4,7 +4,7 @@
 
 ## 当前交付状态
 
-截至 2026-08-11，P0 MVP、P1 首版与 P2-1A 身份/RBAC/会话基础已完成：
+截至 2026-08-11，P0 MVP、P1 首版与 P2-1A/P2-1B 权限及组织范围基础已完成：
 
 | 阶段 | 状态 | 已交付范围 |
 | --- | --- | --- |
@@ -14,8 +14,9 @@
 | P1-4 RAG 知识库 | 已完成 | 受控 Markdown 知识、带引用检索、内存与 PGvector adapters |
 | P1-5 自动报告 | 已完成 | 确定性 Markdown 报告草稿、HTTP/Agent 入口、内存与 JDBC 记录 |
 | P2-1A 身份、RBAC 与会话 | 已完成 | 数据库用户、可配置角色、opaque access/refresh、管理 API、安全审计、统一业务授权 |
+| P2-1B 组织树与数据范围 | 已完成 | 集团/区域/城市/经销商树、用户/角色 grant、服务端 dealer 范围、HTTP/SSE/Agent/报告一致过滤 |
 
-这里的“已完成”指相应代码、回归和文档范围。真实 PostgreSQL 凭据环境仍需部署时手工验收；组织树/数据范围、权限管理图形界面、多租户、报告 PDF/Word 导出、任意文档上传与知识隔离属于后续增强。
+这里的“已完成”指相应代码、回归和文档范围。真实 PostgreSQL 凭据环境仍需部署时手工验收；权限/组织管理图形界面、多租户、报告 PDF/Word 导出、任意文档上传与知识隔离属于后续增强。
 
 ## 项目定位
 
@@ -154,7 +155,7 @@ mvn "-Dfrontend.skip=true" spring-boot:run
 
 ### 持久化数据库模式
 
-生产形态使用 PostgreSQL + Flyway。Flyway 会在启动时执行 `backend/src/main/resources/db/migration/` 和 `backend/src/main/resources/db/postgresql/` 下尚未应用的迁移，生产环境的 Hibernate 只校验 schema，不自动修改表结构。
+生产形态使用 PostgreSQL + Flyway。Flyway 会在启动时执行 `backend/src/main/resources/db/migration/` 和 `backend/src/main/resources/db/postgresql/` 下尚未应用的迁移，生产环境的 Hibernate 只校验 schema，不自动修改表结构。`V5__create_organization_scope_schema.sql` 增加组织节点、经销商映射、用户/角色 grant，并把已有全局数据的归属入口显式固定为 `GLOBAL_ROOT`；它不会自动给普通存量用户扩大范围，只有预置 `ADMIN` 角色由启动初始化获得根节点后代 grant。
 
 PowerShell 示例：
 
@@ -243,6 +244,7 @@ npm run dev
 - refresh token 只通过 HttpOnly Cookie 传输，并在每次刷新时轮换；旧 refresh token 重放会撤销整个会话族。前端对并发 401 只发起一个 refresh 请求。
 - Dashboard、数据、Chat、知识、报告、模型测试和管理 API 分别检查固定权限键；权限和账号状态来自数据库，变更会即时撤销受影响会话。
 - `ADMIN`、`ANALYST`、`VIEWER` 是幂等预置角色；自定义角色只能组合代码内固定的权限目录。系统拒绝停用或移除最后一个有效管理员的管理能力。
+- 数据读取还会实时合并用户与角色的组织 grant。`includeDescendants=false` 只允许当前节点；客户端传入的 `dealerCode`、城市或组织相关参数只能缩小服务端范围，不能扩大范围。
 - 可通过 `APP_MODEL_BASE_URL`、`APP_MODEL_API_KEY`、`APP_MODEL_NAME` 配置后端默认模型连接；浏览器 `localStorage` 中的模型设置会随聊天请求发送，并优先覆盖后端默认值。
 - 模型 `Base URL` 会拒绝 localhost、内网地址和未进入允许列表的主机，允许列表可通过 `APP_MODEL_ALLOWED_HOSTS` 配置。
 
@@ -259,6 +261,9 @@ npm run dev
 | `/api/auth/logout` / `/api/auth/logout-all` | POST | 通过受 Origin 保护的 refresh Cookie 撤销当前会话族 / 通过 Bearer 撤销全部会话 |
 | `/api/admin/users/**` | GET/POST/PATCH/PUT | 用户查询、创建、启停、重置密码与角色分配 |
 | `/api/admin/roles/**` | GET/POST/PUT | 角色查询、创建和权限组合更新 |
+| `/api/admin/organizations/nodes/**` | GET/POST/PUT | 组织节点查询、创建、启停与受约束重挂载 |
+| `/api/admin/organizations/dealer-mappings/**` | GET/PUT | active batch 经销商到 `DEALER` 节点的映射 |
+| `/api/admin/organizations/user-grants/**` / `role-grants/**` | PUT | 替换用户或角色组织 grant，下一次请求读取数据库最新状态 |
 | `/api/chat` | POST | 同步聊天 |
 | `/api/chat/stream` | POST | SSE 流式聊天 |
 | `/api/chat/{sessionId}` | DELETE | 清空指定会话记忆 |
@@ -267,7 +272,7 @@ npm run dev
 
 ### 报告草稿 API
 
-报告 API 复用 Dashboard 的 active-batch 指标服务，默认只允许 `GLOBAL` scope。草稿保存生成时间、数据批次、模型名和 prompt 版本，可直接导出 Markdown；PDF/Word 不在 P1-5 范围内。
+报告 API 复用 Dashboard 的 active-batch 指标服务，并以服务端解析的组织 grant 生成 `ORGANIZATION` scope；请求体中的 scope 字段不作为可信授权输入。草稿保存生成时间、数据批次、组织范围、模型名和 prompt 版本，读取与 Markdown 导出也会重新校验当前 grant；PDF/Word 不在当前范围内。
 
 | 接口 | 方法 | 说明 |
 | --- | --- | --- |
@@ -430,6 +435,7 @@ mvn clean install
 | `backend/src/main/java/com/brand/agentpoc/service/ImportQualityService.java` | 保存最近一次导入来源和质量汇总 |
 | `backend/src/main/java/com/brand/agentpoc/controller/DataStatusController.java` | 登录态数据质量状态接口 |
 | `backend/src/main/java/com/brand/agentpoc/auth/` | 用户身份、RBAC、opaque access/refresh 会话、管理 API 与安全审计 |
+| `backend/src/main/java/com/brand/agentpoc/organization/` | 组织树、经销商映射、用户/角色 grant、统一授权上下文与管理 API |
 | `frontend/src/composables/useChat.js` | 前端聊天状态、SSE 解析（step/analysis_metadata/progress/message/done/error）、`<think>` 标签流式解析、streamPhase 管理 |
 | `frontend/src/utils/markdown.js` | Markdown、HTML 表格、Mermaid fence 渲染 |
 | `frontend/src/components/chat/AssistantMessage.vue` | AI 消息、分析口径横幅、统一时间线面板、追问按钮和 Mermaid 图表交互 |

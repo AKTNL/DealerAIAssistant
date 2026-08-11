@@ -833,6 +833,13 @@ mockMvc = MockMvcBuilders.standaloneSetup(
         .build();
 ```
 
+Legacy controllers that have `standaloneSetup()` tests and a compatibility constructor must not add a required
+`@AuthenticationPrincipal` handler parameter without configuring Spring Security argument resolvers in every test.
+For organization-scoped legacy controllers, the production constructor receives
+`OrganizationAuthorizationService`, and handlers call `resolveCurrent()`; the compatibility constructor keeps the
+existing unscoped service overload only for isolated regression tests. Test `resolveCurrent()` separately with a real
+`SecurityContextHolder` principal and assert that missing/wrong principals are denied.
+
 **SSE payload tests normalize line endings**:
 
 CI runs on Linux while local development may happen on Windows. Tests that
@@ -909,8 +916,8 @@ Start-Process -FilePath "mvn.cmd" -ArgumentList @("-Dfrontend.skip=true", "sprin
   - `GET /api/reports/drafts -> ApiResult<List<ReportDraft>>`
   - `GET /api/reports/drafts/{id} -> ApiResult<ReportDraft>`
   - `GET /api/reports/drafts/{id}/markdown -> text/markdown;charset=UTF-8`
-- Application entry point: `ReportService.generate(ReportGenerationRequest): ReportDraft`
-- Controlled tool: `generateReportDraft(String reportType, String language, String topic): ReportDraft`
+- Application entry points: legacy `ReportService.generate(ReportGenerationRequest)` and production `generate(request, OrganizationDataScope)`.
+- Controlled tool: `generateReportDraft(String reportType, String language, String topic)` with the request's `OrganizationDataScope` propagated by the guarded callback.
 - Production schema: `db/postgresql/V3__create_report_drafts.sql -> report_drafts`
 - Store profiles: `InMemoryReportDraftStore` for `!prod`; `JdbcReportDraftStore` for `prod`.
 
@@ -919,22 +926,23 @@ Start-Process -FilePath "mvn.cmd" -ArgumentList @("-Dfrontend.skip=true", "sprin
 - Request fields:
   - `reportType`: required; `daily`, `weekly`, `monthly`, or `topic` (domain parsing may also accept the documented Chinese aliases).
   - `language`: required; exactly `zh` or `en` after case normalization.
-  - `scopeType`: optional; defaults to `GLOBAL`. No other scope is supported in P1-5.
-  - `scopeId`: must be blank for `GLOBAL`.
+  - `scopeType` / `scopeId`: compatibility fields only. They are validated but never expand the authenticated caller's server-resolved organization scope.
   - `topic`: required for a topic report and limited to 500 characters.
 - Every persisted draft records `reportType`, `language`, `markdown`, `generatedAt`, `importBatchId`, `scope`, `model`, and `promptVersion`.
-- Generation reads `DashboardService.getSummary()` and the active batch only. It must not infer unavailable trends, causes, organization scopes, or historical facts.
+- Generation reads `DashboardService.getSummary(OrganizationDataScope)` and the active batch only. It must not infer unavailable trends, causes, or historical facts.
+- Organization-scoped drafts persist sorted grant-node anchors in `ReportScope(type=ORGANIZATION, id=...)`; list/read/export compare those anchors with the caller's current effective nodes.
 - The controller returns the standard `ApiResult` envelope for JSON endpoints. The OpenAPI response schema must describe that envelope, not a bare draft or array.
 - `/api/reports/**` requires `REPORT_READ` for GET and `REPORT_GENERATE` for POST through `AuthSecurityConfiguration`.
 - Sync and SSE chat may call the reporting port directly only for an explicit report request with an authenticated, `activeBatchOnly=true` `AgentRequestScope`; both return the same recorded Markdown draft.
-- Markdown is the only export in P1-5. PDF/Word export, subscriptions, organization scope, and tenant history are outside this contract.
+- Markdown is the only export in P1-5/P2-1B. PDF/Word export, subscriptions, and tenant history remain outside this contract.
 
 ### 4. Validation & Error Matrix
 
 - Missing request, report type, or language -> HTTP 400 / `IllegalArgumentException`; do not read Dashboard data.
 - Unsupported report type or language -> HTTP 400; do not save a draft.
 - `topic` report with blank topic, or topic longer than 500 characters -> HTTP 400; do not save a draft.
-- Non-`GLOBAL` scope or non-blank `scopeId` -> HTTP 400; do not read or save data.
+- Invalid client scope type/id -> HTTP 400; a valid forged organization anchor is ignored in favor of server-resolved grants.
+- Missing organization data access -> HTTP 403 before Dashboard read; a draft anchor no longer covered -> omit from list and deny direct read/export.
 - Missing draft ID -> HTTP 400. Unknown draft ID -> HTTP 404.
 - Missing/invalid Bearer session on `/api/reports/**` -> uniform JSON HTTP 401; missing report authority -> uniform JSON HTTP 403.
 - Authenticated chat scope with `activeBatchOnly=false` -> do not generate a report draft through the direct sync/SSE path.
@@ -943,6 +951,7 @@ Start-Process -FilePath "mvn.cmd" -ArgumentList @("-Dfrontend.skip=true", "sprin
 ### 5. Good/Base/Bad Cases
 
 - Good: an authenticated weekly request reads one active-batch Dashboard snapshot, persists its batch/scope/version metadata, and returns the same draft through JSON and Markdown export.
+- Good: a north-region caller persists a north grant anchor; after losing that grant, the draft is no longer readable.
 - Good: local tests use the in-memory adapter without PostgreSQL or model infrastructure.
 - Base: an empty configured model name is recorded as `deterministic`; a configured model name is preserved as generation metadata.
 - Bad: a report aggregates repositories directly, uses inactive batches, or fabricates weekly/monthly trends from a point-in-time snapshot.
@@ -950,7 +959,7 @@ Start-Process -FilePath "mvn.cmd" -ArgumentList @("-Dfrontend.skip=true", "sprin
 
 ### 6. Tests Required
 
-- `ReportServiceTest`: type/language/scope/topic validation, active-batch metadata, Chinese encoding, persistence, and newest-first listing.
+- `ReportServiceTest`: type/language/scope/topic validation, active-batch metadata, organization anchor generation/re-check, Chinese encoding, persistence, and newest-first listing.
 - `ReportMarkdownRendererTest`: supported type aliases and deterministic rendering helpers.
 - `JdbcReportDraftStoreTest`: round-trip every persisted metadata field and preserve generated timestamps.
 - `ReportControllerTest`: `ApiResult` JSON envelope, validation/not-found mapping, UTF-8 Markdown body, and attachment filename.
@@ -974,11 +983,12 @@ class ReportService {
 Correct:
 
 ```java
-DashboardSummary summary = dashboardService.getSummary();
+OrganizationDataScope scope = organizationAuthorizationService.resolveCurrent().dataScope();
+DashboardSummary summary = dashboardService.getSummary(scope);
 ReportDraft draft = new ReportDraft(
         id, reportType, title, language,
         renderer.render(reportType, language, summary, topic, batchId),
-        generatedAt, batchId, ReportScope.global(), model, PROMPT_VERSION);
+        generatedAt, batchId, ReportScope.organization(scope.grantNodeIds()), model, PROMPT_VERSION);
 return draftStore.save(draft); // !prod memory adapter; prod JDBC adapter
 ```
 

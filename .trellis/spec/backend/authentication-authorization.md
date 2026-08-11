@@ -79,3 +79,74 @@ if (!scope.hasPermission(AgentToolName.QUERY_METRIC.requiredPermission())) {
     throw new AccessDeniedException("Data analysis is not allowed.");
 }
 ```
+
+---
+
+## Scenario: Real-Time Organization Data Scope
+
+### 1. Scope / Trigger
+
+- Trigger: any change to organization nodes, dealer mappings, user/role organization grants, business-data reads, Chat/SSE, controlled Agent tools, knowledge routing, or report generation/readback.
+- This is a security and cross-layer contract because one database-resolved scope must survive HTTP -> service -> Agent/report boundaries without trusting client-supplied organization fields.
+
+### 2. Signatures
+
+- Permissions: `ORGANIZATION_READ`, `ORGANIZATION_MANAGE`, `ORGANIZATION_GRANT_MANAGE`.
+- Administration API: `/api/admin/organizations/nodes`, `/dealer-mappings/**`, `/user-grants/{userId}`, `/role-grants/{roleId}`.
+- Resolver: `OrganizationAuthorizationService.resolve(AuthPrincipal)` and `resolveCurrent()` -> `OrganizationAuthorizationContext`.
+- Scope: `OrganizationDataScope(organizationNodeIds, grantNodeIds, dealerCodes, rootCoverage, unrestricted)`.
+- Agent boundary: `AgentRequestScope.authenticated(sessionId, subject, permissions, organizationDataScope)`.
+- Business row marker: `DealerScoped.getDealerCode()` on all six active-batch entities.
+
+### 3. Contracts
+
+- The hierarchy is `GROUP -> REGION -> CITY -> DEALER`; only `GROUP` may be a root. Administration rejects cycles and moves across roots.
+- Effective scope is the union of current user grants and current role grants. `includeDescendants=false` includes only the grant node; `true` expands only through enabled descendants.
+- Every authenticated business request reloads the enabled user, roles, grants, nodes, and dealer mappings from the database. Do not cache grants in access tokens, HTTP sessions, Chat sessions, or Agent callbacks.
+- Missing grants, disabled/unknown grant nodes, and scopes with no mapped dealer deny data access. Client `dealerCode`, organization, and report scope fields may narrow results but never add dealer codes.
+- Dashboard, raw data, metrics/details, rule analytics, sync/SSE Chat, controlled Agent tools, knowledge routing, and report generation receive the same resolved `OrganizationDataScope`.
+- `/api/data-status` requires root coverage. A non-root Dashboard view suppresses global import counts/issues and reports only visible-row totals.
+- Organization-scoped reports persist the grant-node anchors as `ReportScope(type=ORGANIZATION, id=<sorted node ids>)`; list/read/export re-check those anchors against the caller's current effective nodes.
+- `unrestrictedScope()` exists only for legacy/internal compatibility overloads and tests. Production authenticated controller paths must resolve database scope.
+
+### 4. Validation & Error Matrix
+
+- Missing/wrong SecurityContext principal -> `AccessDeniedException`; never fall back to unrestricted scope.
+- Unknown or disabled grant node -> `AccessDeniedException` on the next request.
+- Grant without mapped dealer coverage -> `AccessDeniedException` before repository-backed data is returned.
+- Forged dealer/org/report scope parameter -> empty/narrower result or normal request validation; never broader data.
+- Disabled descendant -> exclude that branch and do not traverse through it.
+- Organization cycle or cross-root reparent request -> HTTP 400; no hierarchy mutation.
+- Report anchor no longer covered by current effective nodes -> omit from list and deny direct read/export.
+
+### 5. Good/Base/Bad Cases
+
+- Good: a user with a north-region descendant grant and a separate south-dealer grant sees the union and nothing else across HTTP, SSE, and Agent tools.
+- Good: replacing a role grant changes the next request without issuing a new token.
+- Base: `includeDescendants=false` on a CITY with no direct dealer mapping yields no data access.
+- Bad: accept `dealerCode=D999` or `scopeId=GLOBAL_ROOT` as evidence that the caller may read that data.
+- Bad: resolve scope once at login and retain it in `AgentRequestScope` for later requests.
+
+### 6. Tests Required
+
+- `OrganizationAuthorizationServiceTest`: descendant expansion, multi-grant union, `includeDescendants=false`, disabled/unknown nodes, SecurityContext extraction, and missing-principal denial.
+- `OrganizationAdministrationServiceTest`: hierarchy type rules, cycle rejection, and cross-root rejection.
+- Scope enforcement tests: active-batch rows first intersect with allowed dealer codes; forged dealer filters cannot expand access; empty scope denies before repository access.
+- HTTP/Chat/Agent/report tests: sync and SSE scopes match, controlled callbacks propagate scope, report anchors are re-checked, and legacy unrestricted overloads remain compatibility-only.
+- Startup/migration tests: V5 applies on H2 and Hibernate `validate` accepts every organization mapping.
+
+### 7. Wrong vs Correct
+
+Wrong:
+
+```java
+OrganizationDataScope scope = OrganizationDataScope.unrestrictedScope();
+return dataQueryService.query(dataset, requestFilters, scope);
+```
+
+Correct:
+
+```java
+OrganizationDataScope scope = organizationAuthorizationService.resolveCurrent().dataScope();
+return dataQueryService.query(dataset, requestFilters, scope);
+```

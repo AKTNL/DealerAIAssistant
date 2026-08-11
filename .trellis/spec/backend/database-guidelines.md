@@ -222,6 +222,8 @@ The following production migration contract is executable and must remain aligne
 - Baseline migration: `V1__create_initial_schema.sql`
 - Knowledge migration: `db/postgresql/V2__create_knowledge_vector_store.sql`
 - Reporting migration: `db/postgresql/V3__create_report_drafts.sql`
+- Identity migration: `V4__create_auth_identity_schema.sql`
+- Organization migration: `V5__create_organization_scope_schema.sql`
 - Production settings: `spring.flyway.enabled=true`, `spring.flyway.validate-on-migrate=true`, `spring.flyway.clean-disabled=true`, `spring.jpa.hibernate.ddl-auto=validate`
 
 #### 3. Contracts
@@ -231,6 +233,7 @@ The following production migration contract is executable and must remain aligne
 - The baseline creates `import_batches`, all six batch-scoped business tables, the active-batch lookup index, and non-unique batch/business-key indexes.
 - The PostgreSQL-only V2 migration enables `vector`, creates `knowledge_vector_store` with text IDs, JSON metadata, `VECTOR(1536)`, and an HNSW cosine index. It is not applied to the default H2 migration test location.
 - The PostgreSQL-only V3 migration creates `report_drafts` with report type, Markdown body, generation timestamp, import batch, scope, model, and prompt-version metadata plus a newest-first timestamp index.
+- V4 creates database identity/session/RBAC tables; V5 creates organization nodes, dealer mappings, user grants, and role grants and adds the fixed organization permissions to the built-in administrator.
 - Business IDs may repeat across import batches; do not add global unique constraints to `dealer_code`, `opportunity_id`, `lead_id`, `task_id`, or `campaign_id`.
 - The current physical naming contract includes `Target.asKTarget -> asktarget`; migration SQL must match the existing Hibernate mapping unless the entity explicitly declares another column name.
 
@@ -242,6 +245,7 @@ The following production migration contract is executable and must remain aligne
 - Migration schema differs from JPA mappings -> Hibernate `validate` fails before the application becomes ready.
 - H2 unit/demo startup without `prod` -> Flyway remains disabled and Hibernate `ddl-auto: update` remains available.
 - Missing or incompatible V3 schema -> the production `JdbcReportDraftStore` operation fails; never replace it with the `!prod` in-memory adapter.
+- Missing or incompatible V5 schema -> Hibernate validation or organization bootstrap fails; never silently substitute a global/unrestricted data scope.
 
 #### 5. Good/Base/Bad Cases
 
@@ -258,6 +262,7 @@ The following production migration contract is executable and must remain aligne
 - Migration test: apply `V1` to isolated H2 and assert all required tables exist.
 - Mapping test: start a context with Flyway enabled and `ddl-auto=validate` against the migrated schema.
 - Reporting migration test: execute V3 in PostgreSQL-compatible H2, insert a complete draft record, and assert its batch/scope/model/prompt metadata round-trips.
+- Organization migration test: apply through V5, assert all four organization tables/constraints exist, then start Hibernate with `ddl-auto=validate`.
 - Batch coexistence test: insert the same business ID under two batch IDs and assert both rows are accepted.
 - Deployment smoke test: with valid PostgreSQL credentials, assert schema version, first import counts, and unchanged counts after restart.
 
@@ -282,6 +287,70 @@ spring:
   flyway:
     enabled: true
 ```
+
+---
+
+## Scenario: Organization Hierarchy and Grant Persistence
+
+### 1. Scope / Trigger
+
+- Trigger: organization hierarchy, dealer mapping, organization-grant, or permission-catalog persistence changes.
+- This is a database/startup/security contract because Flyway, JPA mappings, bootstrap data, and real-time authorization queries must agree.
+
+### 2. Signatures
+
+- Migration: `backend/src/main/resources/db/migration/V5__create_organization_scope_schema.sql`.
+- Tables: `organization_nodes`, `organization_dealer_mappings`, `organization_user_grants`, `organization_role_grants`.
+- Fixed root key: `GLOBAL_ROOT`; node types: `GROUP`, `REGION`, `CITY`, `DEALER`.
+- Unique keys: node `node_key`, mapping `dealer_code`, user `(user_id, organization_node_id)`, role `(role_id, organization_node_id)`.
+- Foreign keys target `organization_nodes`, `auth_users`, and `auth_roles`.
+
+### 3. Contracts
+
+- V5 is a forward migration; never edit V4 or an applied V5. All timestamps use `TIMESTAMP WITH TIME ZONE`, IDs use identity `BIGINT`, and `OrganizationNodeEntity.version` is non-null for optimistic locking.
+- V5 inserts only the stable `GLOBAL_ROOT` and fixed administrator permission rows. `OrganizationBootstrap` idempotently builds active-data `REGION -> CITY -> DEALER` nodes, dealer mappings, and the administrator root descendant grant after startup imports are ready.
+- A dealer code has one organization mapping across the current schema. Business rows remain active-batch scoped; the mapping is an authorization lookup, not ownership of the imported row.
+- Bootstrap uses stable keys and validates existing node type/parent drift. It preserves an administrator's explicit dealer remapping instead of overwriting a non-empty mapping on restart.
+- Grant repositories read user and role rows on every authorization request; do not denormalize effective dealer codes into grant tables.
+
+### 4. Validation & Error Matrix
+
+- Duplicate node key/dealer mapping/grant -> database unique-constraint failure or service-level HTTP 400.
+- Missing user, role, or node reference -> foreign-key failure; administration validates before write.
+- JPA column/index/enum drift from V5 -> Hibernate `ddl-auto=validate` startup failure.
+- Bootstrap key with a different type or parent -> startup failure; do not mutate the hierarchy silently.
+- V5 absent in production -> organization repositories/bootstrap fail; no H2 or unrestricted fallback.
+
+### 5. Good/Base/Bad Cases
+
+- Good: a fresh database applies V1-V5, imports dealers, bootstraps one stable hierarchy, and a restart creates no duplicate nodes/mappings/grants.
+- Base: an isolated H2 migration database accepts V5 and Hibernate validates the same entity mappings used by PostgreSQL.
+- Bad: add `dealer_code` grant columns to every business table or copy effective dealer sets into access tokens.
+- Bad: edit V5 after deployment to change a constraint; add V6 instead.
+
+### 6. Tests Required
+
+- `AgentPocApplicationStartupTest`: V5 SQL/table/constraint assertions plus Flyway-to-Hibernate validation.
+- Bootstrap integration: fixed root, active dealer mappings, administrator descendant grant, and idempotent restart behavior.
+- Authorization repository tests: user/role grant union and current database state on each request.
+- Deployment smoke: confirm `flyway_schema_history` reaches V5 and no duplicate organization rows appear after restart.
+
+### 7. Wrong vs Correct
+
+Wrong:
+
+```sql
+ALTER TABLE organization_user_grants ADD COLUMN effective_dealer_codes TEXT;
+```
+
+Correct:
+
+```sql
+CONSTRAINT uq_organization_user_grants
+    UNIQUE (user_id, organization_node_id)
+```
+
+Resolve descendants and dealer mappings at request time so grant changes take effect immediately.
 
 ---
 
