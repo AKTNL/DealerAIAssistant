@@ -842,3 +842,36 @@ Completed citable RAG knowledge retrieval and deterministic active-batch report 
 ### Next Steps
 
 - None - task complete
+
+
+## Session 26: Document P1 completion and push
+
+**Date**: 2026-08-11
+**Task**: Document P1 completion and push
+**Branch**: `main`
+
+### Summary
+
+Updated the root README, documentation index, and production roadmap to mark P1-1 through P1-5 first-version scope complete, preserve real-environment and P2 boundaries, refresh next steps, validate Markdown-only changes, and push main.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `5ed8ab3` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
