@@ -875,3 +875,36 @@ Updated the root README, documentation index, and production roadmap to mark P1-
 ### Next Steps
 
 - None - task complete
+
+
+## Session 27: P2-1A 身份、RBAC 与会话基础
+
+**Date**: 2026-08-11
+**Task**: P2-1A 身份、RBAC 与会话基础
+**Branch**: `main`
+
+### Summary
+
+完成数据库身份与 RBAC、访问和刷新会话、会话安全、用户角色管理、强制改密，以及前端登录恢复和权限感知界面；后端、前端、OpenAPI 与遗留鉴权清理验证全部通过。
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `83fc4c8` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
