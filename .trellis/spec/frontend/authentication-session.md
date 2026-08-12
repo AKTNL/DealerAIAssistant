@@ -65,3 +65,73 @@ const permissions = computed(() => new Set(props.currentUser?.permissions ?? [])
 const canDashboard = computed(() => permissions.value.has("DASHBOARD_READ"));
 return fetch(url, { ...options, credentials: "include" });
 ```
+
+---
+
+## Scenario: Permission and Organization Administration Workspace
+
+### 1. Scope / Trigger
+
+- Trigger: any browser change to administration navigation, user/role mutations, organization nodes, dealer mappings, grants, session revocation, audit display, or temporary-password handling.
+- This is a frontend/API/security contract because UI gates improve usability but every administration request still relies on backend permission checks and current database state.
+
+### 2. Signatures
+
+- Workspace: `components/admin/AdminView.vue`, selected from `ChatView.vue` when the user has `USER_READ`, `ROLE_READ`, or `ORGANIZATION_READ`.
+- State: `useAdministration({currentUser,dictionary,onAuthExpired,onIdentityRevoked})`.
+- API module: `api/administration.js` through `requestJson()` only.
+- Shared permission catalog: `constants/permissionCatalog.js`.
+- Temporary-password generator: `utils/temporaryPassword.js -> createTemporaryPassword()` using `crypto.getRandomValues()`.
+
+### 3. Contracts
+
+- Read and mutation controls are gated separately. A read-only administrator sees only resource sections authorized by its exact permission set and never sees mutation forms/buttons for missing manage authorities.
+- User, role, and organization update requests send the loaded `version`; HTTP 409 renders the localized refresh/conflict state.
+- Create/reset password generates the temporary password in the browser, submits it once, and stores it only in `oneTimePassword` memory until the modal is dismissed.
+- Temporary passwords never enter Web Storage, console output, URL/query state, telemetry, or error detail.
+- User disable, role assignment, password reset, session revocation, role permission updates, organization updates, and grant replacement require explicit confirmation and expose pending state.
+- An administration mutation that revokes the current user's sessions calls `onIdentityRevoked` and returns the SPA to login.
+- Lists render loading, empty, error, forbidden, validation, and conflict states; raw backend validation detail is shown only for HTTP 400.
+
+### 4. Validation & Error Matrix
+
+- Missing access session / HTTP 401 -> call the root sign-out flow.
+- Missing exact permission / HTTP 403 -> localized forbidden state; do not retry as another administration resource.
+- Invalid form or hierarchy / HTTP 400 -> localized validation error plus server validation detail.
+- Stale entity version or final-administrator protection / HTTP 409 -> localized conflict message and require refresh.
+- Secure random API unavailable -> abort password generation; never fall back to `Math.random()`.
+- Page reload after a successful create/reset -> the one-time password is absent.
+
+### 5. Good/Base/Bad Cases
+
+- Good: a `USER_READ`-only user can inspect users and audit metadata but cannot create, disable, reset, assign, or revoke.
+- Good: resetting the signed-in administrator's password shows the password once and then signs the browser out because the backend revoked all sessions.
+- Base: an empty organization or audit list renders an explicit empty state rather than a blank panel.
+- Bad: persist the temporary password in local/session storage so the modal can survive reload.
+- Bad: treat hidden buttons as authorization or default missing permissions to allow.
+
+### 6. Tests Required
+
+- `api/__tests__/administration.spec.js`: exact paths, methods, grant reads, audit reads, and mutation version payloads.
+- `composables/__tests__/useAdministration.spec.js`: permission-scoped loading, in-memory password lifecycle, 401 delegation, and 409 classification.
+- `components/__tests__/AdminView.spec.js`: read-only controls, loading/empty/error/conflict states, and one-time password dialog.
+- `views/__tests__/ChatView.spec.js`: administration tab visibility and default workspace for administration-only identities.
+- Browser smoke: administrator login, management tab, create-user modal, modal dismissal, reload absence, and zero console errors.
+- Final gates: `npm.cmd run lint`, `npm.cmd test`, and `npm.cmd run build`.
+
+### 7. Wrong vs Correct
+
+Wrong:
+
+```js
+localStorage.setItem("newUserPassword", password);
+const canAdmin = currentUser?.roles?.includes("ADMIN");
+```
+
+Correct:
+
+```js
+const permissions = computed(() => new Set(currentUser.value?.permissions ?? []));
+const canManageUsers = computed(() => permissions.value.has("USER_MANAGE"));
+oneTimePassword.value = { label: user.displayName, password };
+```

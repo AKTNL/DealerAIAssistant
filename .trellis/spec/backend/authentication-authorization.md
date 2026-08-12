@@ -150,3 +150,77 @@ Correct:
 OrganizationDataScope scope = organizationAuthorizationService.resolveCurrent().dataScope();
 return dataQueryService.query(dataset, requestFilters, scope);
 ```
+
+---
+
+## Scenario: Safe Administration Readback and Optimistic Mutations
+
+### 1. Scope / Trigger
+
+- Trigger: any change to administration user/role/organization response views, entity mutations, user-session administration, audit reads, or grant readback.
+- This is a cross-layer security contract because the browser needs current state without receiving credential material, and concurrent administrators must not silently overwrite each other.
+
+### 2. Signatures
+
+- Safe reads:
+  - `GET /api/admin/users/{id}/sessions -> ApiResult<List<SessionView>>`
+  - `GET /api/admin/audit-events -> ApiResult<List<AuditEventView>>` (latest 100)
+  - `GET /api/admin/organizations/user-grants/{userId}`
+  - `GET /api/admin/organizations/role-grants/{roleId}`
+- Session mutation: `POST /api/admin/users/{id}/sessions/revoke`.
+- Optimistic mutation requests carry nullable `version`: enabled, roles, reset-password, role permissions, and organization node updates.
+- User, role, and organization node views return their current JPA `@Version` value.
+
+### 3. Contracts
+
+- `SessionView` may contain only database ID, issue/expiry/rotation/revocation timestamps, fixed revocation reason, and derived `active`; it must never contain token hashes, token values, or `familyKey`.
+- `AuditEventView` exposes the persisted fixed metadata fields only. Audit writers never store passwords, tokens, request bodies, or PII details.
+- Session reads require `USER_READ`; session revoke requires `USER_MANAGE`; audit reads require `USER_READ`.
+- Both user- and role-grant reads require `ORGANIZATION_GRANT_MANAGE`, even though general node/mapping GETs use `ORGANIZATION_READ`; matcher order must put grant paths before the generic organization GET matcher.
+- If request `version` is present and differs from the loaded entity version, reject before mutation with HTTP 409.
+- Mutations use `saveAndFlush()` so ORM optimistic-lock failures occur inside the controller's 409 mapping boundary.
+- Omitting `version` remains compatibility behavior for existing API clients; the administration SPA always sends it.
+
+### 4. Validation & Error Matrix
+
+- Unknown user/role subject -> HTTP 400.
+- Missing exact authority -> uniform HTTP 403.
+- Expected version differs from current version -> HTTP 409 `The resource changed since it was loaded.`
+- ORM optimistic-lock failure after validation -> same HTTP 409 public message.
+- Final effective administrator removal/disable -> HTTP 409.
+- Revoking a user with no active sessions -> HTTP 200 with a safe session list; operation stays idempotent.
+
+### 5. Good/Base/Bad Cases
+
+- Good: two administrators load version 3; the first update returns version 4, and the second version-3 update receives 409.
+- Good: the session response shows active/revoked status while no raw or hashed credential field is serializable.
+- Base: a legacy client omits version and preserves prior mutation behavior.
+- Bad: expose `accessTokenHash`, `refreshTokenHash`, or `familyKey` so administrators can correlate credentials or session families.
+- Bad: put generic organization GET matching before grant GET matching and accidentally authorize grant reads with `ORGANIZATION_READ`.
+
+### 6. Tests Required
+
+- `AuthAdministrationServiceTest`: stale user/role versions reject before persistence.
+- `OrganizationAdministrationServiceTest`: stale node version plus existing hierarchy/cycle/root rules.
+- `AuthAdministrationQueryServiceTest`: active derivation and record-component assertion excluding credential/hash/family fields.
+- `AuthHttpIntegrationTest`: session list/revoke, audit read, exact RBAC, stale version 409, last-admin 409, and absence of password strings in audit details.
+- Parse `static/openapi.json` as UTF-8 JSON after signature changes.
+- Final gates: `mvn.cmd "-Dfrontend.skip=true" pmd:check` and `mvn.cmd "-Dfrontend.skip=true" test`.
+
+### 7. Wrong vs Correct
+
+Wrong:
+
+```java
+public record SessionView(String familyKey, String accessTokenHash, String refreshTokenHash) {}
+userRepository.save(user); // stale flush may escape the controller mapping
+```
+
+Correct:
+
+```java
+public record SessionView(Long id, Instant issuedAt, Instant refreshExpiresAt,
+                          Instant revokedAt, String revocationReason, boolean active) {}
+requireVersion(user.getVersion(), request.version());
+userRepository.saveAndFlush(user);
+```
