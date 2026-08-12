@@ -660,6 +660,29 @@
         "responses": { "200": { "description": "密码已重置且 mustChangePassword=true" } }
       }
     },
+    "/api/admin/users/{id}/sessions": {
+      "get": {
+        "operationId": "listUserSessions",
+        "summary": "列出用户会话安全元数据（USER_READ）",
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "integer", "format": "int64" } }],
+        "responses": { "200": { "description": "不含 token、摘要或会话族密钥的会话列表" }, "403": { "description": "缺少 USER_READ" } }
+      }
+    },
+    "/api/admin/users/{id}/sessions/revoke": {
+      "post": {
+        "operationId": "revokeUserSessions",
+        "summary": "撤销指定用户全部会话（USER_MANAGE）",
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "integer", "format": "int64" } }],
+        "responses": { "200": { "description": "全部会话已撤销" }, "403": { "description": "缺少 USER_MANAGE" } }
+      }
+    },
+    "/api/admin/audit-events": {
+      "get": {
+        "operationId": "listAdministrationAuditEvents",
+        "summary": "列出最近 100 条身份与组织审计事件（USER_READ）",
+        "responses": { "200": { "description": "按时间倒序的安全审计元数据" }, "403": { "description": "缺少 USER_READ" } }
+      }
+    },
     "/api/admin/roles": {
       "get": {
         "operationId": "listRoles",
@@ -728,6 +751,12 @@
       }
     },
     "/api/admin/organizations/user-grants/{userId}": {
+      "get": {
+        "operationId": "listUserOrganizationGrants",
+        "summary": "读取用户组织 grant（ORGANIZATION_GRANT_MANAGE）",
+        "parameters": [{ "name": "userId", "in": "path", "required": true, "schema": { "type": "integer", "format": "int64" } }],
+        "responses": { "200": { "description": "用户 grant 列表" }, "403": { "description": "缺少 ORGANIZATION_GRANT_MANAGE" } }
+      },
       "put": {
         "operationId": "replaceUserOrganizationGrants",
         "summary": "替换用户组织 grant（ORGANIZATION_GRANT_MANAGE）",
@@ -737,6 +766,12 @@
       }
     },
     "/api/admin/organizations/role-grants/{roleId}": {
+      "get": {
+        "operationId": "listRoleOrganizationGrants",
+        "summary": "读取角色组织 grant（ORGANIZATION_GRANT_MANAGE）",
+        "parameters": [{ "name": "roleId", "in": "path", "required": true, "schema": { "type": "integer", "format": "int64" } }],
+        "responses": { "200": { "description": "角色 grant 列表" }, "403": { "description": "缺少 ORGANIZATION_GRANT_MANAGE" } }
+      },
       "put": {
         "operationId": "replaceRoleOrganizationGrants",
         "summary": "替换角色组织 grant（ORGANIZATION_GRANT_MANAGE）",

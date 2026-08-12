@@ -3,6 +3,7 @@ package com.brand.agentpoc.auth;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.brand.agentpoc.AgentPocApplication;
+import com.brand.agentpoc.auth.infrastructure.persistence.AuthAuditEventRepository;
 import com.brand.agentpoc.auth.infrastructure.persistence.AuthSessionRepository;
 import com.brand.agentpoc.auth.infrastructure.persistence.AuthUserRepository;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -95,6 +96,27 @@ class AuthHttpIntegrationTest {
                     "temporaryPassword", "chat-temporary-1",
                     "roles", new String[]{"CHAT_ONLY"}
             )), permanentAccess, null).statusCode()).isEqualTo(200);
+            JsonNode usersBody = mapper.readTree(get(port, "/api/admin/users", permanentAccess).body());
+            JsonNode chatUser = findByText(usersBody.at("/data"), "username", "chat.user");
+            long chatUserId = chatUser.path("id").asLong();
+            long chatUserVersion = chatUser.path("version").asLong();
+            assertThat(get(port, "/api/admin/users/" + chatUserId + "/sessions", permanentAccess).statusCode())
+                    .isEqualTo(200);
+            assertThat(post(
+                    port,
+                    "/api/admin/users/" + chatUserId + "/sessions/revoke",
+                    "",
+                    permanentAccess,
+                    null
+            ).statusCode()).isEqualTo(200);
+            assertThat(mapper.readTree(get(port, "/api/admin/audit-events", permanentAccess).body()).at("/data").isArray())
+                    .isTrue();
+            assertThat(patch(
+                    port,
+                    "/api/admin/users/" + chatUserId + "/enabled",
+                    mapper.writeValueAsString(Map.of("enabled", true, "version", chatUserVersion + 99)),
+                    permanentAccess
+            ).statusCode()).isEqualTo(409);
             assertThat(patch(port, "/api/admin/users/1/enabled", "{\"enabled\":false}", permanentAccess)
                     .statusCode()).isEqualTo(409);
 
@@ -166,6 +188,7 @@ class AuthHttpIntegrationTest {
 
             AuthSessionRepository sessions = context.getBean(AuthSessionRepository.class);
             AuthUserRepository users = context.getBean(AuthUserRepository.class);
+            AuthAuditEventRepository audits = context.getBean(AuthAuditEventRepository.class);
             assertThat(sessions.findAll())
                     .allSatisfy(session -> {
                         assertThat(session.getAccessTokenHash()).hasSize(64).doesNotContain(temporaryAccess);
@@ -174,6 +197,9 @@ class AuthHttpIntegrationTest {
             assertThat(users.findByUsernameIgnoreCase("initial.admin").getFirst().getPasswordHash())
                     .doesNotContain("temporary-password")
                     .doesNotContain("permanent-password-2");
+            assertThat(audits.findAll())
+                    .allSatisfy(event -> assertThat(event.getDetailCode())
+                            .doesNotContain("chat-temporary-1", "temporary-password", "permanent-password-2"));
         }
     }
 
@@ -239,5 +265,14 @@ class AuthHttpIntegrationTest {
 
     private String refreshCookie(HttpResponse<String> response) {
         return response.headers().firstValue("Set-Cookie").orElseThrow().split(";", 2)[0];
+    }
+
+    private JsonNode findByText(JsonNode array, String field, String value) {
+        for (JsonNode item : array) {
+            if (value.equals(item.path(field).asText())) {
+                return item;
+            }
+        }
+        throw new IllegalStateException("Expected record was not found.");
     }
 }

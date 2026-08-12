@@ -3,6 +3,9 @@ package com.brand.agentpoc.auth.controller;
 import com.brand.agentpoc.auth.application.AuthAdministrationService;
 import com.brand.agentpoc.auth.application.AuthAdministrationService.RoleView;
 import com.brand.agentpoc.auth.application.AuthAdministrationService.UserView;
+import com.brand.agentpoc.auth.application.AuthAdministrationQueryService;
+import com.brand.agentpoc.auth.application.AuthAdministrationQueryService.AuditEventView;
+import com.brand.agentpoc.auth.application.AuthAdministrationQueryService.SessionView;
 import com.brand.agentpoc.auth.domain.AuthPrincipal;
 import com.brand.agentpoc.auth.domain.PermissionKey;
 import com.brand.agentpoc.dto.response.ApiResult;
@@ -12,6 +15,7 @@ import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotEmpty;
 import java.util.List;
 import java.util.Set;
+import org.springframework.dao.OptimisticLockingFailureException;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -28,9 +32,14 @@ import org.springframework.web.bind.annotation.RestController;
 public class AuthAdminController {
 
     private final AuthAdministrationService administrationService;
+    private final AuthAdministrationQueryService queryService;
 
-    public AuthAdminController(AuthAdministrationService administrationService) {
+    public AuthAdminController(
+            AuthAdministrationService administrationService,
+            AuthAdministrationQueryService queryService
+    ) {
         this.administrationService = administrationService;
+        this.queryService = queryService;
     }
 
     @GetMapping("/users")
@@ -61,6 +70,7 @@ public class AuthAdminController {
                 actor,
                 id,
                 request.enabled(),
+                request.version(),
                 AuthRequestTrace.resolve(servletRequest)
         ));
     }
@@ -76,28 +86,65 @@ public class AuthAdminController {
                 actor,
                 id,
                 request.roles(),
+                request.version(),
                 AuthRequestTrace.resolve(servletRequest)
         ));
     }
 
     @PostMapping("/users/{id}/reset-password")
-    public ResponseEntity<ApiResult<Void>> resetPassword(
+    public ResponseEntity<ApiResult<UserView>> resetPassword(
             @AuthenticationPrincipal AuthPrincipal actor,
             @PathVariable Long id,
             @Valid @RequestBody ResetPasswordRequest request,
             HttpServletRequest servletRequest
     ) {
         try {
-            administrationService.resetPassword(
+            UserView updated = administrationService.resetPassword(
                     actor,
                     id,
                     request.temporaryPassword(),
+                    request.version(),
                     AuthRequestTrace.resolve(servletRequest)
             );
-            return ResponseEntity.ok(ApiResult.success(null));
+            return ResponseEntity.ok(ApiResult.success(updated));
+        } catch (IllegalArgumentException exception) {
+            return ResponseEntity.badRequest().body(ApiResult.error(400, exception.getMessage()));
+        } catch (IllegalStateException exception) {
+            return ResponseEntity.status(409).body(ApiResult.error(409, exception.getMessage()));
+        } catch (OptimisticLockingFailureException exception) {
+            return ResponseEntity.status(409).body(ApiResult.error(409, "The resource changed since it was loaded."));
+        }
+    }
+
+    @GetMapping("/users/{id}/sessions")
+    public ResponseEntity<ApiResult<List<SessionView>>> listUserSessions(@PathVariable Long id) {
+        try {
+            return ResponseEntity.ok(ApiResult.success(queryService.listUserSessions(id)));
         } catch (IllegalArgumentException exception) {
             return ResponseEntity.badRequest().body(ApiResult.error(400, exception.getMessage()));
         }
+    }
+
+    @PostMapping("/users/{id}/sessions/revoke")
+    public ResponseEntity<ApiResult<List<SessionView>>> revokeUserSessions(
+            @AuthenticationPrincipal AuthPrincipal actor,
+            @PathVariable Long id,
+            HttpServletRequest servletRequest
+    ) {
+        try {
+            return ResponseEntity.ok(ApiResult.success(queryService.revokeUserSessions(
+                    actor,
+                    id,
+                    AuthRequestTrace.resolve(servletRequest)
+            )));
+        } catch (IllegalArgumentException exception) {
+            return ResponseEntity.badRequest().body(ApiResult.error(400, exception.getMessage()));
+        }
+    }
+
+    @GetMapping("/audit-events")
+    public ApiResult<List<AuditEventView>> listAuditEvents() {
+        return ApiResult.success(queryService.listAuditEvents());
     }
 
     @GetMapping("/roles")
@@ -131,6 +178,7 @@ public class AuthAdminController {
                 actor,
                 id,
                 request.permissions(),
+                request.version(),
                 AuthRequestTrace.resolve(servletRequest)
         ));
     }
@@ -142,6 +190,8 @@ public class AuthAdminController {
             return ResponseEntity.badRequest().body(ApiResult.error(400, exception.getMessage()));
         } catch (IllegalStateException exception) {
             return ResponseEntity.status(409).body(ApiResult.error(409, exception.getMessage()));
+        } catch (OptimisticLockingFailureException exception) {
+            return ResponseEntity.status(409).body(ApiResult.error(409, "The resource changed since it was loaded."));
         }
     }
 
@@ -152,6 +202,8 @@ public class AuthAdminController {
             return ResponseEntity.badRequest().body(ApiResult.error(400, exception.getMessage()));
         } catch (IllegalStateException exception) {
             return ResponseEntity.status(409).body(ApiResult.error(409, exception.getMessage()));
+        } catch (OptimisticLockingFailureException exception) {
+            return ResponseEntity.status(409).body(ApiResult.error(409, "The resource changed since it was loaded."));
         }
     }
 
@@ -163,13 +215,13 @@ public class AuthAdminController {
     ) {
     }
 
-    public record EnabledRequest(boolean enabled) {
+    public record EnabledRequest(boolean enabled, Long version) {
     }
 
-    public record RolesRequest(@NotEmpty Set<String> roles) {
+    public record RolesRequest(@NotEmpty Set<String> roles, Long version) {
     }
 
-    public record ResetPasswordRequest(@NotBlank String temporaryPassword) {
+    public record ResetPasswordRequest(@NotBlank String temporaryPassword, Long version) {
     }
 
     public record CreateRoleRequest(
@@ -179,7 +231,7 @@ public class AuthAdminController {
     ) {
     }
 
-    public record PermissionsRequest(@NotEmpty Set<PermissionKey> permissions) {
+    public record PermissionsRequest(@NotEmpty Set<PermissionKey> permissions, Long version) {
     }
 
     @FunctionalInterface

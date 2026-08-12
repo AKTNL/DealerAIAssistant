@@ -82,6 +82,26 @@ public class OrganizationAdministrationService {
                 .toList();
     }
 
+    @Transactional(readOnly = true)
+    public List<GrantView> listUserGrants(Long userId) {
+        if (userId == null || !userRepository.existsById(userId)) {
+            throw new IllegalArgumentException("user was not found.");
+        }
+        return userGrantRepository.findByUserId(userId).stream()
+                .map(GrantView::from)
+                .toList();
+    }
+
+    @Transactional(readOnly = true)
+    public List<GrantView> listRoleGrants(Long roleId) {
+        if (roleId == null || !roleRepository.existsById(roleId)) {
+            throw new IllegalArgumentException("role was not found.");
+        }
+        return roleGrantRepository.findByRoleId(roleId).stream()
+                .map(GrantView::from)
+                .toList();
+    }
+
     @Transactional
     public NodeView createNode(
             AuthPrincipal actor,
@@ -99,7 +119,7 @@ public class OrganizationAdministrationService {
         OrganizationNodeEntity parent = parentId == null ? null : requireEnabledNode(parentId);
         validateHierarchy(nodeType, parent);
         Instant now = Instant.now(clock);
-        OrganizationNodeEntity saved = nodeRepository.save(new OrganizationNodeEntity(
+        OrganizationNodeEntity saved = nodeRepository.saveAndFlush(new OrganizationNodeEntity(
                 normalizedKey,
                 normalizeDisplayName(displayName),
                 requireType(nodeType),
@@ -120,15 +140,17 @@ public class OrganizationAdministrationService {
             OrganizationNodeType nodeType,
             Long parentId,
             boolean enabled,
+            Long expectedVersion,
             String traceId
     ) {
         OrganizationNodeEntity node = requireNode(nodeId);
+        requireVersion(node.getVersion(), expectedVersion);
         OrganizationNodeEntity parent = parentId == null ? null : requireEnabledNode(parentId);
         validateHierarchy(nodeType, parent);
         validateReparent(node, parent);
         validateChildren(node, nodeType);
         node.update(normalizeDisplayName(displayName), requireType(nodeType), parent, enabled, Instant.now(clock));
-        OrganizationNodeEntity saved = nodeRepository.save(node);
+        OrganizationNodeEntity saved = nodeRepository.saveAndFlush(node);
         auditService.record(actor.userId(), "ORG_NODE_UPDATE", "ORGANIZATION_NODE", String.valueOf(saved.getId()),
                 "SUCCESS", traceId, enabled ? "organization_node_updated" : "organization_node_disabled");
         return NodeView.from(saved);
@@ -347,6 +369,12 @@ public class OrganizationAdministrationService {
         return nodeType;
     }
 
+    private void requireVersion(Long currentVersion, Long expectedVersion) {
+        if (expectedVersion != null && !expectedVersion.equals(currentVersion)) {
+            throw new IllegalStateException("The resource changed since it was loaded.");
+        }
+    }
+
     public record GrantInput(Long organizationNodeId, boolean includeDescendants) {
     }
 
@@ -356,7 +384,8 @@ public class OrganizationAdministrationService {
             String displayName,
             OrganizationNodeType nodeType,
             Long parentId,
-            boolean enabled
+            boolean enabled,
+            Long version
     ) {
         static NodeView from(OrganizationNodeEntity node) {
             return new NodeView(
@@ -365,7 +394,8 @@ public class OrganizationAdministrationService {
                     node.getDisplayName(),
                     node.getNodeType(),
                     node.getParent() == null ? null : node.getParent().getId(),
-                    Boolean.TRUE.equals(node.getEnabled())
+                    Boolean.TRUE.equals(node.getEnabled()),
+                    node.getVersion()
             );
         }
     }

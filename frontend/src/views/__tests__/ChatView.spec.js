@@ -92,6 +92,9 @@ function mountChatView(props = {}) {
         DashboardView: {
           template: "<section class='dashboard-view-stub'></section>"
         },
+        AdminView: {
+          template: "<section class='admin-view-stub'></section>"
+        },
         ExampleSidebar: {
           template: "<aside class='example-sidebar-stub'></aside>"
         },
@@ -293,5 +296,16 @@ describe("ChatView", () => {
     expect(wrapper.find(".dashboard-view-stub").exists()).toBe(false);
     expect(wrapper.find(".example-sidebar-stub").exists()).toBe(true);
     expect(wrapper.find(".model-settings-panel-stub").exists()).toBe(false);
+  });
+
+  it("opens the administration workspace for a read-only administrator", () => {
+    const wrapper = mountChatView({
+      authVerified: true,
+      currentUser: { id: 4, permissions: ["USER_READ"] }
+    });
+
+    expect(wrapper.find(".admin-view-stub").exists()).toBe(true);
+    expect(wrapper.find(".chat-screen").exists()).toBe(false);
+    expect(wrapper.find(".dashboard-view-stub").exists()).toBe(false);
   });
 });

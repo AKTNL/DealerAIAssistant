@@ -1,5 +1,6 @@
 <script setup>
 import { computed, onMounted, ref } from "vue";
+import AdminView from "../components/admin/AdminView.vue";
 import DashboardView from "../components/dashboard/DashboardView.vue";
 import ChatInput from "../components/chat/ChatInput.vue";
 import ChatMessageList from "../components/chat/ChatMessageList.vue";
@@ -18,6 +19,7 @@ import {
 } from "../composables/useModelSettings";
 import { useChat } from "../composables/useChat";
 import { useDashboard } from "../composables/useDashboard";
+import { ADMIN_READ_PERMISSIONS } from "../constants/permissionCatalog";
 
 const props = defineProps({
   dictionary: {
@@ -48,10 +50,13 @@ const canDashboard = computed(() => permissions.value.has("DASHBOARD_READ"));
 const canReadData = computed(() => permissions.value.has("DATA_READ"));
 const canUseChat = computed(() => permissions.value.has("CHAT_USE"));
 const canConfigureModel = computed(() => permissions.value.has("MODEL_CONFIG_TEST"));
+const canOpenAdministration = computed(() => ADMIN_READ_PERMISSIONS.some(
+  (permission) => permissions.value.has(permission)
+));
 const connectionMessage = ref("");
 const connectionStatus = ref("");
 const fallbackDataActive = ref(false);
-const activeWorkspace = ref(canDashboard.value ? "dashboard" : "chat");
+const activeWorkspace = ref(defaultWorkspace());
 const isTestingConnection = ref(false);
 const modelSettingsPanelOpen = ref(false);
 const sidebarCollapsed = ref(true);
@@ -97,6 +102,16 @@ onMounted(() => {
     loadDataStatus();
   }
 });
+
+function defaultWorkspace() {
+  if (canDashboard.value) {
+    return "dashboard";
+  }
+  if (canUseChat.value) {
+    return "chat";
+  }
+  return canOpenAdministration.value ? "admin" : "";
+}
 
 async function loadDataStatus() {
   try {
@@ -288,6 +303,17 @@ async function handleTestConnection(settings) {
           <span class="material-icons" aria-hidden="true">forum</span>
           <span>{{ dictionary.chatTab }}</span>
         </button>
+        <button
+          v-if="canOpenAdministration"
+          :class="['workspace-mode-tab', { active: activeWorkspace === 'admin' }]"
+          type="button"
+          role="tab"
+          :aria-selected="activeWorkspace === 'admin'"
+          @click="activeWorkspace = 'admin'"
+        >
+          <span class="material-icons" aria-hidden="true">admin_panel_settings</span>
+          <span>{{ dictionary.adminTab }}</span>
+        </button>
       </div>
 
       <DashboardView
@@ -300,6 +326,14 @@ async function handleTestConnection(settings) {
         :locale="locale"
         @analyze="handleDashboardAnalyze"
         @reload="loadDashboard"
+      />
+
+      <AdminView
+        v-else-if="canOpenAdministration && activeWorkspace === 'admin'"
+        :current-user="currentUser"
+        :dictionary="dictionary"
+        :locale="locale"
+        @sign-out="emit('sign-out')"
       />
 
       <section v-else-if="canUseChat" class="chat-screen">

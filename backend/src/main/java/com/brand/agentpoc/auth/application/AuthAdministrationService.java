@@ -70,7 +70,7 @@ public class AuthAdministrationService {
         inputPolicy.validatePassword(temporaryPassword);
         Set<AuthRoleEntity> roles = requireRoles(roleKeys);
         Instant now = Instant.now(clock);
-        AuthUserEntity saved = userRepository.save(new AuthUserEntity(
+        AuthUserEntity saved = userRepository.saveAndFlush(new AuthUserEntity(
                 normalizedUsername,
                 inputPolicy.normalizeDisplayName(displayName, normalizedUsername),
                 passwordEncoder.encode(temporaryPassword),
@@ -89,17 +89,19 @@ public class AuthAdministrationService {
             AuthPrincipal actor,
             Long userId,
             boolean enabled,
+            Long expectedVersion,
             String traceId
     ) {
         if (!enabled) {
             userRepository.lockAllForAdministrationUpdate();
         }
         AuthUserEntity user = requireUser(userId);
+        requireVersion(user.getVersion(), expectedVersion);
         if (!enabled && isEffectiveAdministrator(user)) {
             requireAnotherEffectiveAdministrator(user.getId(), null, null);
         }
         user.changeEnabled(enabled, Instant.now(clock));
-        userRepository.save(user);
+        userRepository.saveAndFlush(user);
         if (!enabled) {
             sessionService.revokeAllForUser(userId, "account_disabled");
         }
@@ -113,10 +115,12 @@ public class AuthAdministrationService {
             AuthPrincipal actor,
             Long userId,
             Set<String> roleKeys,
+            Long expectedVersion,
             String traceId
     ) {
         userRepository.lockAllForAdministrationUpdate();
         AuthUserEntity user = requireUser(userId);
+        requireVersion(user.getVersion(), expectedVersion);
         Set<AuthRoleEntity> roles = requireRoles(roleKeys);
         boolean losesAdministration = isEffectiveAdministrator(user)
                 && roles.stream().noneMatch(role -> role.getPermissions().contains(PermissionKey.USER_MANAGE));
@@ -124,7 +128,7 @@ public class AuthAdministrationService {
             requireAnotherEffectiveAdministrator(userId, null, null);
         }
         user.replaceRoles(roles, Instant.now(clock));
-        userRepository.save(user);
+        userRepository.saveAndFlush(user);
         sessionService.revokeAllForUser(userId, "roles_changed");
         auditService.record(actor.userId(), "USER_ROLES_UPDATE", "USER", String.valueOf(userId),
                 "SUCCESS", traceId, "sessions_revoked");
@@ -132,19 +136,22 @@ public class AuthAdministrationService {
     }
 
     @Transactional
-    public void resetPassword(
+    public UserView resetPassword(
             AuthPrincipal actor,
             Long userId,
             String temporaryPassword,
+            Long expectedVersion,
             String traceId
     ) {
         inputPolicy.validatePassword(temporaryPassword);
         AuthUserEntity user = requireUser(userId);
+        requireVersion(user.getVersion(), expectedVersion);
         user.changePassword(passwordEncoder.encode(temporaryPassword), true, Instant.now(clock));
-        userRepository.save(user);
+        userRepository.saveAndFlush(user);
         sessionService.revokeAllForUser(userId, "password_reset");
         auditService.record(actor.userId(), "PASSWORD_RESET", "USER", String.valueOf(userId),
                 "SUCCESS", traceId, "temporary_password_assigned_sessions_revoked");
+        return UserView.from(user);
     }
 
     @Transactional(readOnly = true)
@@ -166,7 +173,7 @@ public class AuthAdministrationService {
         }
         Set<PermissionKey> normalizedPermissions = requirePermissions(permissions);
         String normalizedDisplayName = inputPolicy.normalizeDisplayName(displayName, normalizedKey);
-        AuthRoleEntity saved = roleRepository.save(new AuthRoleEntity(
+        AuthRoleEntity saved = roleRepository.saveAndFlush(new AuthRoleEntity(
                 normalizedKey,
                 normalizedDisplayName,
                 false,
@@ -183,9 +190,11 @@ public class AuthAdministrationService {
             AuthPrincipal actor,
             Long roleId,
             Set<PermissionKey> permissions,
+            Long expectedVersion,
             String traceId
     ) {
         AuthRoleEntity role = requireRole(roleId);
+        requireVersion(role.getVersion(), expectedVersion);
         if (Boolean.TRUE.equals(role.getBuiltIn())) {
             throw new IllegalArgumentException("Built-in role permissions are protected.");
         }
@@ -197,7 +206,7 @@ public class AuthAdministrationService {
             requireAnotherEffectiveAdministrator(null, roleId, normalizedPermissions);
         }
         role.replacePermissions(normalizedPermissions, Instant.now(clock));
-        roleRepository.save(role);
+        roleRepository.saveAndFlush(role);
         userRepository.findAll().stream()
                 .filter(user -> user.getRoles().stream().anyMatch(assigned -> assigned.getId().equals(roleId)))
                 .forEach(user -> sessionService.revokeAllForUser(user.getId(), "role_permissions_changed"));
@@ -273,6 +282,12 @@ public class AuthAdministrationService {
                 .orElseThrow(() -> new IllegalArgumentException("Unknown user."));
     }
 
+    private void requireVersion(Long currentVersion, Long expectedVersion) {
+        if (expectedVersion != null && !expectedVersion.equals(currentVersion)) {
+            throw new IllegalStateException("The resource changed since it was loaded.");
+        }
+    }
+
     private AuthRoleEntity requireRole(Long roleId) {
         return roleRepository.findById(roleId)
                 .orElseThrow(() -> new IllegalArgumentException("Unknown role."));
@@ -292,7 +307,8 @@ public class AuthAdministrationService {
             String displayName,
             boolean enabled,
             boolean mustChangePassword,
-            Set<String> roles
+            Set<String> roles,
+            Long version
     ) {
         private static UserView from(AuthUserEntity user) {
             return new UserView(
@@ -301,7 +317,8 @@ public class AuthAdministrationService {
                     user.getDisplayName(),
                     Boolean.TRUE.equals(user.getEnabled()),
                     Boolean.TRUE.equals(user.getMustChangePassword()),
-                    user.getRoles().stream().map(AuthRoleEntity::getRoleKey).collect(java.util.stream.Collectors.toSet())
+                    user.getRoles().stream().map(AuthRoleEntity::getRoleKey).collect(java.util.stream.Collectors.toSet()),
+                    user.getVersion()
             );
         }
     }
@@ -311,7 +328,8 @@ public class AuthAdministrationService {
             String roleKey,
             String displayName,
             boolean builtIn,
-            Set<PermissionKey> permissions
+            Set<PermissionKey> permissions,
+            Long version
     ) {
         private static RoleView from(AuthRoleEntity role) {
             return new RoleView(
@@ -319,7 +337,8 @@ public class AuthAdministrationService {
                     role.getRoleKey(),
                     role.getDisplayName(),
                     Boolean.TRUE.equals(role.getBuiltIn()),
-                    role.getPermissions()
+                    role.getPermissions(),
+                    role.getVersion()
             );
         }
     }

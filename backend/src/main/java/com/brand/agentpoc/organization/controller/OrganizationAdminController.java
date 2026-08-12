@@ -16,6 +16,7 @@ import java.util.List;
 import java.util.Set;
 import java.util.UUID;
 import org.springframework.http.ResponseEntity;
+import org.springframework.dao.OptimisticLockingFailureException;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -73,6 +74,7 @@ public class OrganizationAdminController {
                 request.nodeType(),
                 request.parentId(),
                 Boolean.TRUE.equals(request.enabled()),
+                request.version(),
                 traceId(servletRequest)
         ));
     }
@@ -112,6 +114,11 @@ public class OrganizationAdminController {
         ));
     }
 
+    @GetMapping("/user-grants/{userId}")
+    public ResponseEntity<ApiResult<List<GrantView>>> listUserGrants(@PathVariable Long userId) {
+        return executeGrants(() -> administrationService.listUserGrants(userId));
+    }
+
     @PutMapping("/role-grants/{roleId}")
     public ResponseEntity<ApiResult<List<GrantView>>> replaceRoleGrants(
             @AuthenticationPrincipal AuthPrincipal actor,
@@ -125,6 +132,11 @@ public class OrganizationAdminController {
                 grantInputs(request.grants()),
                 traceId(servletRequest)
         ));
+    }
+
+    @GetMapping("/role-grants/{roleId}")
+    public ResponseEntity<ApiResult<List<GrantView>>> listRoleGrants(@PathVariable Long roleId) {
+        return executeGrants(() -> administrationService.listRoleGrants(roleId));
     }
 
     private String traceId(HttpServletRequest request) {
@@ -154,6 +166,8 @@ public class OrganizationAdminController {
             return ResponseEntity.badRequest().body(ApiResult.error(400, exception.getMessage()));
         } catch (IllegalStateException exception) {
             return ResponseEntity.status(409).body(ApiResult.error(409, exception.getMessage()));
+        } catch (OptimisticLockingFailureException exception) {
+            return ResponseEntity.status(409).body(ApiResult.error(409, "The resource changed since it was loaded."));
         }
     }
 
@@ -186,7 +200,8 @@ public class OrganizationAdminController {
             @NotBlank String displayName,
             @NotNull OrganizationNodeType nodeType,
             Long parentId,
-            @NotNull Boolean enabled
+            @NotNull Boolean enabled,
+            Long version
     ) {
     }
 

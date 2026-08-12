@@ -55,14 +55,14 @@ class OrganizationAdministrationServiceTest {
         when(nodeRepository.findById(5L)).thenReturn(Optional.of(city));
         when(nodeRepository.findById(4L)).thenReturn(Optional.of(regionB));
         assertThatThrownBy(() -> service.updateNode(
-                actor(), 5L, "City", OrganizationNodeType.CITY, 4L, true, "trace"
+                actor(), 5L, "City", OrganizationNodeType.CITY, 4L, true, null, "trace"
         )).isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("across roots");
 
         OrganizationNodeEntity descendantRegion = node(6L, OrganizationNodeType.REGION, city, true);
         when(nodeRepository.findById(6L)).thenReturn(Optional.of(descendantRegion));
         assertThatThrownBy(() -> service.updateNode(
-                actor(), 5L, "City", OrganizationNodeType.CITY, 6L, true, "trace"
+                actor(), 5L, "City", OrganizationNodeType.CITY, 6L, true, null, "trace"
         )).isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("cycle");
     }
