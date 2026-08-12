@@ -8,8 +8,8 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 28
-- **Last Active**: 2026-08-11
+- **Total Sessions**: 29
+- **Last Active**: 2026-08-12
 <!-- @@@/auto:current-status -->
 
 ---
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~944 | Active |
+| `journal-1.md` | ~978 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 29 | 2026-08-12 | P2-1C 权限与组织管理界面 | `6dfc942`, `ee8894a` | `main` |
 | 28 | 2026-08-11 | P2-1B 组织树与数据范围 | `ff2333d`, `4329bdd` | `main` |
 | 27 | 2026-08-11 | P2-1A 身份、RBAC 与会话基础 | `83fc4c8` | `main` |
 | 26 | 2026-08-11 | Document P1 completion and push | `5ed8ab3` | `main` |
