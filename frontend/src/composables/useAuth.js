@@ -6,7 +6,8 @@ import {
   logoutUser,
   refreshSession
 } from "../api/auth";
-import { clearAuthSession, getStoredUser, isAuthSessionValid } from "../api/sessionToken";
+import { clearAuthSession, getStoredUser, isAuthSessionValid, updateStoredUser } from "../api/sessionToken";
+import { clearSelectedTenantKey, setSelectedTenantKey } from "../api/tenantContext";
 
 export function useAuth({ dictionary }) {
   const username = ref("");
@@ -86,6 +87,22 @@ export function useAuth({ dictionary }) {
     resetLocalState();
   }
 
+  async function selectTenant(tenantKey) {
+    setSelectedTenantKey(tenantKey);
+    try {
+      const user = await getCurrentUser();
+      if (!user?.currentTenant?.key) {
+        throw new Error("Tenant selection was not accepted.");
+      }
+      currentUser.value = user;
+      updateStoredUser(user);
+      return true;
+    } catch (error) {
+      clearSelectedTenantKey();
+      throw error;
+    }
+  }
+
   function resetLocalState() {
     currentUser.value = null;
     username.value = "";
@@ -94,6 +111,7 @@ export function useAuth({ dictionary }) {
     newPassword.value = "";
     hasError.value = false;
     clearAuthSession();
+    clearSelectedTenantKey();
   }
 
   return {
@@ -108,6 +126,7 @@ export function useAuth({ dictionary }) {
     newPassword,
     password,
     signOut,
+    selectTenant,
     submitCredentials,
     submitPasswordChange,
     username

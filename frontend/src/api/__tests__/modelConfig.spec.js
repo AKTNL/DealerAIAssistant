@@ -32,9 +32,6 @@ describe("modelConfig API", () => {
     });
 
     expect(requestJsonMock).toHaveBeenCalledWith("/api/model-config/test", {
-      headers: {
-        Authorization: "Bearer signed-token"
-      },
       body: JSON.stringify({
         apiKey: "sk-test",
         baseUrl: "https://api.example.com",
@@ -42,5 +39,30 @@ describe("modelConfig API", () => {
       }),
       method: "POST"
     });
+  });
+
+  it("uses server CRUD endpoints without exposing a stored API key", async () => {
+    requestJsonMock.mockResolvedValueOnce({
+      apiKeyConfigured: true,
+      allowedHosts: ["api.example.com"],
+      baseUrl: "https://api.example.com/v1",
+      model: "gpt-test"
+    });
+    requestJsonMock.mockResolvedValueOnce({ apiKeyConfigured: true });
+    requestJsonMock.mockResolvedValueOnce(undefined);
+    const { deleteModelConfig, getModelConfig, saveModelConfig } = await import("../modelConfig");
+
+    const view = await getModelConfig();
+    expect(view).not.toHaveProperty("apiKey");
+    await saveModelConfig({
+      apiKey: "",
+      allowedHosts: ["api.example.com"],
+      baseUrl: "https://api.example.com/v1",
+      model: "gpt-test"
+    });
+    await deleteModelConfig();
+
+    expect(requestJsonMock).toHaveBeenNthCalledWith(1, "/api/model-config");
+    expect(requestJsonMock).toHaveBeenNthCalledWith(3, "/api/model-config", { method: "DELETE" });
   });
 });

@@ -11,7 +11,7 @@ const ASSISTANT_RENDER_DELAY_MS = 100;
 const STREAM_PHASE = { IDLE: "idle", THINKING: "thinking", GENERATING: "generating" };
 const ANALYSIS_CONFIDENCE_LEVELS = new Set(["high", "medium", "low"]);
 
-export function useChat({ authVerified, dictionary, locale, modelSettings, onAuthExpired }) {
+export function useChat({ authVerified, dictionary, locale, onAuthExpired }) {
   const promptInput = ref("");
   const isSending = ref(false);
   const requestError = ref("");
@@ -313,8 +313,6 @@ export function useChat({ authVerified, dictionary, locale, modelSettings, onAut
       return;
     }
 
-    const savedModelSettings = modelSettings?.value ?? modelSettings ?? null;
-
     requestError.value = "";
     closeMobileSidebar();
 
@@ -413,11 +411,8 @@ export function useChat({ authVerified, dictionary, locale, modelSettings, onAut
 
     try {
       await streamChat({
-        apiKey: savedModelSettings?.apiKey ?? "",
-        baseUrl: savedModelSettings?.baseUrl ?? "",
         sessionId: sessionId.value,
         message: text,
-        model: savedModelSettings?.model ?? "",
         signal: controller.signal,
         onEvent: ({ event, data }) => {
           const eventText = normalizeEventText(data);

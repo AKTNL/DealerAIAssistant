@@ -39,10 +39,7 @@ describe("chat API", () => {
     writeStoredSession();
 
     await streamChat({
-      apiKey: "sk-test",
-      baseUrl: "https://api.example.com",
       message: "Hello",
-      model: "gpt-test",
       onEvent,
       sessionId: "session-1"
     });
@@ -58,10 +55,7 @@ describe("chat API", () => {
       signal: undefined
     });
     expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toEqual({
-      apiKey: "sk-test",
-      baseUrl: "https://api.example.com",
       message: "Hello",
-      model: "gpt-test",
       sessionId: "session-1"
     });
     expect(onEvent).toHaveBeenCalledWith({ event: "done", data: "[DONE]" });

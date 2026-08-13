@@ -1,9 +1,11 @@
 import { requestJson } from "./client";
 import { clearAuthSession, writeAuthSession } from "./sessionToken";
+import { clearSelectedTenantKey, setSelectedTenantKey } from "./tenantContext";
 
 let refreshPromise = null;
 
 export async function loginUser(username, password) {
+  clearSelectedTenantKey();
   const response = await requestJson("/api/auth/login", {
     method: "POST",
     skipAuthRefresh: true,
@@ -57,6 +59,9 @@ function persistResponse(response) {
   const session = response?.data;
   if (!session || !writeAuthSession(session)) {
     throw new Error("Invalid authentication response.");
+  }
+  if (session.user?.currentTenant?.key) {
+    setSelectedTenantKey(session.user.currentTenant.key);
   }
   return session;
 }

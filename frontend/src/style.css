@@ -1054,6 +1054,32 @@ textarea::placeholder {
   margin-top: 0;
 }
 
+.tenant-selector {
+  align-items: center;
+  border: 1px solid rgba(120, 132, 158, 0.24);
+  border-radius: 8px;
+  color: #425066;
+  display: flex;
+  gap: 0.35rem;
+  min-width: 0;
+  padding: 0 0.45rem;
+}
+
+.tenant-selector .material-icons {
+  font-size: 1.1rem;
+}
+
+.tenant-selector select {
+  background: transparent;
+  border: 0;
+  color: #112033;
+  font: inherit;
+  max-width: 12rem;
+  min-height: 2.25rem;
+  min-width: 0;
+  outline: none;
+}
+
 .data-source-warning {
   display: flex;
   min-height: 36px;

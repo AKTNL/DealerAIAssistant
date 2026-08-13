@@ -50,7 +50,9 @@ function createDraft(modelSettings) {
   return {
     apiKey: modelSettings?.apiKey ?? "",
     baseUrl: modelSettings?.baseUrl ?? "",
-    model: modelSettings?.model ?? ""
+    model: modelSettings?.model ?? "",
+    allowedHosts: (modelSettings?.allowedHosts ?? []).join(", "),
+    apiKeyConfigured: modelSettings?.apiKeyConfigured === true
   };
 }
 
@@ -58,28 +60,19 @@ function syncDraft(modelSettings) {
   const nextDraft = createDraft(modelSettings);
 
   Object.assign(draft, nextDraft);
-  apiKeyInput.value = maskApiKey(nextDraft.apiKey);
+  apiKeyInput.value = nextDraft.apiKeyConfigured ? "********" : "";
   apiKeyDirty.value = false;
 }
 
-function maskApiKey(value) {
-  if (!value) {
-    return "";
-  }
-
-  const suffix = value.length > 4 ? value.slice(-4) : "";
-  return `****${suffix}`;
-}
-
 function handleApiKeyFocus() {
-  if (!apiKeyDirty.value && draft.apiKey) {
+  if (!apiKeyDirty.value && draft.apiKeyConfigured) {
     apiKeyInput.value = "";
   }
 }
 
 function handleApiKeyBlur() {
   if (!apiKeyDirty.value) {
-    apiKeyInput.value = maskApiKey(draft.apiKey);
+    apiKeyInput.value = draft.apiKeyConfigured ? "********" : "";
   }
 }
 
@@ -91,9 +84,11 @@ function handleApiKeyInput(event) {
 
 function emitDraft(eventName) {
   emit(eventName, {
-    apiKey: draft.apiKey,
+    apiKey: apiKeyDirty.value ? draft.apiKey : "",
     baseUrl: draft.baseUrl,
-    model: draft.model
+    model: draft.model,
+    allowedHosts: draft.allowedHosts.split(",").map(value => value.trim()).filter(Boolean),
+    apiKeyConfigured: draft.apiKeyConfigured
   });
 }
 </script>
@@ -131,6 +126,16 @@ function emitDraft(eventName) {
           v-model="draft.baseUrl"
           name="baseUrl"
           type="text"
+        />
+      </label>
+
+      <label class="model-settings-field">
+        <span>{{ dictionary.modelSettingsAllowedHostsLabel }}</span>
+        <input
+          v-model="draft.allowedHosts"
+          name="allowedHosts"
+          type="text"
+          :placeholder="dictionary.modelSettingsAllowedHostsPlaceholder"
         />
       </label>
 

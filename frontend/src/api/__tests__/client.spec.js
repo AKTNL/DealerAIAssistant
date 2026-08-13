@@ -45,6 +45,27 @@ describe("api client", () => {
     });
   });
 
+  it("adds the selected tenant header to authenticated requests", async () => {
+    window.sessionStorage.setItem("agentpoc.tenantKey", "tenant-b");
+    window.sessionStorage.setItem("agentpoc.authVerified", JSON.stringify({
+      accessToken: "signed-token",
+      accessExpiresAt: "2999-01-01T00:00:00.000Z",
+      user: { id: 1 }
+    }));
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: vi.fn().mockResolvedValue({}) });
+    vi.stubGlobal("fetch", fetchMock);
+    const { requestJson } = await importClient();
+
+    await requestJson("/api/dashboard");
+
+    expect(fetchMock).toHaveBeenCalledWith("/api/dashboard", expect.objectContaining({
+      headers: expect.objectContaining({
+        Authorization: "Bearer signed-token",
+        "X-Tenant-Key": "tenant-b"
+      })
+    }));
+  });
+
   it("throws ApiError with status and body for non-2xx responses", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
       ok: false,

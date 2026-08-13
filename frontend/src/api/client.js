@@ -1,4 +1,5 @@
 import { clearAuthSession, getAuthToken } from "./sessionToken";
+import { getSelectedTenantKey } from "./tenantContext";
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "";
 
@@ -59,13 +60,15 @@ function execute(path, options) {
   const { headers, ...fetchOptions } = options;
   delete fetchOptions.skipAuthRefresh;
   const token = getAuthToken();
+  const tenantKey = getSelectedTenantKey();
   return fetch(buildUrl(path), {
     ...fetchOptions,
     credentials: "include",
     headers: {
       "Content-Type": "application/json",
       ...(headers ?? {}),
-      ...(token && !isAuthBootstrapPath(path) ? { Authorization: `Bearer ${token}` } : {})
+      ...(token && !isAuthBootstrapPath(path) ? { Authorization: `Bearer ${token}` } : {}),
+      ...(tenantKey && path !== "/api/auth/login" ? { "X-Tenant-Key": tenantKey } : {})
     }
   });
 }

@@ -50,11 +50,13 @@ async function handleSignOut() {
 
   <ChatView
     v-else-if="auth.initialized.value"
+    :key="auth.currentUser.value?.currentTenant?.key ?? 'tenant-unselected'"
     :auth-verified="auth.authVerified.value"
     :current-user="auth.currentUser.value"
     :dictionary="dictionary"
     :locale="locale"
     @toggle-locale="toggleLocale"
     @sign-out="handleSignOut"
+    @select-tenant="auth.selectTenant"
   />
 </template>

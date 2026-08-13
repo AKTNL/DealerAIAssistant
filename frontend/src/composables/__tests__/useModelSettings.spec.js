@@ -14,39 +14,33 @@ beforeEach(() => {
 });
 
 describe("useModelSettings", () => {
-  it("reads, writes, and resets persistent model settings using localStorage", () => {
-    expect(readModelSettings()).toBe(null);
-    expect(isModelSettingsComplete(null)).toBe(false);
-
+  it("never persists model credentials in browser storage", () => {
     const settings = {
       baseUrl: "https://api.example.com",
       apiKey: "test-key",
-      model: "test-model"
+      model: "test-model",
+      allowedHosts: ["api.example.com"]
     };
-
     expect(writeModelSettings(settings)).toBe(true);
-    expect(JSON.parse(window.localStorage.getItem(STORAGE_KEYS.modelSettings))).toEqual(settings);
-    expect(window.sessionStorage.getItem(STORAGE_KEYS.modelSettings)).toBeNull();
-    expect(readModelSettings()).toEqual(settings);
-    expect(isModelSettingsComplete(readModelSettings())).toBe(true);
-
-    resetModelSettings();
-    expect(readModelSettings()).toBe(null);
-    expect(window.sessionStorage.getItem(STORAGE_KEYS.modelSettings)).toBeNull();
     expect(window.localStorage.getItem(STORAGE_KEYS.modelSettings)).toBeNull();
+    expect(window.sessionStorage.getItem(STORAGE_KEYS.modelSettings)).toBeNull();
+    expect(readModelSettings()).toBe(null);
+    expect(isModelSettingsComplete(settings)).toBe(true);
   });
 
-  it("trims model settings before persisting them", () => {
-    expect(writeModelSettings({
+  it("normalizes model settings before sending them to the server", async () => {
+    const { normalizeModelSettings } = await import("../useModelSettings");
+    expect(normalizeModelSettings({
       baseUrl: " https://api.example.com ",
       apiKey: " sk-test ",
-      model: " gpt-4.1-mini "
-    })).toBe(true);
-
-    expect(readModelSettings()).toEqual({
+      model: " gpt-4.1-mini ",
+      allowedHosts: " API.EXAMPLE.COM, *.example.com "
+    })).toEqual({
       baseUrl: "https://api.example.com",
       apiKey: "sk-test",
-      model: "gpt-4.1-mini"
+      model: "gpt-4.1-mini",
+      allowedHosts: ["*.example.com", "api.example.com"],
+      apiKeyConfigured: false
     });
   });
 
@@ -61,7 +55,7 @@ describe("useModelSettings", () => {
     expect(readModelSettings()).toBe(null);
   });
 
-  it("migrates legacy sessionStorage settings into localStorage", () => {
+  it("deletes legacy browser credentials instead of migrating them", () => {
     const settings = {
       baseUrl: "https://api.example.com",
       apiKey: "test-key",
@@ -70,8 +64,9 @@ describe("useModelSettings", () => {
 
     window.sessionStorage.setItem(STORAGE_KEYS.modelSettings, JSON.stringify(settings));
 
-    expect(readModelSettings()).toEqual(settings);
-    expect(window.localStorage.getItem(STORAGE_KEYS.modelSettings)).toBe(JSON.stringify(settings));
+    window.localStorage.setItem(STORAGE_KEYS.modelSettings, JSON.stringify(settings));
+    expect(readModelSettings()).toBeNull();
+    expect(window.localStorage.getItem(STORAGE_KEYS.modelSettings)).toBeNull();
     expect(window.sessionStorage.getItem(STORAGE_KEYS.modelSettings)).toBeNull();
   });
 
@@ -79,17 +74,20 @@ describe("useModelSettings", () => {
     const browserWindow = window;
     vi.stubGlobal("window", undefined);
 
-    expect(writeModelSettings({
-      baseUrl: "https://api.example.com",
-      apiKey: "test-key",
-      model: "test-model"
-    })).toBe(false);
-    expect(readModelSettings()).toBe(null);
-
-    vi.stubGlobal("window", browserWindow);
+    try {
+      expect(writeModelSettings({
+        baseUrl: "https://api.example.com",
+        apiKey: "test-key",
+        model: "test-model",
+        allowedHosts: ["api.example.com"]
+      })).toBe(true);
+      expect(readModelSettings()).toBe(null);
+    } finally {
+      vi.stubGlobal("window", browserWindow);
+    }
   });
 
-  it("does not update in-memory state when storage write fails", () => {
+  it("does not throw when legacy storage cleanup fails", () => {
     const setItemSpy = vi.spyOn(window.localStorage.__proto__, "setItem")
       .mockImplementation(() => {
         throw new Error("storage disabled");
@@ -98,8 +96,9 @@ describe("useModelSettings", () => {
     expect(writeModelSettings({
       baseUrl: "https://api.example.com",
       apiKey: "test-key",
-      model: "test-model"
-    })).toBe(false);
+      model: "test-model",
+      allowedHosts: ["api.example.com"]
+    })).toBe(true);
     expect(readModelSettings()).toBe(null);
 
     setItemSpy.mockRestore();

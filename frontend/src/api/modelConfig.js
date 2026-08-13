@@ -1,12 +1,23 @@
 import { requestJson } from "./client";
-import { getAuthToken } from "./sessionToken";
+
+export async function getModelConfig() {
+  return requestJson("/api/model-config");
+}
+
+export function saveModelConfig(modelConfig) {
+  return requestJson("/api/model-config", {
+    method: "PUT",
+    body: JSON.stringify(modelConfig)
+  });
+}
+
+export function deleteModelConfig() {
+  return requestJson("/api/model-config", { method: "DELETE" });
+}
 
 export function testModelConnection(modelConfig) {
-  const token = getAuthToken();
-
   return requestJson("/api/model-config/test", {
     method: "POST",
-    headers: token ? { Authorization: `Bearer ${token}` } : {},
     body: JSON.stringify(modelConfig)
   });
 }

@@ -4,6 +4,8 @@ import ModelSettingsPanel from "../layout/ModelSettingsPanel.vue";
 const dictionary = {
   cancelButton: "Cancel",
   modelSettingsApiKeyLabel: "API key",
+  modelSettingsAllowedHostsLabel: "Allowed model hosts",
+  modelSettingsAllowedHostsPlaceholder: "api.openai.com",
   modelSettingsBaseUrlLabel: "Base URL",
   modelSettingsDescription: "Configure the model connection used for the next request.",
   modelSettingsModelLabel: "Model",
@@ -19,7 +21,9 @@ describe("ModelSettingsPanel", () => {
       props: {
         dictionary,
         modelSettings: {
-          apiKey: "sk-test",
+          apiKey: "",
+          apiKeyConfigured: true,
+          allowedHosts: ["api.openai.com"],
           baseUrl: "https://api.openai.com",
           model: "gpt-4o-mini"
         },
@@ -28,9 +32,11 @@ describe("ModelSettingsPanel", () => {
     });
 
     expect(wrapper.find('input[name="baseUrl"]').element.value).toBe("https://api.openai.com");
-    expect(wrapper.find('input[name="apiKey"]').element.value).toBe("****test");
+    expect(wrapper.find('input[name="apiKey"]').element.value).toBe("********");
     expect(wrapper.find('input[name="model"]').element.value).toBe("gpt-4o-mini");
+    expect(wrapper.find('input[name="allowedHosts"]').element.value).toBe("api.openai.com");
 
+    await wrapper.find('input[name="apiKey"]').setValue("sk-replacement");
     await wrapper.find('input[name="model"]').setValue("gpt-4.1-mini");
     await wrapper.find(".test-connection-button").trigger("click");
     await wrapper.find(".save-button").trigger("click");
@@ -40,18 +46,22 @@ describe("ModelSettingsPanel", () => {
     expect(wrapper.emitted("test-connection")).toEqual([
       [
         {
-          apiKey: "sk-test",
+          apiKey: "sk-replacement",
           baseUrl: "https://api.openai.com",
-          model: "gpt-4.1-mini"
+          model: "gpt-4.1-mini",
+          allowedHosts: ["api.openai.com"],
+          apiKeyConfigured: true
         }
       ]
     ]);
     expect(wrapper.emitted("save")).toEqual([
       [
         {
-          apiKey: "sk-test",
+          apiKey: "sk-replacement",
           baseUrl: "https://api.openai.com",
-          model: "gpt-4.1-mini"
+          model: "gpt-4.1-mini",
+          allowedHosts: ["api.openai.com"],
+          apiKeyConfigured: true
         }
       ]
     ]);
@@ -64,7 +74,9 @@ describe("ModelSettingsPanel", () => {
       props: {
         dictionary,
         modelSettings: {
-          apiKey: "sk-live-secret-1234",
+          apiKey: "",
+          apiKeyConfigured: true,
+          allowedHosts: ["api.openai.com"],
           baseUrl: "https://api.openai.com",
           model: "gpt-4o-mini"
         },
@@ -74,16 +86,18 @@ describe("ModelSettingsPanel", () => {
 
     const apiKeyInput = wrapper.find('input[name="apiKey"]');
 
-    expect(apiKeyInput.element.value).toBe("****1234");
+    expect(apiKeyInput.element.value).toBe("********");
 
     await wrapper.find(".save-button").trigger("click");
 
     expect(wrapper.emitted("save")).toEqual([
       [
         {
-          apiKey: "sk-live-secret-1234",
+          apiKey: "",
           baseUrl: "https://api.openai.com",
-          model: "gpt-4o-mini"
+          model: "gpt-4o-mini",
+          allowedHosts: ["api.openai.com"],
+          apiKeyConfigured: true
         }
       ]
     ]);

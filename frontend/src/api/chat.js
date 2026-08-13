@@ -1,22 +1,16 @@
 import { useSseParser } from "../composables/useSseParser";
 import { ApiError, extractErrorMessage, request, requestJson } from "./client";
-import { getAuthToken } from "./sessionToken";
 
 export function clearSession(sessionId) {
   return requestJson(`/api/chat/${sessionId}`, {
-    method: "DELETE",
-    headers: authHeaders()
+    method: "DELETE"
   });
 }
 
-export async function streamChat({ sessionId, message, baseUrl, apiKey, model, signal, onEvent }) {
+export async function streamChat({ sessionId, message, signal, onEvent }) {
   const response = await request("/api/chat/stream", {
     method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      ...authHeaders()
-    },
-    body: JSON.stringify({ sessionId, message, baseUrl, apiKey, model }),
+    body: JSON.stringify({ sessionId, message }),
     signal
   });
 
@@ -30,9 +24,4 @@ export async function streamChat({ sessionId, message, baseUrl, apiKey, model, s
 
   const { consume } = useSseParser();
   await consume(response.body, onEvent);
-}
-
-function authHeaders() {
-  const token = getAuthToken();
-  return token ? { Authorization: `Bearer ${token}` } : {};
 }

@@ -4,7 +4,7 @@ import AdminView from "../components/admin/AdminView.vue";
 import DashboardView from "../components/dashboard/DashboardView.vue";
 import ChatInput from "../components/chat/ChatInput.vue";
 import ChatMessageList from "../components/chat/ChatMessageList.vue";
-import { testModelConnection } from "../api/modelConfig";
+import { deleteModelConfig, getModelConfig, saveModelConfig, testModelConnection } from "../api/modelConfig";
 import { getDataStatus } from "../api/dataStatus";
 import ExampleSidebar from "../components/layout/ExampleSidebar.vue";
 import ModelSettingsPanel from "../components/layout/ModelSettingsPanel.vue";
@@ -13,9 +13,7 @@ import { getModelErrorMessage } from "../utils/modelErrors";
 import {
   isModelSettingsComplete,
   normalizeModelSettings,
-  readModelSettings,
-  resetModelSettings,
-  writeModelSettings
+  readModelSettings
 } from "../composables/useModelSettings";
 import { useChat } from "../composables/useChat";
 import { useDashboard } from "../composables/useDashboard";
@@ -42,7 +40,7 @@ const props = defineProps({
   }
 });
 
-const emit = defineEmits(["sign-out", "toggle-locale"]);
+const emit = defineEmits(["select-tenant", "sign-out", "toggle-locale"]);
 
 const authVerified = computed(() => props.authVerified);
 const permissions = computed(() => new Set(props.currentUser?.permissions ?? []));
@@ -83,8 +81,6 @@ const {
   authVerified,
   dictionary: computed(() => props.dictionary),
   locale: computed(() => props.locale),
-  modelSettings: savedModelSettings,
-  openModelSettings: handleOpenSettings,
   onAuthExpired: () => emit("sign-out")
 });
 const {
@@ -100,6 +96,9 @@ const {
 onMounted(() => {
   if (canReadData.value) {
     loadDataStatus();
+  }
+  if (canConfigureModel.value && props.currentUser?.currentTenant) {
+    loadModelSettings();
   }
 });
 
@@ -148,7 +147,9 @@ function createEmptyModelSettings() {
   return {
     apiKey: "",
     baseUrl: "",
-    model: ""
+    model: "",
+    allowedHosts: [],
+    apiKeyConfigured: false
   };
 }
 
@@ -162,28 +163,52 @@ function handleCancelSettings() {
   modelSettingsPanelOpen.value = false;
 }
 
-function handleSaveSettings(settings) {
+async function handleSaveSettings(settings) {
   const normalized = normalizeModelSettings(settings);
 
-  if (!normalized || !writeModelSettings(normalized)) {
+  if (!normalized) {
     connectionMessage.value =
       props.dictionary.modelSettingsSaveError ?? "Save base URL, API key, and model before continuing.";
     connectionStatus.value = "error";
     return;
   }
-
-  savedModelSettings.value = normalized;
-  connectionMessage.value = "";
-  connectionStatus.value = "";
-  modelSettingsPanelOpen.value = false;
+  try {
+    savedModelSettings.value = await saveModelConfig(normalized);
+    connectionMessage.value = "";
+    connectionStatus.value = "";
+    modelSettingsPanelOpen.value = false;
+  } catch (error) {
+    handleModelSettingsError(error);
+  }
 }
 
-function handleResetSettings() {
-  resetModelSettings();
-  savedModelSettings.value = createEmptyModelSettings();
-  connectionMessage.value = "";
-  connectionStatus.value = "";
-  modelSettingsPanelOpen.value = false;
+async function handleResetSettings() {
+  try {
+    await deleteModelConfig();
+    savedModelSettings.value = createEmptyModelSettings();
+    connectionMessage.value = "";
+    connectionStatus.value = "";
+    modelSettingsPanelOpen.value = false;
+  } catch (error) {
+    handleModelSettingsError(error);
+  }
+}
+
+async function loadModelSettings() {
+  try {
+    savedModelSettings.value = (await getModelConfig()) ?? createEmptyModelSettings();
+  } catch (error) {
+    handleModelSettingsError(error);
+  }
+}
+
+function handleModelSettingsError(error) {
+  if (error?.status === 401) {
+    emit("sign-out");
+    return;
+  }
+  connectionMessage.value = getModelErrorMessage(error, props.dictionary, props.locale);
+  connectionStatus.value = "error";
 }
 
 async function handleTestConnection(settings) {
@@ -249,14 +274,16 @@ async function handleTestConnection(settings) {
         :auth-verified="props.authVerified"
         :can-configure-model="canConfigureModel"
         :can-use-chat="canUseChat"
+        :current-tenant="currentUser?.currentTenant"
         :dictionary="dictionary"
         :is-sending="isSending"
         :locale="locale"
         :status-message="statusMessage"
         :stream-phase="streamPhase"
+        :tenants="currentUser?.tenants ?? []"
         @clear-session="handleClearSession"
         @open-settings="handleOpenSettings"
-
+        @select-tenant="emit('select-tenant', $event)"
         @sign-out="emit('sign-out')"
         @toggle-locale="emit('toggle-locale')"
       />

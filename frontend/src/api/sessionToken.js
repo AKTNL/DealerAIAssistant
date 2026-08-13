@@ -1,5 +1,6 @@
 import { STORAGE_KEYS } from "../constants/storageKeys";
 import { readStorageValue, removeStorageValue, writeStorageValue } from "../utils/storage";
+import { clearSelectedTenantKey } from "./tenantContext";
 
 export function writeAuthSession(session) {
   const normalized = normalizeAuthSession(session);
@@ -31,6 +32,7 @@ export function readAuthSession() {
 
 export function clearAuthSession() {
   removeStorageValue("session", STORAGE_KEYS.auth);
+  clearSelectedTenantKey();
 }
 
 export function getAuthToken() {
@@ -40,6 +42,14 @@ export function getAuthToken() {
 
 export function getStoredUser() {
   return readAuthSession()?.user ?? null;
+}
+
+export function updateStoredUser(user) {
+  const session = readAuthSession();
+  if (!session) {
+    return false;
+  }
+  return writeAuthSession({ ...session, user });
 }
 
 export function isAuthSessionValid() {
@@ -76,7 +86,24 @@ function normalizeUser(user) {
     enabled: user.enabled === true,
     mustChangePassword: user.mustChangePassword === true,
     roles: Array.isArray(user.roles) ? user.roles.map(String) : [],
-    permissions: Array.isArray(user.permissions) ? user.permissions.map(String) : []
+    permissions: Array.isArray(user.permissions) ? user.permissions.map(String) : [],
+    tenants: Array.isArray(user.tenants) ? user.tenants.map(normalizeTenant).filter(Boolean) : [],
+    currentTenant: normalizeTenant(user.currentTenant)
+  };
+}
+
+function normalizeTenant(tenant) {
+  if (!tenant || typeof tenant !== "object" || !Number.isFinite(Number(tenant.id))) {
+    return null;
+  }
+  const key = String(tenant.key ?? "").trim();
+  if (!key) {
+    return null;
+  }
+  return {
+    id: Number(tenant.id),
+    key,
+    displayName: String(tenant.displayName ?? key)
   };
 }
 

@@ -89,7 +89,7 @@ afterEach(() => {
 });
 
 describe("useChat", () => {
-  it("allows a send when model settings are missing and forwards an empty model config", async () => {
+  it("allows a send without exposing model credentials in the chat request", async () => {
     streamChatMock.mockImplementationOnce(async ({ onEvent }) => {
       onEvent({
         event: "message",
@@ -108,10 +108,7 @@ FOLLOW_UP_QUESTIONS:
     expect(openModelSettingsMock).not.toHaveBeenCalled();
     expect(streamChatMock).toHaveBeenCalledWith(
       expect.objectContaining({
-        apiKey: "",
-        baseUrl: "",
         message: "Hi",
-        model: "",
         sessionId: expect.any(String)
       })
     );
@@ -120,7 +117,7 @@ FOLLOW_UP_QUESTIONS:
     expect(wrapper.vm.requestError).toBe("");
   });
 
-  it("sends the saved model config with the chat request", async () => {
+  it("does not send saved model config with the chat request", async () => {
     streamChatMock.mockResolvedValue(undefined);
     const wrapper = mountChatHarness(
       ref({
@@ -134,13 +131,12 @@ FOLLOW_UP_QUESTIONS:
 
     expect(streamChatMock).toHaveBeenCalledWith(
       expect.objectContaining({
-        apiKey: "sk-test",
-        baseUrl: "https://api.example.com",
         message: "Hello",
-        model: "gpt-4.1-mini",
         sessionId: expect.any(String)
       })
     );
+    expect(streamChatMock.mock.calls[0][0]).not.toHaveProperty("apiKey");
+    expect(streamChatMock.mock.calls[0][0]).not.toHaveProperty("baseUrl");
   });
 
   it("replaces raw model rate-limit errors with user-friendly copy", async () => {

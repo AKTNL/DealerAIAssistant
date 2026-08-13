@@ -12,6 +12,10 @@ defineProps({
     type: Boolean,
     default: false
   },
+  currentTenant: {
+    type: Object,
+    default: null
+  },
   dictionary: {
     type: Object,
     required: true
@@ -31,10 +35,14 @@ defineProps({
   streamPhase: {
     type: String,
     default: "idle"
+  },
+  tenants: {
+    type: Array,
+    default: () => []
   }
 });
 
-defineEmits(["clear-session", "open-settings", "sign-out", "toggle-locale"]);
+defineEmits(["clear-session", "open-settings", "select-tenant", "sign-out", "toggle-locale"]);
 </script>
 
 <template>
@@ -57,6 +65,20 @@ defineEmits(["clear-session", "open-settings", "sign-out", "toggle-locale"]);
     </div>
 
     <div class="topbar-actions topbar-tools">
+      <label v-if="tenants.length" class="tenant-selector" :title="dictionary.tenantSelectorLabel">
+        <span class="material-icons" aria-hidden="true">domain</span>
+        <select
+          :aria-label="dictionary.tenantSelectorLabel"
+          :value="currentTenant?.key ?? ''"
+          @change="$emit('select-tenant', $event.target.value)"
+        >
+          <option value="" disabled>{{ dictionary.tenantSelectorPlaceholder }}</option>
+          <option v-for="tenant in tenants" :key="tenant.id" :value="tenant.key">
+            {{ tenant.displayName }}
+          </option>
+        </select>
+      </label>
+
       <span v-if="statusMessage || streamPhase !== 'idle'" class="status-pill">
         {{ streamPhase === 'thinking' ? dictionary.streamPhaseThinking : streamPhase === 'generating' ? dictionary.streamPhaseGenerating : statusMessage }}
       </span>

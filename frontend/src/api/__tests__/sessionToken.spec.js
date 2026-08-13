@@ -23,7 +23,9 @@ describe("sessionToken", () => {
       enabled: true,
       mustChangePassword: false,
       roles: ["ANALYST"],
-      permissions: ["CHAT_USE"]
+      permissions: ["CHAT_USE"],
+      tenants: [],
+      currentTenant: null
     };
     writeAuthSession({ accessToken: "opaque-token", accessExpiresAt, user });
 

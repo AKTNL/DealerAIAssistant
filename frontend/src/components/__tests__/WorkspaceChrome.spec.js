@@ -87,6 +87,8 @@ const dictionary = {
 
 const authorizedUser = {
   id: 1,
+  currentTenant: { id: 1, key: "default", displayName: "Default tenant" },
+  tenants: [{ id: 1, key: "default", displayName: "Default tenant" }],
   permissions: ["DASHBOARD_READ", "DATA_READ", "CHAT_USE", "MODEL_CONFIG_TEST"]
 };
 
@@ -533,31 +535,7 @@ describe("Workspace chrome editorial hooks", () => {
     expect(jumpToLatest).toHaveBeenCalledTimes(1);
   });
 
-  test("opens the settings panel when the composer submit path requests model setup", async () => {
-    useChatMock.mockImplementationOnce((options) => ({
-      activeSessionLabel: "Current session",
-      closeMobileSidebar: vi.fn(),
-      handleClearSession: vi.fn(),
-      handleScroll: vi.fn(),
-      hasMessages: false,
-      hasUnreadContent: false,
-      isSending: false,
-      jumpToLatest: vi.fn(),
-      messages: ref([]),
-      openMobileSidebar: vi.fn(),
-      promptInput: ref(""),
-      requestError: "",
-      scrollContainer: ref(null),
-      showMobileSidebar: false,
-      startNewChat: vi.fn(),
-      statusMessage: "",
-      stopGenerating: vi.fn(),
-      submitPrompt: vi.fn(() => {
-        options.openModelSettings?.();
-      }),
-      toastMessage: ""
-    }));
-
+  test("opens the settings panel from the top navigation", async () => {
     const chatView = mount(ChatView, {
       props: {
         authVerified: true,
@@ -582,6 +560,9 @@ describe("Workspace chrome editorial hooks", () => {
           LanguageSwitcher: {
             template: "<button type='button'>lang</button>"
           },
+          TopNav: {
+            template: "<button class='top-nav-settings-stub' type='button' @click=\"$emit('open-settings')\">settings</button>"
+          },
           ModelSettingsPanel: {
             props: ["open"],
             template: "<div class='model-settings-panel-stub' :data-open=\"String(open)\"></div>"
@@ -592,8 +573,7 @@ describe("Workspace chrome editorial hooks", () => {
 
     expect(chatView.find(".model-settings-panel-stub").attributes("data-open")).toBe("false");
 
-    await openChatWorkspace(chatView);
-    await chatView.find(".chat-submit-stub").trigger("click");
+    await chatView.find(".top-nav-settings-stub").trigger("click");
 
     expect(chatView.find(".model-settings-panel-stub").attributes("data-open")).toBe("true");
   });
@@ -634,7 +614,7 @@ describe("Workspace chrome editorial hooks", () => {
                 :data-open="String(open)"
                 :data-status="connectionStatus"
               >
-                <button class="test-connection-stub" type="button" @click="$emit('test-connection', { apiKey: ' sk-test ', baseUrl: ' https://api.example.com ', model: ' gpt-4.1-mini ' })">
+                <button class="test-connection-stub" type="button" @click="$emit('test-connection', { apiKey: ' sk-test ', baseUrl: ' https://api.example.com ', model: ' gpt-4.1-mini ', allowedHosts: ['api.example.com'] })">
                   test
                 </button>
               </div>
@@ -650,8 +630,10 @@ describe("Workspace chrome editorial hooks", () => {
 
     expect(testModelConnectionMock).toHaveBeenCalledWith({
       apiKey: "sk-test",
+      allowedHosts: ["api.example.com"],
       baseUrl: "https://api.example.com",
-      model: "gpt-4.1-mini"
+      model: "gpt-4.1-mini",
+      apiKeyConfigured: false
     });
     expect(chatView.find(".model-settings-panel-stub").attributes("data-status")).toBe("success");
     expect(chatView.find(".model-settings-panel-stub").attributes("data-message")).toBe("Connected");
@@ -693,7 +675,7 @@ describe("Workspace chrome editorial hooks", () => {
                 :data-open="String(open)"
                 :data-status="connectionStatus"
               >
-                <button class="test-connection-stub" type="button" @click="$emit('test-connection', { apiKey: ' sk-test ', baseUrl: ' https://api.example.com ', model: ' gpt-4.1-mini ' })">
+                <button class="test-connection-stub" type="button" @click="$emit('test-connection', { apiKey: ' sk-test ', baseUrl: ' https://api.example.com ', model: ' gpt-4.1-mini ', allowedHosts: ['api.example.com'] })">
                   test
                 </button>
               </div>
@@ -752,7 +734,7 @@ describe("Workspace chrome editorial hooks", () => {
                 :data-open="String(open)"
                 :data-status="connectionStatus"
               >
-                <button class="test-connection-stub" type="button" @click="$emit('test-connection', { apiKey: ' sk-test ', baseUrl: ' https://api.example.com ', model: ' glm-4 ' })">
+                <button class="test-connection-stub" type="button" @click="$emit('test-connection', { apiKey: ' sk-test ', baseUrl: ' https://api.example.com ', model: ' glm-4 ', allowedHosts: ['api.example.com'] })">
                   test
                 </button>
               </div>
