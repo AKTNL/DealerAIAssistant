@@ -6,6 +6,8 @@ import java.util.List;
 import org.springframework.data.jpa.repository.JpaRepository;
 
 public interface LeadRepository extends JpaRepository<Lead, Long> {
+    List<Lead> findByTenantId(Long tenantId);
+
     List<Lead> findByDealerCodeIgnoreCase(String dealerCode);
 
     List<Lead> findByLeadSourceIgnoreCase(String leadSource);

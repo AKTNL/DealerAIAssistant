@@ -290,7 +290,9 @@ public class ControlledAgentToolService {
             OrganizationDataScope dataScope
     ) {
         dataScope.requireDataAccess();
-        return knowledgeService.retrieve(query, topK);
+        return dataScope.unrestricted()
+                ? knowledgeService.retrieve(query, topK)
+                : knowledgeService.retrieve(query, topK, dataScope.tenantId());
     }
 
     public ReportDraft generateReportDraft(String reportType, String language, String topic) {

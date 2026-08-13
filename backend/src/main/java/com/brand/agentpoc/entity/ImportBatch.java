@@ -6,17 +6,28 @@ import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
+import jakarta.persistence.UniqueConstraint;
+import com.brand.agentpoc.tenant.domain.TenantScoped;
 import java.time.Instant;
 
 @Entity
-@Table(name = "import_batches")
-public class ImportBatch {
+@Table(
+        name = "import_batches",
+        uniqueConstraints = @UniqueConstraint(
+                name = "uq_import_batches_tenant_batch_key",
+                columnNames = {"tenant_id", "batch_key"}
+        )
+)
+public class ImportBatch implements TenantScoped {
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    @Column(nullable = false, unique = true, length = 64)
+    @Column(name = "tenant_id", nullable = false)
+    private Long tenantId;
+
+    @Column(nullable = false, length = 64)
     private String batchKey;
 
     @Column(nullable = false, length = 64)
@@ -57,7 +68,27 @@ public class ImportBatch {
             Instant activatedAt,
             String message
     ) {
+        this(batchKey, source, scopeType, scopeId, active, fallbackActive, createdAt, activatedAt, message,
+                TenantScoped.DEFAULT_TENANT_ID);
+    }
+
+    public ImportBatch(
+            String batchKey,
+            String source,
+            String scopeType,
+            String scopeId,
+            boolean active,
+            boolean fallbackActive,
+            Instant createdAt,
+            Instant activatedAt,
+            String message,
+            Long tenantId
+    ) {
         this.batchKey = batchKey;
+        if (tenantId == null) {
+            throw new IllegalArgumentException("tenantId is required.");
+        }
+        this.tenantId = tenantId;
         this.source = defaultText(source, "unknown");
         this.scopeType = defaultText(scopeType, "GLOBAL");
         this.scopeId = scopeId;
@@ -74,6 +105,11 @@ public class ImportBatch {
 
     public Long getId() {
         return id;
+    }
+
+    @Override
+    public Long getTenantId() {
+        return tenantId;
     }
 
     public String getBatchKey() {

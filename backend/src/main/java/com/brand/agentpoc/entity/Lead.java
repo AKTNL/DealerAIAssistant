@@ -6,15 +6,19 @@ import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
+import com.brand.agentpoc.tenant.domain.TenantScoped;
 import java.time.LocalDate;
 
 @Entity
 @Table(name = "leads")
-public class Lead implements BatchScoped, DealerScoped {
+public class Lead implements BatchScoped, DealerScoped, TenantScoped {
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
+
+    @Column(name = "tenant_id", nullable = false)
+    private Long tenantId;
 
     @Column(nullable = false, length = 64)
     private String leadId;
@@ -92,7 +96,26 @@ public class Lead implements BatchScoped, DealerScoped {
             Boolean converted,
             String importBatchId
     ) {
+        this(leadId, dealerCode, dealerName, city, dealerGroupName, leadSource, stageName, productModel,
+                createdDate, converted, importBatchId, TenantScoped.DEFAULT_TENANT_ID);
+    }
+
+    public Lead(
+            String leadId,
+            String dealerCode,
+            String dealerName,
+            String city,
+            String dealerGroupName,
+            String leadSource,
+            String stageName,
+            String productModel,
+            LocalDate createdDate,
+            Boolean converted,
+            String importBatchId,
+            Long tenantId
+    ) {
         this.leadId = leadId;
+        this.tenantId = requireTenantId(tenantId);
         this.dealerCode = dealerCode;
         this.dealerName = dealerName;
         this.city = city;
@@ -109,8 +132,20 @@ public class Lead implements BatchScoped, DealerScoped {
         return value == null || value.isBlank() ? BatchScoped.LEGACY_BATCH_ID : value;
     }
 
+    private static Long requireTenantId(Long value) {
+        if (value == null) {
+            throw new IllegalArgumentException("tenantId is required.");
+        }
+        return value;
+    }
+
     public Long getId() {
         return id;
+    }
+
+    @Override
+    public Long getTenantId() {
+        return tenantId;
     }
 
     public String getLeadId() {

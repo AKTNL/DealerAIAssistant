@@ -27,13 +27,18 @@ public class InMemoryReportDraftStore implements ReportDraftStore {
     }
 
     @Override
-    public Optional<ReportDraft> findById(String id) {
-        return Optional.ofNullable(drafts.get(id));
+    public Optional<ReportDraft> findByTenantIdAndId(Long tenantId, String id) {
+        ReportDraft draft = drafts.get(id);
+        return draft != null && draft.tenantId().equals(tenantId)
+                ? Optional.of(draft)
+                : Optional.empty();
     }
 
     @Override
-    public List<ReportDraft> findAll() {
-        List<ReportDraft> result = new ArrayList<>(drafts.values());
+    public List<ReportDraft> findAllByTenantId(Long tenantId) {
+        List<ReportDraft> result = drafts.values().stream()
+                .filter(draft -> draft.tenantId().equals(tenantId))
+                .collect(java.util.stream.Collectors.toCollection(ArrayList::new));
         result.sort(Comparator.comparing(ReportDraft::generatedAt).reversed());
         return List.copyOf(result);
     }

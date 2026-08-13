@@ -13,7 +13,8 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Set;
-import java.util.concurrent.atomic.AtomicReference;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
@@ -32,10 +33,15 @@ public class InMemoryKnowledgeIndex implements KnowledgeIndex {
     private static final int MAX_EXCERPT_CHARS = 480;
     private static final Pattern TOKEN_RUN = Pattern.compile("[\\p{IsHan}]+|[\\p{L}\\p{N}_-]+");
 
-    private final AtomicReference<List<KnowledgeChunk>> chunks = new AtomicReference<>();
+    private final ConcurrentMap<Long, List<KnowledgeChunk>> chunks = new ConcurrentHashMap<>();
 
     @Override
     public void replaceAll(List<KnowledgeChunk> replacement) {
+        replaceAll(com.brand.agentpoc.tenant.domain.TenantScoped.DEFAULT_TENANT_ID, replacement);
+    }
+
+    @Override
+    public void replaceAll(Long tenantId, List<KnowledgeChunk> replacement) {
         if (replacement == null || replacement.isEmpty()) {
             throw new IllegalArgumentException("Knowledge index requires at least one chunk.");
         }
@@ -45,12 +51,20 @@ public class InMemoryKnowledgeIndex implements KnowledgeIndex {
                 throw new IllegalArgumentException("Duplicate knowledge chunk id: " + chunk.chunkId());
             }
         }
-        chunks.set(List.copyOf(replacement));
+        if (tenantId == null) {
+            throw new IllegalArgumentException("tenantId is required.");
+        }
+        chunks.put(tenantId, List.copyOf(replacement));
     }
 
     @Override
     public KnowledgeSearchResult search(KnowledgeQuery query) {
-        List<KnowledgeChunk> snapshot = chunks.get();
+        return search(query, com.brand.agentpoc.tenant.domain.TenantScoped.DEFAULT_TENANT_ID);
+    }
+
+    @Override
+    public KnowledgeSearchResult search(KnowledgeQuery query, Long tenantId) {
+        List<KnowledgeChunk> snapshot = chunks.get(tenantId);
         if (snapshot == null) {
             throw new IllegalStateException("Knowledge index has not been initialized.");
         }
@@ -76,7 +90,7 @@ public class InMemoryKnowledgeIndex implements KnowledgeIndex {
 
     @Override
     public boolean isAvailable() {
-        return chunks.get() != null;
+        return !chunks.isEmpty();
     }
 
     private double score(String query, Set<String> queryTokens, KnowledgeChunk chunk) {

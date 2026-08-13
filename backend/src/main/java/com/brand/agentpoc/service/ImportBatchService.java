@@ -11,7 +11,8 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
 import java.util.UUID;
-import java.util.concurrent.atomic.AtomicReference;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -25,7 +26,7 @@ public class ImportBatchService {
             DateTimeFormatter.ofPattern("yyyyMMddHHmmss").withZone(ZoneOffset.UTC);
 
     private final ImportBatchRepository importBatchRepository;
-    private final AtomicReference<ImportBatch> inMemoryActiveBatch = new AtomicReference<>();
+    private final ConcurrentMap<Long, ImportBatch> inMemoryActiveBatches = new ConcurrentHashMap<>();
 
     public ImportBatchService(ImportBatchRepository importBatchRepository) {
         this.importBatchRepository = importBatchRepository;
@@ -43,6 +44,26 @@ public class ImportBatchService {
 
     @Transactional
     public ImportBatch activateGlobalBatch(String batchId, String source, boolean fallbackActive, String message) {
+        return activateTenantBatch(
+                com.brand.agentpoc.tenant.domain.TenantScoped.DEFAULT_TENANT_ID,
+                batchId,
+                source,
+                fallbackActive,
+                message
+        );
+    }
+
+    @Transactional
+    public ImportBatch activateTenantBatch(
+            Long tenantId,
+            String batchId,
+            String source,
+            boolean fallbackActive,
+            String message
+    ) {
+        if (tenantId == null) {
+            throw new IllegalArgumentException("tenantId is required.");
+        }
         Instant now = Instant.now();
         ImportBatch batch = new ImportBatch(
                 batchId,
@@ -53,25 +74,34 @@ public class ImportBatchService {
                 fallbackActive,
                 now,
                 now,
-                message
+                message,
+                tenantId
         );
-        inMemoryActiveBatch.set(batch);
+        inMemoryActiveBatches.put(tenantId, batch);
         if (importBatchRepository == null) {
             return batch;
         }
         ImportBatch saved = importBatchRepository.save(batch);
-        inMemoryActiveBatch.set(saved);
+        inMemoryActiveBatches.put(tenantId, saved);
         return saved;
     }
 
     public String activeBatchId() {
-        return currentActiveBatch()
+        return activeBatchId(com.brand.agentpoc.tenant.domain.TenantScoped.DEFAULT_TENANT_ID);
+    }
+
+    public String activeBatchId(Long tenantId) {
+        return currentActiveBatch(tenantId)
                 .map(ImportBatch::getBatchKey)
                 .orElse(LEGACY_BATCH_ID);
     }
 
     public ImportDataStatus.Batch activeStatusBatch() {
-        return currentActiveBatch()
+        return activeStatusBatch(com.brand.agentpoc.tenant.domain.TenantScoped.DEFAULT_TENANT_ID);
+    }
+
+    public ImportDataStatus.Batch activeStatusBatch(Long tenantId) {
+        return currentActiveBatch(tenantId)
                 .map(this::toStatusBatch)
                 .orElse(new ImportDataStatus.Batch(LEGACY_BATCH_ID, true, GLOBAL_SCOPE_TYPE, null, null));
     }
@@ -83,17 +113,36 @@ public class ImportBatchService {
                 .toList();
     }
 
+    public <T extends BatchScoped & com.brand.agentpoc.tenant.domain.TenantScoped> List<T> filterActive(
+            List<T> rows,
+            Long tenantId
+    ) {
+        if (tenantId == null) {
+            throw new org.springframework.security.access.AccessDeniedException("Tenant context is required.");
+        }
+        String activeBatchId = activeBatchId(tenantId);
+        return rows.stream()
+                .filter(row -> tenantId.equals(row.getTenantId()))
+                .filter(row -> activeBatchId.equals(row.getImportBatchId()))
+                .toList();
+    }
+
     public boolean isActive(BatchScoped row) {
         return row != null && activeBatchId().equals(row.getImportBatchId());
     }
 
     private Optional<ImportBatch> currentActiveBatch() {
+        return currentActiveBatch(com.brand.agentpoc.tenant.domain.TenantScoped.DEFAULT_TENANT_ID);
+    }
+
+    private Optional<ImportBatch> currentActiveBatch(Long tenantId) {
         if (importBatchRepository == null) {
-            return Optional.ofNullable(inMemoryActiveBatch.get());
+            return Optional.ofNullable(inMemoryActiveBatches.get(tenantId));
         }
         Optional<ImportBatch> repositoryBatch =
-                importBatchRepository.findByActiveTrueOrderByActivatedAtDescIdDesc().stream().findFirst();
-        return repositoryBatch.or(() -> Optional.ofNullable(inMemoryActiveBatch.get()));
+                importBatchRepository.findByTenantIdAndActiveTrueOrderByActivatedAtDescIdDesc(tenantId)
+                        .stream().findFirst();
+        return repositoryBatch.or(() -> Optional.ofNullable(inMemoryActiveBatches.get(tenantId)));
     }
 
     private ImportDataStatus.Batch toStatusBatch(ImportBatch batch) {

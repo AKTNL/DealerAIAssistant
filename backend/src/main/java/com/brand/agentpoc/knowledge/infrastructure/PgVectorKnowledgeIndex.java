@@ -43,17 +43,27 @@ public class PgVectorKnowledgeIndex implements KnowledgeIndex {
 
     @Override
     public void replaceAll(List<KnowledgeChunk> chunks) {
+        replaceAll(com.brand.agentpoc.tenant.domain.TenantScoped.DEFAULT_TENANT_ID, chunks);
+    }
+
+    @Override
+    public void replaceAll(Long tenantId, List<KnowledgeChunk> chunks) {
         if (chunks == null || chunks.isEmpty()) {
             throw new IllegalArgumentException("Knowledge index requires at least one chunk.");
         }
-        List<Document> documents = chunks.stream().map(this::toDocument).toList();
-        vectorStore.delete(CATALOG_FILTER);
+        List<Document> documents = chunks.stream().map(chunk -> toDocument(tenantId, chunk)).toList();
+        vectorStore.delete("catalog == 'bundled' && tenantId == '" + tenantId + "'");
         vectorStore.add(documents);
         initialized.set(true);
     }
 
     @Override
     public KnowledgeSearchResult search(KnowledgeQuery query) {
+        return search(query, com.brand.agentpoc.tenant.domain.TenantScoped.DEFAULT_TENANT_ID);
+    }
+
+    @Override
+    public KnowledgeSearchResult search(KnowledgeQuery query, Long tenantId) {
         if (!initialized.get()) {
             throw new IllegalStateException("Knowledge index has not been initialized.");
         }
@@ -61,7 +71,7 @@ public class PgVectorKnowledgeIndex implements KnowledgeIndex {
                 .query(query.text())
                 .topK(query.topK())
                 .similarityThreshold(similarityThreshold)
-                .filterExpression(CATALOG_FILTER)
+                .filterExpression("catalog == 'bundled' && tenantId == '" + tenantId + "'")
                 .build();
         List<KnowledgeHit> hits = vectorStore.similaritySearch(request).stream()
                 .map(this::toHit)
@@ -74,9 +84,11 @@ public class PgVectorKnowledgeIndex implements KnowledgeIndex {
         return initialized.get();
     }
 
-    private Document toDocument(KnowledgeChunk chunk) {
+    private Document toDocument(Long tenantId, KnowledgeChunk chunk) {
         Map<String, Object> metadata = Map.of(
                 "catalog", CATALOG_VALUE,
+                "tenantId", String.valueOf(tenantId),
+                "chunkId", chunk.chunkId(),
                 "documentId", chunk.documentId(),
                 "title", chunk.title(),
                 "type", chunk.type().name(),
@@ -85,7 +97,7 @@ public class PgVectorKnowledgeIndex implements KnowledgeIndex {
                 "section", chunk.section(),
                 "chunkIndex", chunk.chunkIndex()
         );
-        return new Document(chunk.chunkId(), chunk.content(), metadata);
+        return new Document(tenantId + ":" + chunk.chunkId(), chunk.content(), metadata);
     }
 
     private KnowledgeHit toHit(Document document) {
@@ -97,7 +109,7 @@ public class PgVectorKnowledgeIndex implements KnowledgeIndex {
         Double documentScore = document.getScore();
         double score = documentScore == null ? 0.0 : Math.max(0.0, Math.min(1.0, documentScore));
         return new KnowledgeHit(
-                document.getId(),
+                chunkId(document, metadata),
                 metadataValue(metadata, "documentId"),
                 metadataValue(metadata, "title"),
                 KnowledgeType.valueOf(metadataValue(metadata, "type")),
@@ -115,5 +127,17 @@ public class PgVectorKnowledgeIndex implements KnowledgeIndex {
             throw new IllegalStateException("Knowledge vector metadata is incomplete.");
         }
         return value.toString();
+    }
+
+    private String chunkId(Document document, Map<String, Object> metadata) {
+        Object configured = metadata.get("chunkId");
+        if (configured != null && !configured.toString().isBlank()) {
+            return configured.toString();
+        }
+        String id = document.getId();
+        int tenantSeparator = id == null ? -1 : id.indexOf(':');
+        return tenantSeparator > 0 && id.substring(0, tenantSeparator).chars().allMatch(Character::isDigit)
+                ? id.substring(tenantSeparator + 1)
+                : id;
     }
 }

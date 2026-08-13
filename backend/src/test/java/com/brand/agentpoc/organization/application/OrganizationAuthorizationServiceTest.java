@@ -6,8 +6,6 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 import com.brand.agentpoc.auth.domain.AuthPrincipal;
-import com.brand.agentpoc.auth.infrastructure.persistence.AuthUserEntity;
-import com.brand.agentpoc.auth.infrastructure.persistence.AuthUserRepository;
 import com.brand.agentpoc.organization.domain.OrganizationDataScope;
 import com.brand.agentpoc.organization.domain.OrganizationNodeType;
 import com.brand.agentpoc.organization.infrastructure.persistence.OrganizationDealerMappingEntity;
@@ -28,14 +26,11 @@ import org.springframework.security.core.context.SecurityContextHolder;
 
 class OrganizationAuthorizationServiceTest {
 
-    private AuthUserRepository userRepository;
     private OrganizationAuthorizationService service;
 
     @BeforeEach
     void setUp() {
-        userRepository = mock(AuthUserRepository.class);
         service = new OrganizationAuthorizationService(
-                userRepository,
                 mock(OrganizationNodeRepository.class),
                 mock(OrganizationDealerMappingRepository.class),
                 mock(OrganizationUserGrantRepository.class),
@@ -51,11 +46,8 @@ class OrganizationAuthorizationServiceTest {
     @Test
     void resolvesTheCurrentAuthenticatedPrincipalFromTheSecurityContext() {
         AuthPrincipal principal = new AuthPrincipal(
-                1L, 2L, "family", "analyst", "Analyst", true, false, Set.of(), Set.of());
-        AuthUserEntity user = mock(AuthUserEntity.class);
-        when(user.getEnabled()).thenReturn(true);
-        when(user.getRoles()).thenReturn(Set.of());
-        when(userRepository.findById(1L)).thenReturn(Optional.of(user));
+                1L, 2L, "family", "analyst", "Analyst", true, false,
+                Set.of(), Set.of(), 1L, "default", 1L, Set.of());
         SecurityContextHolder.getContext().setAuthentication(
                 UsernamePasswordAuthenticationToken.authenticated(principal, "token", List.of())
         );

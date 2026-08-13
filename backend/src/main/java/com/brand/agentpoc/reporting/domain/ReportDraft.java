@@ -13,7 +13,8 @@ public record ReportDraft(
         String importBatchId,
         ReportScope scope,
         String model,
-        String promptVersion
+        String promptVersion,
+        Long tenantId
 ) {
 
     public ReportDraft {
@@ -27,6 +28,25 @@ public record ReportDraft(
         scope = scope == null ? ReportScope.global() : scope;
         model = required(model, "model");
         promptVersion = required(promptVersion, "promptVersion");
+        if (tenantId == null) {
+            throw new IllegalArgumentException("tenantId is required.");
+        }
+    }
+
+    public ReportDraft(
+            String id,
+            ReportType reportType,
+            String title,
+            String language,
+            String markdown,
+            Instant generatedAt,
+            String importBatchId,
+            ReportScope scope,
+            String model,
+            String promptVersion
+    ) {
+        this(id, reportType, title, language, markdown, generatedAt, importBatchId, scope, model, promptVersion,
+                com.brand.agentpoc.tenant.domain.TenantScoped.DEFAULT_TENANT_ID);
     }
 
     private static String required(String value, String fieldName) {

@@ -16,8 +16,12 @@ import java.time.Instant;
 @Table(
         name = "organization_dealer_mappings",
         uniqueConstraints = @UniqueConstraint(
-                name = "uq_organization_dealer_mappings_code",
-                columnNames = "dealer_code"
+                name = "uq_organization_mappings_tenant_code",
+                columnNames = {"tenant_id", "dealer_code"}
+        ),
+        indexes = @jakarta.persistence.Index(
+                name = "idx_organization_mappings_tenant_node",
+                columnList = "tenant_id,organization_node_id,dealer_code"
         )
 )
 public class OrganizationDealerMappingEntity {
@@ -25,6 +29,9 @@ public class OrganizationDealerMappingEntity {
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
+
+    @Column(name = "tenant_id", nullable = false)
+    private Long tenantId;
 
     @ManyToOne(fetch = FetchType.EAGER, optional = false)
     @JoinColumn(name = "organization_node_id", nullable = false)
@@ -44,13 +51,30 @@ public class OrganizationDealerMappingEntity {
             String dealerCode,
             Instant createdAt
     ) {
+        this(organizationNode.getTenantId(), organizationNode, dealerCode, createdAt);
+    }
+
+    public OrganizationDealerMappingEntity(
+            Long tenantId,
+            OrganizationNodeEntity organizationNode,
+            String dealerCode,
+            Instant createdAt
+    ) {
+        if (tenantId == null || organizationNode == null || !tenantId.equals(organizationNode.getTenantId())) {
+            throw new IllegalArgumentException("organization mapping tenant is invalid.");
+        }
         this.organizationNode = organizationNode;
+        this.tenantId = tenantId;
         this.dealerCode = dealerCode;
         this.createdAt = createdAt;
     }
 
     public Long getId() {
         return id;
+    }
+
+    public Long getTenantId() {
+        return tenantId;
     }
 
     public OrganizationNodeEntity getOrganizationNode() {

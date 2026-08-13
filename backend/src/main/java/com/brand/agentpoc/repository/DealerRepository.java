@@ -5,6 +5,10 @@ import java.util.List;
 import org.springframework.data.jpa.repository.JpaRepository;
 
 public interface DealerRepository extends JpaRepository<Dealer, Long> {
+    List<Dealer> findByTenantId(Long tenantId);
+
+    List<Dealer> findByTenantIdAndDealerCodeIgnoreCase(Long tenantId, String dealerCode);
+
     List<Dealer> findByDealerCodeIgnoreCase(String dealerCode);
 
     List<Dealer> findByCityIgnoreCase(String city);

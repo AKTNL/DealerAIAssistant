@@ -32,7 +32,10 @@ public class DataStatusController {
     @GetMapping
     public ApiResult<ImportDataStatus> getStatus() {
         if (authorizationService != null) {
-            authorizationService.resolveCurrent().dataScope().requireRootCoverage();
+            com.brand.agentpoc.organization.domain.OrganizationDataScope dataScope =
+                    authorizationService.resolveCurrent().dataScope();
+            dataScope.requireRootCoverage();
+            return ApiResult.success(importQualityService.getLatest(dataScope.tenantId()));
         }
         return ApiResult.success(importQualityService.getLatest());
     }

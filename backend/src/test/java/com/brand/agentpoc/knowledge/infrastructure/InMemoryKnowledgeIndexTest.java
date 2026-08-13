@@ -66,6 +66,25 @@ class InMemoryKnowledgeIndexTest {
                 .hasMessageContaining("Duplicate");
     }
 
+    @Test
+    void keepsIdenticalChunkIdsIsolatedByTenant() {
+        InMemoryKnowledgeIndex index = new InMemoryKnowledgeIndex();
+        KnowledgeChunk first = chunk(
+                "shared:1", "first", "Tenant One", KnowledgeType.KPI_DEFINITION,
+                "Tenant One", "alpha policy", 1);
+        KnowledgeChunk second = chunk(
+                "shared:1", "second", "Tenant Two", KnowledgeType.KPI_DEFINITION,
+                "Tenant Two", "beta policy", 1);
+
+        index.replaceAll(1L, List.of(first));
+        index.replaceAll(2L, List.of(second));
+
+        assertThat(index.search(new KnowledgeQuery("alpha policy", 1), 1L).hits())
+                .extracting(hit -> hit.documentId()).containsExactly("first");
+        assertThat(index.search(new KnowledgeQuery("alpha policy", 1), 2L).hits())
+                .extracting(hit -> hit.documentId()).doesNotContain("first");
+    }
+
     private KnowledgeChunk chunk(
             String chunkId,
             String documentId,

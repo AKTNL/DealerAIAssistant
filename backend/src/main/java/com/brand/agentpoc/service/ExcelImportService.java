@@ -160,9 +160,15 @@ public class ExcelImportService implements ApplicationRunner {
     @Override
     @Transactional
     public void run(ApplicationArguments args) {
-        if (hasExistingData()) {
+        importConfiguredWorkbook(com.brand.agentpoc.tenant.domain.TenantScoped.DEFAULT_TENANT_ID);
+    }
+
+    @Transactional
+    public void importConfiguredWorkbook(Long tenantId) {
+        requireTenantId(tenantId);
+        if (hasExistingData(tenantId)) {
             log.info("Sample data already initialized, skipping startup import.");
-            publishRepositoryStatus("existing-database", false, "Existing database data is active.");
+            publishRepositoryStatus(tenantId, "existing-database", false, "Existing database data is active.");
             return;
         }
 
@@ -174,33 +180,34 @@ public class ExcelImportService implements ApplicationRunner {
                 throw new IllegalStateException("Configured workbook was not found: " + appProperties.getExcel().getPath());
             }
 
-            ParsedWorkbook parsedWorkbook = importWorkbook(resource, tracker, batchId);
-            persistParsedWorkbook(parsedWorkbook);
-            importBatchService.activateGlobalBatch(
+            ParsedWorkbook parsedWorkbook = importWorkbook(resource, tracker, batchId, tenantId);
+            persistParsedWorkbook(parsedWorkbook, tenantId);
+            importBatchService.activateTenantBatch(
+                    tenantId,
                     batchId,
                     "configured-workbook",
                     false,
                     "Configured workbook imported successfully."
             );
-            importQualityService.publish(tracker.build(
+            importQualityService.publish(tenantId, tracker.build(
                     "configured-workbook",
                     false,
                     "Configured workbook imported successfully.",
-                    importBatchService.activeStatusBatch()
+                    importBatchService.activeStatusBatch(tenantId)
             ));
-            logImportCompletion("configured-workbook");
+            logImportCompletion(tenantId, "configured-workbook");
         } catch (Exception exception) {
-            handleImportFailure(tracker, exception);
+            handleImportFailure(tenantId, tracker, exception);
         }
     }
 
-    private boolean hasExistingData() {
-        return dealerRepository.count() > 0
-                || opportunityRepository.count() > 0
-                || campaignRepository.count() > 0
-                || taskRepository.count() > 0
-                || targetRepository.count() > 0
-                || leadRepository.count() > 0;
+    private boolean hasExistingData(Long tenantId) {
+        return !dealerRepository.findByTenantId(tenantId).isEmpty()
+                || !opportunityRepository.findByTenantId(tenantId).isEmpty()
+                || !campaignRepository.findByTenantId(tenantId).isEmpty()
+                || !taskRepository.findByTenantId(tenantId).isEmpty()
+                || !targetRepository.findByTenantId(tenantId).isEmpty()
+                || !leadRepository.findByTenantId(tenantId).isEmpty();
     }
 
     private Resource resolveConfiguredResource(String configuredPath) {
@@ -221,12 +228,17 @@ public class ExcelImportService implements ApplicationRunner {
         return resourceLoader.getResource(trimmedPath);
     }
 
-    private ParsedWorkbook importWorkbook(Resource resource, ImportQualityTracker tracker, String batchId) throws Exception {
+    private ParsedWorkbook importWorkbook(
+            Resource resource,
+            ImportQualityTracker tracker,
+            String batchId,
+            Long tenantId
+    ) throws Exception {
         log.info("Attempting workbook import from {}", resource);
         try (InputStream inputStream = resource.getInputStream();
              Workbook workbook = WorkbookFactory.create(inputStream)) {
             validateRequiredSheets(workbook, tracker);
-            ParsedWorkbook parsedWorkbook = parseWorkbook(workbook, tracker, batchId);
+            ParsedWorkbook parsedWorkbook = parseWorkbook(workbook, tracker, batchId, tenantId);
             if (parsedWorkbook.isEmpty()) {
                 throw new IllegalStateException("Workbook import produced no usable rows.");
             }
@@ -234,19 +246,24 @@ public class ExcelImportService implements ApplicationRunner {
         }
     }
 
-    private ParsedWorkbook parseWorkbook(Workbook workbook, ImportQualityTracker tracker, String batchId) {
+    private ParsedWorkbook parseWorkbook(
+            Workbook workbook,
+            ImportQualityTracker tracker,
+            String batchId,
+            Long tenantId
+    ) {
         // Parse AE Target Data first to extract dealer group name lookup
         Map<String, String> dealerGroupByCode = new LinkedHashMap<>();
         List<Target> targets = parseTargetSheet(
-                findSheet(workbook, TARGET_SHEET, "Target", "Targets"), dealerGroupByCode, tracker, batchId);
+                findSheet(workbook, TARGET_SHEET, "Target", "Targets"), dealerGroupByCode, tracker, batchId, tenantId);
 
         // Parse sheets that have direct dealer info
         List<Opportunity> opportunities = parseOpportunitySheet(
-                findSheet(workbook, OPPORTUNITY_SHEET, "Opportunities"), dealerGroupByCode, tracker, batchId);
+                findSheet(workbook, OPPORTUNITY_SHEET, "Opportunities"), dealerGroupByCode, tracker, batchId, tenantId);
         List<Campaign> campaigns = parseCampaignSheet(
-                findSheet(workbook, CAMPAIGN_SHEET, "Campaigns"), dealerGroupByCode, tracker, batchId);
+                findSheet(workbook, CAMPAIGN_SHEET, "Campaigns"), dealerGroupByCode, tracker, batchId, tenantId);
         List<Lead> leads = parseLeadSheet(
-                findSheet(workbook, LEAD_SHEET, "Leads"), dealerGroupByCode, tracker, batchId);
+                findSheet(workbook, LEAD_SHEET, "Leads"), dealerGroupByCode, tracker, batchId, tenantId);
 
         // Task sheet has no direct dealer info — join via Opportunity
         Map<String, String[]> oppDealerInfo = new LinkedHashMap<>();
@@ -255,9 +272,9 @@ public class ExcelImportService implements ApplicationRunner {
                     new String[]{opp.getDealerCode(), opp.getDealerName(), opp.getCity(), opp.getDealerGroupName()});
         }
         List<Task> tasks = parseTaskSheet(
-                findSheet(workbook, TASK_SHEET, "Tasks"), oppDealerInfo, dealerGroupByCode, tracker, batchId);
+                findSheet(workbook, TASK_SHEET, "Tasks"), oppDealerInfo, dealerGroupByCode, tracker, batchId, tenantId);
 
-        List<Dealer> dealers = deriveDealers(opportunities, campaigns, tasks, targets, leads, batchId);
+        List<Dealer> dealers = deriveDealers(opportunities, campaigns, tasks, targets, leads, batchId, tenantId);
         tracker.imported(DEALER_SHEET, dealers.size());
         return new ParsedWorkbook(dealers, opportunities, campaigns, tasks, targets, leads);
     }
@@ -281,72 +298,84 @@ public class ExcelImportService implements ApplicationRunner {
         }
     }
 
-    private void handleImportFailure(ImportQualityTracker tracker, Exception exception) {
+    private void handleImportFailure(Long tenantId, ImportQualityTracker tracker, Exception exception) {
         tracker.issue("Workbook", "import_failed");
         if (!appProperties.getExcel().isFallbackEnabled()) {
-            importQualityService.publish(tracker.build(
+            importQualityService.publish(tenantId, tracker.build(
                     "import-failed",
                     false,
                     exception.getMessage(),
-                    importBatchService.activeStatusBatch()
+                    importBatchService.activeStatusBatch(tenantId)
             ));
             throw new IllegalStateException("Workbook import failed in strict mode.", exception);
         }
 
         log.error("Workbook import failed. Seeding built-in sample data because fallback is enabled.", exception);
         String batchId = importBatchService.newBatchId("fallback");
-        seedFallbackData(batchId);
-        importBatchService.activateGlobalBatch(
+        seedFallbackData(batchId, tenantId);
+        importBatchService.activateTenantBatch(
+                tenantId,
                 batchId,
                 "built-in-sample",
                 true,
                 "Configured workbook could not be used; built-in sample data is active."
         );
-        recordRepositoryCounts(tracker);
-        importQualityService.publish(tracker.build(
+        recordRepositoryCounts(tenantId, tracker);
+        importQualityService.publish(tenantId, tracker.build(
                 "built-in-sample",
                 true,
                 "Configured workbook could not be used; built-in sample data is active.",
-                importBatchService.activeStatusBatch()
+                importBatchService.activeStatusBatch(tenantId)
         ));
-        logImportCompletion("built-in-sample");
+        logImportCompletion(tenantId, "built-in-sample");
     }
 
-    private void publishRepositoryStatus(String source, boolean fallbackActive, String message) {
+    private void publishRepositoryStatus(Long tenantId, String source, boolean fallbackActive, String message) {
         ImportQualityTracker tracker = new ImportQualityTracker();
-        recordRepositoryCounts(tracker);
-        importQualityService.publish(tracker.build(source, fallbackActive, message, importBatchService.activeStatusBatch()));
+        recordRepositoryCounts(tenantId, tracker);
+        importQualityService.publish(tenantId, tracker.build(
+                source, fallbackActive, message, importBatchService.activeStatusBatch(tenantId)));
     }
 
-    private void recordRepositoryCounts(ImportQualityTracker tracker) {
-        tracker.imported(DEALER_SHEET, importBatchService.filterActive(dealerRepository.findAll()).size());
-        tracker.imported(OPPORTUNITY_SHEET, importBatchService.filterActive(opportunityRepository.findAll()).size());
-        tracker.imported(CAMPAIGN_SHEET, importBatchService.filterActive(campaignRepository.findAll()).size());
-        tracker.imported(TASK_SHEET, importBatchService.filterActive(taskRepository.findAll()).size());
-        tracker.imported(TARGET_SHEET, importBatchService.filterActive(targetRepository.findAll()).size());
-        tracker.imported(LEAD_SHEET, importBatchService.filterActive(leadRepository.findAll()).size());
+    private void recordRepositoryCounts(Long tenantId, ImportQualityTracker tracker) {
+        tracker.imported(DEALER_SHEET, importBatchService.filterActive(dealerRepository.findByTenantId(tenantId), tenantId).size());
+        tracker.imported(OPPORTUNITY_SHEET, importBatchService.filterActive(
+                opportunityRepository.findByTenantId(tenantId), tenantId).size());
+        tracker.imported(CAMPAIGN_SHEET, importBatchService.filterActive(
+                campaignRepository.findByTenantId(tenantId), tenantId).size());
+        tracker.imported(TASK_SHEET, importBatchService.filterActive(taskRepository.findByTenantId(tenantId), tenantId).size());
+        tracker.imported(TARGET_SHEET, importBatchService.filterActive(targetRepository.findByTenantId(tenantId), tenantId).size());
+        tracker.imported(LEAD_SHEET, importBatchService.filterActive(leadRepository.findByTenantId(tenantId), tenantId).size());
     }
 
-    private void logImportCompletion(String source) {
+    private void logImportCompletion(Long tenantId, String source) {
         log.info(
                 "Data initialization completed: source={}, dealers={}, opportunities={}, campaigns={}, tasks={}, targets={}, leads={}",
                 source,
-                importBatchService.filterActive(dealerRepository.findAll()).size(),
-                importBatchService.filterActive(opportunityRepository.findAll()).size(),
-                importBatchService.filterActive(campaignRepository.findAll()).size(),
-                importBatchService.filterActive(taskRepository.findAll()).size(),
-                importBatchService.filterActive(targetRepository.findAll()).size(),
-                importBatchService.filterActive(leadRepository.findAll()).size()
+                importBatchService.filterActive(dealerRepository.findByTenantId(tenantId), tenantId).size(),
+                importBatchService.filterActive(opportunityRepository.findByTenantId(tenantId), tenantId).size(),
+                importBatchService.filterActive(campaignRepository.findByTenantId(tenantId), tenantId).size(),
+                importBatchService.filterActive(taskRepository.findByTenantId(tenantId), tenantId).size(),
+                importBatchService.filterActive(targetRepository.findByTenantId(tenantId), tenantId).size(),
+                importBatchService.filterActive(leadRepository.findByTenantId(tenantId), tenantId).size()
         );
     }
 
-    private void persistParsedWorkbook(ParsedWorkbook parsedWorkbook) {
+    private void persistParsedWorkbook(ParsedWorkbook parsedWorkbook, Long tenantId) {
+        parsedWorkbook.requireTenant(tenantId);
         dealerRepository.saveAll(parsedWorkbook.dealers());
         opportunityRepository.saveAll(parsedWorkbook.opportunities());
         campaignRepository.saveAll(parsedWorkbook.campaigns());
         taskRepository.saveAll(parsedWorkbook.tasks());
         targetRepository.saveAll(parsedWorkbook.targets());
         leadRepository.saveAll(parsedWorkbook.leads());
+    }
+
+    private Long requireTenantId(Long tenantId) {
+        if (tenantId == null) {
+            throw new IllegalArgumentException("tenantId is required.");
+        }
+        return tenantId;
     }
 
     private Sheet findSheet(Workbook workbook, String... candidateNames) {
@@ -377,7 +406,8 @@ public class ExcelImportService implements ApplicationRunner {
             Sheet sheet,
             Map<String, String> dealerGroupByCode,
             ImportQualityTracker tracker,
-            String batchId
+            String batchId,
+            Long tenantId
     ) {
         if (sheet == null) {
             return List.of();
@@ -460,7 +490,8 @@ public class ExcelImportService implements ApplicationRunner {
                     createdDate,
                     expectedCloseDate,
                     probability,
-                    batchId
+                    batchId,
+                    tenantId
             ));
             tracker.imported(OPPORTUNITY_SHEET);
         }
@@ -472,7 +503,8 @@ public class ExcelImportService implements ApplicationRunner {
             Sheet sheet,
             Map<String, String> dealerGroupByCode,
             ImportQualityTracker tracker,
-            String batchId
+            String batchId,
+            Long tenantId
     ) {
         if (sheet == null) {
             return List.of();
@@ -601,7 +633,8 @@ public class ExcelImportService implements ApplicationRunner {
                     wonOpportunityCount,
                     leadCount,
                     totalNewCustomerTarget,
-                    batchId
+                    batchId,
+                    tenantId
             ));
             tracker.imported(CAMPAIGN_SHEET);
         }
@@ -614,7 +647,8 @@ public class ExcelImportService implements ApplicationRunner {
             Map<String, String[]> oppDealerInfo,
             Map<String, String> dealerGroupByCode,
             ImportQualityTracker tracker,
-            String batchId
+            String batchId,
+            Long tenantId
     ) {
         if (sheet == null) {
             return List.of();
@@ -679,7 +713,8 @@ public class ExcelImportService implements ApplicationRunner {
                     subject,
                     status,
                     createdDate,
-                    batchId
+                    batchId,
+                    tenantId
             ));
             tracker.imported(TASK_SHEET);
         }
@@ -691,7 +726,8 @@ public class ExcelImportService implements ApplicationRunner {
             Sheet sheet,
             Map<String, String> dealerGroupByCode,
             ImportQualityTracker tracker,
-            String batchId
+            String batchId,
+            Long tenantId
     ) {
         if (sheet == null) {
             return List.of();
@@ -771,7 +807,8 @@ public class ExcelImportService implements ApplicationRunner {
                     asKTarget,
                     opportunityWonCount,
                     opportunityCreateCount,
-                    batchId
+                    batchId,
+                    tenantId
             ));
             tracker.imported(TARGET_SHEET);
         }
@@ -783,7 +820,8 @@ public class ExcelImportService implements ApplicationRunner {
             Sheet sheet,
             Map<String, String> dealerGroupByCode,
             ImportQualityTracker tracker,
-            String batchId
+            String batchId,
+            Long tenantId
     ) {
         if (sheet == null) {
             return List.of();
@@ -858,7 +896,8 @@ public class ExcelImportService implements ApplicationRunner {
                     productModel,
                     createdDate,
                     converted,
-                    batchId
+                    batchId,
+                    tenantId
             ));
             tracker.imported(LEAD_SHEET);
         }
@@ -895,22 +934,23 @@ public class ExcelImportService implements ApplicationRunner {
             List<Task> tasks,
             List<Target> targets,
             List<Lead> leads,
-            String batchId
+            String batchId,
+            Long tenantId
     ) {
         Map<String, Dealer> dealers = new LinkedHashMap<>();
 
         opportunities.forEach(opportunity -> addDealer(dealers,
                 opportunity.getDealerCode(), opportunity.getDealerName(), opportunity.getCity(),
-                opportunity.getDealerGroupName(), batchId));
+                opportunity.getDealerGroupName(), batchId, tenantId));
         campaigns.forEach(campaign -> addDealer(dealers,
                 campaign.getDealerCode(), campaign.getDealerName(), campaign.getCity(), campaign.getDealerGroupName(),
-                batchId));
+                batchId, tenantId));
         tasks.forEach(task -> addDealer(dealers,
-                task.getDealerCode(), task.getDealerName(), task.getCity(), task.getDealerGroupName(), batchId));
+                task.getDealerCode(), task.getDealerName(), task.getCity(), task.getDealerGroupName(), batchId, tenantId));
         targets.forEach(target -> addDealer(dealers,
-                target.getDealerCode(), target.getDealerName(), target.getCity(), target.getDealerGroupName(), batchId));
+                target.getDealerCode(), target.getDealerName(), target.getCity(), target.getDealerGroupName(), batchId, tenantId));
         leads.forEach(lead -> addDealer(dealers,
-                lead.getDealerCode(), lead.getDealerName(), lead.getCity(), lead.getDealerGroupName(), batchId));
+                lead.getDealerCode(), lead.getDealerName(), lead.getCity(), lead.getDealerGroupName(), batchId, tenantId));
 
         return new ArrayList<>(dealers.values());
     }
@@ -921,13 +961,14 @@ public class ExcelImportService implements ApplicationRunner {
             String dealerName,
             String city,
             String dealerGroupName,
-            String batchId
+            String batchId,
+            Long tenantId
     ) {
         if (hasBlank(dealerCode, dealerName, city)) {
             return;
         }
         dealers.putIfAbsent(dealerCode, new Dealer(dealerCode, dealerName, city,
-                dealerGroupName != null ? dealerGroupName : "", batchId));
+                dealerGroupName != null ? dealerGroupName : "", batchId, tenantId));
     }
 
     private String getString(Row row, Map<String, Integer> headers, String... aliases) {
@@ -1208,103 +1249,103 @@ public class ExcelImportService implements ApplicationRunner {
         return normalized.isEmpty() ? null : normalized;
     }
 
-    private void seedFallbackData(String batchId) {
+    private void seedFallbackData(String batchId, Long tenantId) {
         dealerRepository.saveAll(List.of(
-                new Dealer("BJ001", "Beijing Star Motors", "Beijing", "North Star Group", batchId),
-                new Dealer("BJ002", "Beijing Horizon Auto", "Beijing", "North Star Group", batchId),
-                new Dealer("SH001", "Shanghai Prime Mobility", "Shanghai", "East River Group", batchId),
-                new Dealer("HZ001", "Hangzhou Lakeside Auto", "Hangzhou", "East River Group", batchId),
-                new Dealer("GZ001", "Guangzhou Motion Hub", "Guangzhou", "South Bay Group", batchId),
-                new Dealer("CD001", "Chengdu Drive Center", "Chengdu", "West Link Group", batchId)
+                new Dealer("BJ001", "Beijing Star Motors", "Beijing", "North Star Group", batchId, tenantId),
+                new Dealer("BJ002", "Beijing Horizon Auto", "Beijing", "North Star Group", batchId, tenantId),
+                new Dealer("SH001", "Shanghai Prime Mobility", "Shanghai", "East River Group", batchId, tenantId),
+                new Dealer("HZ001", "Hangzhou Lakeside Auto", "Hangzhou", "East River Group", batchId, tenantId),
+                new Dealer("GZ001", "Guangzhou Motion Hub", "Guangzhou", "South Bay Group", batchId, tenantId),
+                new Dealer("CD001", "Chengdu Drive Center", "Chengdu", "West Link Group", batchId, tenantId)
         ));
 
         opportunityRepository.saveAll(List.of(
                 new Opportunity("OPP-1001", "BJ001", "Beijing Star Motors", "Beijing", "North Star Group",
                         "M7", "未知", "Negotiation", "Test Drive", LocalDate.of(2026, 4, 2),
-                        LocalDate.of(2026, 5, 8), 70, batchId),
+                        LocalDate.of(2026, 5, 8), 70, batchId, tenantId),
                 new Opportunity("OPP-1002", "BJ002", "Beijing Horizon Auto", "Beijing", "North Star Group",
                         "M7", "未知", "Proposal", "WeChat", LocalDate.of(2026, 4, 6),
-                        LocalDate.of(2026, 5, 12), 55, batchId),
+                        LocalDate.of(2026, 5, 12), 55, batchId, tenantId),
                 new Opportunity("OPP-1003", "SH001", "Shanghai Prime Mobility", "Shanghai", "East River Group",
                         "X5", "未知", "Won", "Showroom", LocalDate.of(2026, 4, 3),
-                        LocalDate.of(2026, 4, 24), 100, batchId),
+                        LocalDate.of(2026, 4, 24), 100, batchId, tenantId),
                 new Opportunity("OPP-1004", "HZ001", "Hangzhou Lakeside Auto", "Hangzhou", "East River Group",
                         "X5", "未知", "Qualified", "Douyin", LocalDate.of(2026, 4, 9),
-                        LocalDate.of(2026, 5, 18), 45, batchId),
+                        LocalDate.of(2026, 5, 18), 45, batchId, tenantId),
                 new Opportunity("OPP-1005", "GZ001", "Guangzhou Motion Hub", "Guangzhou", "South Bay Group",
                         "E3", "未知", "Negotiation", "Referral", LocalDate.of(2026, 4, 11),
-                        LocalDate.of(2026, 5, 20), 68, batchId),
+                        LocalDate.of(2026, 5, 20), 68, batchId, tenantId),
                 new Opportunity("OPP-1006", "CD001", "Chengdu Drive Center", "Chengdu", "West Link Group",
                         "E3", "未知", "Lost", "Website", LocalDate.of(2026, 4, 13),
-                        LocalDate.of(2026, 4, 29), 20, batchId),
+                        LocalDate.of(2026, 4, 29), 20, batchId, tenantId),
                 new Opportunity("OPP-1007", "SH001", "Shanghai Prime Mobility", "Shanghai", "East River Group",
                         "X5", "未知", "Negotiation", "Campaign", LocalDate.of(2026, 4, 16),
-                        LocalDate.of(2026, 5, 21), 75, batchId),
+                        LocalDate.of(2026, 5, 21), 75, batchId, tenantId),
                 new Opportunity("OPP-1008", "BJ001", "Beijing Star Motors", "Beijing", "North Star Group",
                         "M7", "未知", "Qualified", "Website", LocalDate.of(2026, 4, 18),
-                        LocalDate.of(2026, 5, 26), 48, batchId)
+                        LocalDate.of(2026, 5, 26), 48, batchId, tenantId)
         ));
 
         campaignRepository.saveAll(List.of(
                 new Campaign("CAM-2001", "BJ001", "Beijing Star Motors", "Beijing", "North Star Group",
-                        "M7", "Test Drive", LocalDate.of(2026, 3, 15), 28, 35, batchId),
+                        "M7", "Test Drive", LocalDate.of(2026, 3, 15), 28, 35, batchId, tenantId),
                 new Campaign("CAM-2002", "BJ002", "Beijing Horizon Auto", "Beijing", "North Star Group",
-                        "M7", "Online Live", LocalDate.of(2026, 3, 21), 19, 30, batchId),
+                        "M7", "Online Live", LocalDate.of(2026, 3, 21), 19, 30, batchId, tenantId),
                 new Campaign("CAM-2003", "SH001", "Shanghai Prime Mobility", "Shanghai", "East River Group",
-                        "X5", "City Show", LocalDate.of(2026, 3, 18), 36, 40, batchId),
+                        "X5", "City Show", LocalDate.of(2026, 3, 18), 36, 40, batchId, tenantId),
                 new Campaign("CAM-2004", "HZ001", "Hangzhou Lakeside Auto", "Hangzhou", "East River Group",
-                        "X5", "Referral Drive", LocalDate.of(2026, 3, 27), 22, 28, batchId),
+                        "X5", "Referral Drive", LocalDate.of(2026, 3, 27), 22, 28, batchId, tenantId),
                 new Campaign("CAM-2005", "GZ001", "Guangzhou Motion Hub", "Guangzhou", "South Bay Group",
-                        "E3", "Mall Booth", LocalDate.of(2026, 3, 25), 25, 32, batchId)
+                        "E3", "Mall Booth", LocalDate.of(2026, 3, 25), 25, 32, batchId, tenantId)
         ));
 
         taskRepository.saveAll(List.of(
                 new Task("TSK-3001", "BJ001", "Beijing Star Motors", "Beijing",
-                        "North Star Group", "OPP-1001", "未知", "Completed", LocalDate.of(2026, 4, 3), batchId),
+                        "North Star Group", "OPP-1001", "未知", "Completed", LocalDate.of(2026, 4, 3), batchId, tenantId),
                 new Task("TSK-3002", "BJ002", "Beijing Horizon Auto", "Beijing",
-                        "North Star Group", "OPP-1002", "未知", "Pending", LocalDate.of(2026, 4, 7), batchId),
+                        "North Star Group", "OPP-1002", "未知", "Pending", LocalDate.of(2026, 4, 7), batchId, tenantId),
                 new Task("TSK-3003", "SH001", "Shanghai Prime Mobility", "Shanghai",
-                        "East River Group", "OPP-1003", "未知", "Completed", LocalDate.of(2026, 4, 4), batchId),
+                        "East River Group", "OPP-1003", "未知", "Completed", LocalDate.of(2026, 4, 4), batchId, tenantId),
                 new Task("TSK-3004", "HZ001", "Hangzhou Lakeside Auto", "Hangzhou",
-                        "East River Group", "OPP-1004", "未知", "In Progress", LocalDate.of(2026, 4, 10), batchId),
+                        "East River Group", "OPP-1004", "未知", "In Progress", LocalDate.of(2026, 4, 10), batchId, tenantId),
                 new Task("TSK-3005", "GZ001", "Guangzhou Motion Hub", "Guangzhou",
-                        "South Bay Group", "OPP-1005", "未知", "Pending", LocalDate.of(2026, 4, 12), batchId),
+                        "South Bay Group", "OPP-1005", "未知", "Pending", LocalDate.of(2026, 4, 12), batchId, tenantId),
                 new Task("TSK-3006", "CD001", "Chengdu Drive Center", "Chengdu",
-                        "West Link Group", "OPP-1006", "未知", "Overdue", LocalDate.of(2026, 4, 14), batchId)
+                        "West Link Group", "OPP-1006", "未知", "Overdue", LocalDate.of(2026, 4, 14), batchId, tenantId)
         ));
 
         targetRepository.saveAll(List.of(
                 new Target("BJ001", "Beijing Star Motors", "Beijing", "North Star Group", "M7",
-                        2026, 4, 120, 92, 110, batchId),
+                        2026, 4, 120, 92, 110, batchId, tenantId),
                 new Target("BJ002", "Beijing Horizon Auto", "Beijing", "North Star Group", "M7",
-                        2026, 4, 100, 68, 80, batchId),
+                        2026, 4, 100, 68, 80, batchId, tenantId),
                 new Target("SH001", "Shanghai Prime Mobility", "Shanghai", "East River Group", "X5",
-                        2026, 4, 130, 126, 145, batchId),
+                        2026, 4, 130, 126, 145, batchId, tenantId),
                 new Target("HZ001", "Hangzhou Lakeside Auto", "Hangzhou", "East River Group", "X5",
-                        2026, 4, 110, 97, 115, batchId),
+                        2026, 4, 110, 97, 115, batchId, tenantId),
                 new Target("GZ001", "Guangzhou Motion Hub", "Guangzhou", "South Bay Group", "E3",
-                        2026, 4, 105, 88, 100, batchId),
+                        2026, 4, 105, 88, 100, batchId, tenantId),
                 new Target("CD001", "Chengdu Drive Center", "Chengdu", "West Link Group", "E3",
-                        2026, 4, 95, 61, 72, batchId)
+                        2026, 4, 95, 61, 72, batchId, tenantId)
         ));
 
         leadRepository.saveAll(List.of(
                 new Lead("LED-4001", "BJ001", "Beijing Star Motors", "Beijing", "North Star Group",
-                        "WeChat", "Qualified", "M7", LocalDate.of(2026, 3, 28), true, batchId),
+                        "WeChat", "Qualified", "M7", LocalDate.of(2026, 3, 28), true, batchId, tenantId),
                 new Lead("LED-4002", "BJ002", "Beijing Horizon Auto", "Beijing", "North Star Group",
-                        "Douyin", "New", "M7", LocalDate.of(2026, 4, 1), false, batchId),
+                        "Douyin", "New", "M7", LocalDate.of(2026, 4, 1), false, batchId, tenantId),
                 new Lead("LED-4003", "SH001", "Shanghai Prime Mobility", "Shanghai", "East River Group",
-                        "Showroom", "Converted", "X5", LocalDate.of(2026, 3, 30), true, batchId),
+                        "Showroom", "Converted", "X5", LocalDate.of(2026, 3, 30), true, batchId, tenantId),
                 new Lead("LED-4004", "HZ001", "Hangzhou Lakeside Auto", "Hangzhou", "East River Group",
-                        "Campaign", "Qualified", "X5", LocalDate.of(2026, 4, 5), false, batchId),
+                        "Campaign", "Qualified", "X5", LocalDate.of(2026, 4, 5), false, batchId, tenantId),
                 new Lead("LED-4005", "GZ001", "Guangzhou Motion Hub", "Guangzhou", "South Bay Group",
-                        "Referral", "Qualified", "E3", LocalDate.of(2026, 4, 8), true, batchId),
+                        "Referral", "Qualified", "E3", LocalDate.of(2026, 4, 8), true, batchId, tenantId),
                 new Lead("LED-4006", "CD001", "Chengdu Drive Center", "Chengdu", "West Link Group",
-                        "Website", "Lost", "E3", LocalDate.of(2026, 4, 9), false, batchId),
+                        "Website", "Lost", "E3", LocalDate.of(2026, 4, 9), false, batchId, tenantId),
                 new Lead("LED-4007", "SH001", "Shanghai Prime Mobility", "Shanghai", "East River Group",
-                        "Xiaohongshu", "New", "X5", LocalDate.of(2026, 4, 12), false, batchId),
+                        "Xiaohongshu", "New", "X5", LocalDate.of(2026, 4, 12), false, batchId, tenantId),
                 new Lead("LED-4008", "BJ001", "Beijing Star Motors", "Beijing", "North Star Group",
-                        "Website", "Qualified", "M7", LocalDate.of(2026, 4, 14), true, batchId)
+                        "Website", "Qualified", "M7", LocalDate.of(2026, 4, 14), true, batchId, tenantId)
         ));
     }
 
@@ -1319,6 +1360,17 @@ public class ExcelImportService implements ApplicationRunner {
             List<Target> targets,
             List<Lead> leads
     ) {
+        void requireTenant(Long tenantId) {
+            Stream.of(dealers, opportunities, campaigns, tasks, targets, leads)
+                    .flatMap(List::stream)
+                    .map(row -> (com.brand.agentpoc.tenant.domain.TenantScoped) row)
+                    .filter(row -> !tenantId.equals(row.getTenantId()))
+                    .findFirst()
+                    .ifPresent(row -> {
+                        throw new IllegalArgumentException("Imported rows must belong to the selected tenant.");
+                    });
+        }
+
         boolean isEmpty() {
             return dealers.isEmpty()
                     && opportunities.isEmpty()

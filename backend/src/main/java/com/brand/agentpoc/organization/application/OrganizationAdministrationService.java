@@ -67,37 +67,37 @@ public class OrganizationAdministrationService {
     }
 
     @Transactional(readOnly = true)
-    public List<NodeView> listNodes() {
-        return nodeRepository.findAll().stream()
+    public List<NodeView> listNodes(AuthPrincipal actor) {
+        return nodeRepository.findByTenantId(requireTenantId(actor)).stream()
                 .sorted(java.util.Comparator.comparing(OrganizationNodeEntity::getNodeKey))
                 .map(NodeView::from)
                 .toList();
     }
 
     @Transactional(readOnly = true)
-    public List<DealerMappingView> listDealerMappings() {
-        return mappingRepository.findAll().stream()
+    public List<DealerMappingView> listDealerMappings(AuthPrincipal actor) {
+        return mappingRepository.findByTenantId(requireTenantId(actor)).stream()
                 .sorted(java.util.Comparator.comparing(OrganizationDealerMappingEntity::getDealerCode))
                 .map(DealerMappingView::from)
                 .toList();
     }
 
     @Transactional(readOnly = true)
-    public List<GrantView> listUserGrants(Long userId) {
+    public List<GrantView> listUserGrants(AuthPrincipal actor, Long userId) {
         if (userId == null || !userRepository.existsById(userId)) {
             throw new IllegalArgumentException("user was not found.");
         }
-        return userGrantRepository.findByUserId(userId).stream()
+        return userGrantRepository.findByTenantIdAndUserId(requireTenantId(actor), userId).stream()
                 .map(GrantView::from)
                 .toList();
     }
 
     @Transactional(readOnly = true)
-    public List<GrantView> listRoleGrants(Long roleId) {
+    public List<GrantView> listRoleGrants(AuthPrincipal actor, Long roleId) {
         if (roleId == null || !roleRepository.existsById(roleId)) {
             throw new IllegalArgumentException("role was not found.");
         }
-        return roleGrantRepository.findByRoleId(roleId).stream()
+        return roleGrantRepository.findByTenantIdAndRoleId(requireTenantId(actor), roleId).stream()
                 .map(GrantView::from)
                 .toList();
     }
@@ -112,14 +112,16 @@ public class OrganizationAdministrationService {
             boolean enabled,
             String traceId
     ) {
+        Long tenantId = requireTenantId(actor);
         String normalizedKey = normalizeNodeKey(nodeKey);
-        if (!nodeRepository.findByNodeKeyIgnoreCase(normalizedKey).isEmpty()) {
+        if (!nodeRepository.findByTenantIdAndNodeKeyIgnoreCase(tenantId, normalizedKey).isEmpty()) {
             throw new IllegalArgumentException("organization node key already exists.");
         }
-        OrganizationNodeEntity parent = parentId == null ? null : requireEnabledNode(parentId);
+        OrganizationNodeEntity parent = parentId == null ? null : requireEnabledNode(tenantId, parentId);
         validateHierarchy(nodeType, parent);
         Instant now = Instant.now(clock);
         OrganizationNodeEntity saved = nodeRepository.saveAndFlush(new OrganizationNodeEntity(
+                tenantId,
                 normalizedKey,
                 normalizeDisplayName(displayName),
                 requireType(nodeType),
@@ -143,12 +145,13 @@ public class OrganizationAdministrationService {
             Long expectedVersion,
             String traceId
     ) {
-        OrganizationNodeEntity node = requireNode(nodeId);
+        Long tenantId = requireTenantId(actor);
+        OrganizationNodeEntity node = requireNode(tenantId, nodeId);
         requireVersion(node.getVersion(), expectedVersion);
-        OrganizationNodeEntity parent = parentId == null ? null : requireEnabledNode(parentId);
+        OrganizationNodeEntity parent = parentId == null ? null : requireEnabledNode(tenantId, parentId);
         validateHierarchy(nodeType, parent);
         validateReparent(node, parent);
-        validateChildren(node, nodeType);
+        validateChildren(tenantId, node, nodeType);
         node.update(normalizeDisplayName(displayName), requireType(nodeType), parent, enabled, Instant.now(clock));
         OrganizationNodeEntity saved = nodeRepository.saveAndFlush(node);
         auditService.record(actor.userId(), "ORG_NODE_UPDATE", "ORGANIZATION_NODE", String.valueOf(saved.getId()),
@@ -163,21 +166,26 @@ public class OrganizationAdministrationService {
             Long organizationNodeId,
             String traceId
     ) {
+        Long tenantId = requireTenantId(actor);
         String normalizedDealerCode = normalizeDealerCode(dealerCode);
-        OrganizationNodeEntity node = requireEnabledNode(organizationNodeId);
+        OrganizationNodeEntity node = requireEnabledNode(tenantId, organizationNodeId);
         if (node.getNodeType() != OrganizationNodeType.DEALER) {
             throw new IllegalArgumentException("Dealer mappings require a DEALER organization node.");
         }
-        boolean knownDealer = importBatchService.filterActive(dealerRepository.findByDealerCodeIgnoreCase(normalizedDealerCode))
+        boolean knownDealer = importBatchService.filterActive(
+                        dealerRepository.findByTenantIdAndDealerCodeIgnoreCase(tenantId, normalizedDealerCode),
+                        tenantId)
                 .stream()
                 .map(Dealer::getDealerCode)
                 .anyMatch(normalizedDealerCode::equalsIgnoreCase);
         if (!knownDealer) {
             throw new IllegalArgumentException("dealer code was not found in the active data batch.");
         }
-        mappingRepository.deleteAll(mappingRepository.findByDealerCodeIgnoreCase(normalizedDealerCode));
+        mappingRepository.deleteAll(mappingRepository.findByTenantIdAndDealerCodeIgnoreCase(
+                tenantId, normalizedDealerCode));
         mappingRepository.flush();
         OrganizationDealerMappingEntity saved = mappingRepository.save(new OrganizationDealerMappingEntity(
+                tenantId,
                 node,
                 normalizedDealerCode,
                 Instant.now(clock)
@@ -194,17 +202,19 @@ public class OrganizationAdministrationService {
             Set<GrantInput> grants,
             String traceId
     ) {
+        Long tenantId = requireTenantId(actor);
         if (!userRepository.existsById(userId)) {
             throw new IllegalArgumentException("user was not found.");
         }
-        Set<GrantInput> normalized = validateGrants(grants);
-        userGrantRepository.deleteByUserId(userId);
+        Set<GrantInput> normalized = validateGrants(tenantId, grants);
+        userGrantRepository.deleteByTenantIdAndUserId(tenantId, userId);
         userGrantRepository.flush();
         Instant now = Instant.now(clock);
         List<OrganizationUserGrantEntity> saved = userGrantRepository.saveAll(normalized.stream()
                 .map(grant -> new OrganizationUserGrantEntity(
+                        tenantId,
                         userId,
-                        requireEnabledNode(grant.organizationNodeId()),
+                        requireEnabledNode(tenantId, grant.organizationNodeId()),
                         grant.includeDescendants(),
                         now
                 ))
@@ -221,17 +231,19 @@ public class OrganizationAdministrationService {
             Set<GrantInput> grants,
             String traceId
     ) {
+        Long tenantId = requireTenantId(actor);
         if (!roleRepository.existsById(roleId)) {
             throw new IllegalArgumentException("role was not found.");
         }
-        Set<GrantInput> normalized = validateGrants(grants);
-        roleGrantRepository.deleteByRoleId(roleId);
+        Set<GrantInput> normalized = validateGrants(tenantId, grants);
+        roleGrantRepository.deleteByTenantIdAndRoleId(tenantId, roleId);
         roleGrantRepository.flush();
         Instant now = Instant.now(clock);
         List<OrganizationRoleGrantEntity> saved = roleGrantRepository.saveAll(normalized.stream()
                 .map(grant -> new OrganizationRoleGrantEntity(
+                        tenantId,
                         roleId,
-                        requireEnabledNode(grant.organizationNodeId()),
+                        requireEnabledNode(tenantId, grant.organizationNodeId()),
                         grant.includeDescendants(),
                         now
                 ))
@@ -241,7 +253,7 @@ public class OrganizationAdministrationService {
         return saved.stream().map(GrantView::from).toList();
     }
 
-    private Set<GrantInput> validateGrants(Set<GrantInput> grants) {
+    private Set<GrantInput> validateGrants(Long tenantId, Set<GrantInput> grants) {
         Set<GrantInput> normalized = grants == null ? Set.of() : Set.copyOf(grants);
         Set<Long> nodeIds = new HashSet<>();
         for (GrantInput grant : normalized) {
@@ -251,7 +263,7 @@ public class OrganizationAdministrationService {
             if (!nodeIds.add(grant.organizationNodeId())) {
                 throw new IllegalArgumentException("duplicate organization node grant.");
             }
-            requireEnabledNode(grant.organizationNodeId());
+            requireEnabledNode(tenantId, grant.organizationNodeId());
         }
         return normalized;
     }
@@ -287,8 +299,8 @@ public class OrganizationAdministrationService {
         }
     }
 
-    private void validateChildren(OrganizationNodeEntity node, OrganizationNodeType nextType) {
-        boolean invalidChild = nodeRepository.findByParentId(node.getId()).stream()
+    private void validateChildren(Long tenantId, OrganizationNodeEntity node, OrganizationNodeType nextType) {
+        boolean invalidChild = nodeRepository.findByTenantIdAndParentId(tenantId, node.getId()).stream()
                 .anyMatch(child -> !nextType.acceptsChild(child.getNodeType()));
         if (invalidChild) {
             throw new IllegalArgumentException("organization node type is incompatible with existing children.");
@@ -322,20 +334,27 @@ public class OrganizationAdministrationService {
         return current;
     }
 
-    private OrganizationNodeEntity requireNode(Long id) {
+    private OrganizationNodeEntity requireNode(Long tenantId, Long id) {
         if (id == null) {
             throw new IllegalArgumentException("organization node id is required.");
         }
-        return nodeRepository.findById(id)
+        return nodeRepository.findByTenantIdAndId(tenantId, id).stream().findFirst()
                 .orElseThrow(() -> new IllegalArgumentException("organization node was not found."));
     }
 
-    private OrganizationNodeEntity requireEnabledNode(Long id) {
-        OrganizationNodeEntity node = requireNode(id);
+    private OrganizationNodeEntity requireEnabledNode(Long tenantId, Long id) {
+        OrganizationNodeEntity node = requireNode(tenantId, id);
         if (!Boolean.TRUE.equals(node.getEnabled())) {
             throw new IllegalArgumentException("organization node is disabled.");
         }
         return node;
+    }
+
+    private Long requireTenantId(AuthPrincipal actor) {
+        if (actor == null || !actor.hasTenantContext()) {
+            throw new org.springframework.security.access.AccessDeniedException("Tenant context is required.");
+        }
+        return actor.tenantId();
     }
 
     private String normalizeNodeKey(String value) {

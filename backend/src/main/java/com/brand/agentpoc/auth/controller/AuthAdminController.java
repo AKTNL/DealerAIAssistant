@@ -43,8 +43,8 @@ public class AuthAdminController {
     }
 
     @GetMapping("/users")
-    public ApiResult<List<UserView>> listUsers() {
-        return ApiResult.success(administrationService.listUsers());
+    public ApiResult<List<UserView>> listUsers(@AuthenticationPrincipal AuthPrincipal actor) {
+        return ApiResult.success(administrationService.listUsers(actor));
     }
 
     @PostMapping("/users")
@@ -117,11 +117,16 @@ public class AuthAdminController {
     }
 
     @GetMapping("/users/{id}/sessions")
-    public ResponseEntity<ApiResult<List<SessionView>>> listUserSessions(@PathVariable Long id) {
+    public ResponseEntity<ApiResult<List<SessionView>>> listUserSessions(
+            @AuthenticationPrincipal AuthPrincipal actor,
+            @PathVariable Long id
+    ) {
         try {
-            return ResponseEntity.ok(ApiResult.success(queryService.listUserSessions(id)));
+            return ResponseEntity.ok(ApiResult.success(queryService.listUserSessions(actor, id)));
         } catch (IllegalArgumentException exception) {
             return ResponseEntity.badRequest().body(ApiResult.error(400, exception.getMessage()));
+        } catch (IllegalStateException exception) {
+            return ResponseEntity.status(409).body(ApiResult.error(409, exception.getMessage()));
         }
     }
 
@@ -139,12 +144,14 @@ public class AuthAdminController {
             )));
         } catch (IllegalArgumentException exception) {
             return ResponseEntity.badRequest().body(ApiResult.error(400, exception.getMessage()));
+        } catch (IllegalStateException exception) {
+            return ResponseEntity.status(409).body(ApiResult.error(409, exception.getMessage()));
         }
     }
 
     @GetMapping("/audit-events")
-    public ApiResult<List<AuditEventView>> listAuditEvents() {
-        return ApiResult.success(queryService.listAuditEvents());
+    public ApiResult<List<AuditEventView>> listAuditEvents(@AuthenticationPrincipal AuthPrincipal actor) {
+        return ApiResult.success(queryService.listAuditEvents(actor));
     }
 
     @GetMapping("/roles")

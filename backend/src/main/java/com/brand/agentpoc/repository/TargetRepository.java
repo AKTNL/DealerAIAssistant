@@ -5,6 +5,8 @@ import java.util.List;
 import org.springframework.data.jpa.repository.JpaRepository;
 
 public interface TargetRepository extends JpaRepository<Target, Long> {
+    List<Target> findByTenantId(Long tenantId);
+
     List<Target> findByDealerCodeIgnoreCase(String dealerCode);
 
     List<Target> findByCityIgnoreCase(String city);

@@ -6,6 +6,9 @@ import com.brand.agentpoc.auth.domain.AuthPrincipal;
 import com.brand.agentpoc.auth.domain.PermissionKey;
 import com.brand.agentpoc.config.AppProperties;
 import com.brand.agentpoc.dto.response.ApiResult;
+import com.brand.agentpoc.tenant.application.TenantAuthorizationService;
+import com.brand.agentpoc.tenant.application.TenantAuthorizationService.TenantMembershipView;
+import com.brand.agentpoc.tenant.application.TenantAuthorizationService.TenantUserContext;
 import jakarta.servlet.http.Cookie;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
@@ -24,6 +27,7 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RestController;
 import com.brand.agentpoc.service.AuthRateLimitService;
 
@@ -37,15 +41,18 @@ public class AuthController {
     private final AuthSessionService sessionService;
     private final AuthRateLimitService rateLimitService;
     private final AppProperties appProperties;
+    private final TenantAuthorizationService tenantAuthorizationService;
 
     public AuthController(
             AuthSessionService sessionService,
             AuthRateLimitService rateLimitService,
-            AppProperties appProperties
+            AppProperties appProperties,
+            TenantAuthorizationService tenantAuthorizationService
     ) {
         this.sessionService = sessionService;
         this.rateLimitService = rateLimitService;
         this.appProperties = appProperties;
+        this.tenantAuthorizationService = tenantAuthorizationService;
     }
 
     @PostMapping("/login")
@@ -67,7 +74,7 @@ public class AuthController {
                     AuthRequestTrace.resolve(servletRequest)
             );
             rateLimitService.recordSuccess(clientKey);
-            return withRefreshCookie(issued, HttpStatus.OK);
+            return withRefreshCookie(issued, HttpStatus.OK, servletRequest);
         } catch (AuthenticationException exception) {
             rateLimitService.recordFailure(clientKey);
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
@@ -87,7 +94,7 @@ public class AuthController {
                     refreshCookie(request),
                     AuthRequestTrace.resolve(request)
             );
-            return withRefreshCookie(issued, HttpStatus.OK);
+            return withRefreshCookie(issued, HttpStatus.OK, request);
         } catch (AuthenticationException exception) {
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
                     .header(HttpHeaders.SET_COOKIE, clearRefreshCookie())
@@ -96,8 +103,11 @@ public class AuthController {
     }
 
     @GetMapping("/me")
-    public ApiResult<UserResponse> me(@AuthenticationPrincipal AuthPrincipal principal) {
-        return ApiResult.success(UserResponse.from(principal));
+    public ApiResult<UserResponse> me(
+            @AuthenticationPrincipal AuthPrincipal principal,
+            @RequestHeader(value = TenantAuthorizationService.TENANT_HEADER, required = false) String tenantKey
+    ) {
+        return ApiResult.success(userResponse(principal, tenantKey));
     }
 
     @PostMapping("/password")
@@ -150,11 +160,22 @@ public class AuthController {
 
     private ResponseEntity<ApiResult<SessionResponse>> withRefreshCookie(
             IssuedSession issued,
-            HttpStatus status
+            HttpStatus status,
+            HttpServletRequest request
     ) {
         return ResponseEntity.status(status)
                 .header(HttpHeaders.SET_COOKIE, refreshCookie(issued))
-                .body(ApiResult.success(SessionResponse.from(issued)));
+                .body(ApiResult.success(new SessionResponse(
+                        issued.accessToken(),
+                        issued.accessExpiresAt(),
+                        userResponse(issued.principal(), request.getHeader(TenantAuthorizationService.TENANT_HEADER))
+                )));
+    }
+
+    private UserResponse userResponse(AuthPrincipal identity, String tenantKey) {
+        TenantUserContext context = tenantAuthorizationService.resolveUserContext(identity, tenantKey);
+        AuthPrincipal selected = context.principal().orElse(null);
+        return UserResponse.from(identity, selected, context.memberships());
     }
 
     private ResponseEntity<ApiResult<Void>> clearedCookieSuccess() {
@@ -224,12 +245,11 @@ public class AuthController {
             Instant accessExpiresAt,
             UserResponse user
     ) {
-        private static SessionResponse from(IssuedSession issued) {
-            return new SessionResponse(
-                    issued.accessToken(),
-                    issued.accessExpiresAt(),
-                    UserResponse.from(issued.principal())
-            );
+    }
+
+    public record TenantResponse(Long id, String key, String displayName) {
+        private static TenantResponse from(TenantMembershipView membership) {
+            return new TenantResponse(membership.id(), membership.key(), membership.displayName());
         }
     }
 
@@ -240,17 +260,32 @@ public class AuthController {
             boolean enabled,
             boolean mustChangePassword,
             Set<String> roles,
-            Set<PermissionKey> permissions
+            Set<PermissionKey> permissions,
+            java.util.List<TenantResponse> tenants,
+            TenantResponse currentTenant
     ) {
-        private static UserResponse from(AuthPrincipal principal) {
+        private static UserResponse from(
+                AuthPrincipal identity,
+                AuthPrincipal selected,
+                java.util.List<TenantMembershipView> memberships
+        ) {
             return new UserResponse(
-                    principal.userId(),
-                    principal.username(),
-                    principal.displayName(),
-                    principal.enabled(),
-                    principal.mustChangePassword(),
-                    principal.roles(),
-                    principal.permissions()
+                    identity.userId(),
+                    identity.username(),
+                    identity.displayName(),
+                    identity.enabled(),
+                    identity.mustChangePassword(),
+                    selected == null ? Set.of() : selected.roles(),
+                    selected == null ? Set.of() : selected.permissions(),
+                    memberships.stream().map(TenantResponse::from).toList(),
+                    selected == null
+                            ? null
+                            : new TenantResponse(selected.tenantId(), selected.tenantKey(),
+                                    memberships.stream()
+                                            .filter(item -> item.id().equals(selected.tenantId()))
+                                            .map(TenantMembershipView::displayName)
+                                            .findFirst()
+                                            .orElse(selected.tenantKey()))
             );
         }
     }

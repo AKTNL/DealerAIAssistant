@@ -5353,52 +5353,62 @@ public class RuleBasedAnalyticsService {
 
         private List<Dealer> dealers() {
             if (dealers == null) {
-                dealers = scoped(dealerRepository.findAll(), dataScope);
+                dealers = scoped(dataScope.unrestricted() ? dealerRepository.findAll()
+                        : dealerRepository.findByTenantId(dataScope.tenantId()), dataScope);
             }
             return dealers;
         }
 
         private List<Target> targets() {
             if (targets == null) {
-                targets = scoped(targetRepository.findAll(), dataScope);
+                targets = scoped(dataScope.unrestricted() ? targetRepository.findAll()
+                        : targetRepository.findByTenantId(dataScope.tenantId()), dataScope);
             }
             return targets;
         }
 
         private List<Opportunity> opportunities() {
             if (opportunities == null) {
-                opportunities = scoped(opportunityRepository.findAll(), dataScope);
+                opportunities = scoped(dataScope.unrestricted() ? opportunityRepository.findAll()
+                        : opportunityRepository.findByTenantId(dataScope.tenantId()), dataScope);
             }
             return opportunities;
         }
 
         private List<Campaign> campaigns() {
             if (campaigns == null) {
-                campaigns = scoped(campaignRepository.findAll(), dataScope);
+                campaigns = scoped(dataScope.unrestricted() ? campaignRepository.findAll()
+                        : campaignRepository.findByTenantId(dataScope.tenantId()), dataScope);
             }
             return campaigns;
         }
 
         private List<Task> tasks() {
             if (tasks == null) {
-                tasks = scoped(taskRepository.findAll(), dataScope);
+                tasks = scoped(dataScope.unrestricted() ? taskRepository.findAll()
+                        : taskRepository.findByTenantId(dataScope.tenantId()), dataScope);
             }
             return tasks;
         }
 
         private List<Lead> leads() {
             if (leads == null) {
-                leads = scoped(leadRepository.findAll(), dataScope);
+                leads = scoped(dataScope.unrestricted() ? leadRepository.findAll()
+                        : leadRepository.findByTenantId(dataScope.tenantId()), dataScope);
             }
             return leads;
         }
     }
 
-    private <T extends BatchScoped & DealerScoped> List<T> scoped(
+    private <T extends BatchScoped & DealerScoped & com.brand.agentpoc.tenant.domain.TenantScoped> List<T> scoped(
             List<T> rows,
             OrganizationDataScope dataScope
     ) {
-        return dataScope.filter(importBatchService.filterActive(rows), DealerScoped::getDealerCode);
+        return dataScope.filter(
+                dataScope.unrestricted()
+                        ? importBatchService.filterActive(rows)
+                        : importBatchService.filterActive(rows, dataScope.tenantId()),
+                DealerScoped::getDealerCode);
     }
 
     private enum SalesFollowUpFocus {

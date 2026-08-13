@@ -27,6 +27,7 @@ class JdbcReportDraftStoreTest {
         jdbcTemplate.execute("""
                 CREATE TABLE report_drafts (
                     id VARCHAR(64) PRIMARY KEY,
+                    tenant_id BIGINT NOT NULL,
                     report_type VARCHAR(16) NOT NULL,
                     title VARCHAR(256) NOT NULL,
                     language VARCHAR(8) NOT NULL,
@@ -58,7 +59,9 @@ class JdbcReportDraftStoreTest {
         );
 
         assertThat(store.save(draft)).isEqualTo(draft);
-        assertThat(store.findById("report-1")).contains(draft);
-        assertThat(store.findAll()).containsExactly(draft);
+        assertThat(store.findByTenantIdAndId(1L, "report-1")).contains(draft);
+        assertThat(store.findByTenantIdAndId(2L, "report-1")).isEmpty();
+        assertThat(store.findAllByTenantId(1L)).containsExactly(draft);
+        assertThat(store.findAllByTenantId(2L)).isEmpty();
     }
 }

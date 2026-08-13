@@ -201,6 +201,10 @@ public class AnalyticsApiService {
     }
 
     private List<Target> loadTargets(Integer year, Integer month, String productModel, String dealerCode) {
+        OrganizationDataScope scope = currentScope();
+        if (!scope.unrestricted()) {
+            return active(targetRepository.findByTenantId(scope.tenantId()));
+        }
         if (hasText(dealerCode)) {
             return active(targetRepository.findByDealerCodeIgnoreCase(dealerCode.trim()));
         }
@@ -477,12 +481,13 @@ public class AnalyticsApiService {
     }
 
     private List<Opportunity> loadOpportunities(String dealerCode, LocalDate startDate, LocalDate endDate) {
+        OrganizationDataScope scope = currentScope();
+        if (!scope.unrestricted()) {
+            return active(opportunityRepository.findByTenantId(scope.tenantId()));
+        }
         if (hasText(dealerCode) && startDate != null && endDate != null) {
             return active(opportunityRepository.findByDealerCodeIgnoreCaseAndCreatedDateBetween(
-                    dealerCode.trim(),
-                    startDate,
-                    endDate
-            ));
+                    dealerCode.trim(), startDate, endDate));
         }
         if (hasText(dealerCode)) {
             return active(opportunityRepository.findByDealerCodeIgnoreCase(dealerCode.trim()));
@@ -500,11 +505,13 @@ public class AnalyticsApiService {
     }
 
     private List<Lead> loadLeads(String leadSource, String dealerCode) {
+        OrganizationDataScope scope = currentScope();
+        if (!scope.unrestricted()) {
+            return active(leadRepository.findByTenantId(scope.tenantId()));
+        }
         if (hasText(leadSource) && hasText(dealerCode)) {
             return active(leadRepository.findByLeadSourceIgnoreCaseAndDealerCodeIgnoreCase(
-                    leadSource.trim(),
-                    dealerCode.trim()
-            ));
+                    leadSource.trim(), dealerCode.trim()));
         }
         if (hasText(leadSource)) {
             return active(leadRepository.findByLeadSourceIgnoreCase(leadSource.trim()));
@@ -516,6 +523,10 @@ public class AnalyticsApiService {
     }
 
     private List<Task> loadTasks(String dealerCode) {
+        OrganizationDataScope scope = currentScope();
+        if (!scope.unrestricted()) {
+            return active(taskRepository.findByTenantId(scope.tenantId()));
+        }
         if (hasText(dealerCode)) {
             return active(taskRepository.findByDealerCodeIgnoreCase(dealerCode.trim()));
         }
@@ -523,16 +534,29 @@ public class AnalyticsApiService {
     }
 
     private List<Campaign> loadCampaigns(String campaignType) {
+        OrganizationDataScope scope = currentScope();
+        if (!scope.unrestricted()) {
+            return active(campaignRepository.findByTenantId(scope.tenantId()));
+        }
         if (hasText(campaignType)) {
             return active(campaignRepository.findByCampaignTypeIgnoreCase(campaignType.trim()));
         }
         return active(campaignRepository.findAll());
     }
 
-    private <T extends BatchScoped & DealerScoped> List<T> active(List<T> rows) {
-        List<T> activeRows = importBatchService.filterActive(rows);
+    private <T extends BatchScoped & DealerScoped & com.brand.agentpoc.tenant.domain.TenantScoped> List<T> active(
+            List<T> rows
+    ) {
+        OrganizationDataScope dataScope = currentScope();
+        List<T> activeRows = dataScope.unrestricted()
+                ? importBatchService.filterActive(rows)
+                : importBatchService.filterActive(rows, dataScope.tenantId());
+        return dataScope.filter(activeRows, DealerScoped::getDealerCode);
+    }
+
+    private OrganizationDataScope currentScope() {
         OrganizationDataScope dataScope = organizationScope.get();
-        return dataScope == null ? activeRows : dataScope.filter(activeRows, DealerScoped::getDealerCode);
+        return dataScope == null ? OrganizationDataScope.unrestrictedScope() : dataScope;
     }
 
     private LocalDate parseDate(String fieldName, String value) {

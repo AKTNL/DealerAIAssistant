@@ -71,12 +71,19 @@ public class DashboardService {
     public DashboardSummary getSummary(OrganizationDataScope dataScope) {
         OrganizationDataScope requiredScope = dataScope == null ? OrganizationDataScope.empty() : dataScope;
         requiredScope.requireDataAccess();
-        List<Dealer> dealers = scoped(dealerRepository.findAll(), requiredScope);
-        List<Target> targets = scoped(targetRepository.findAll(), requiredScope);
-        List<Opportunity> opportunities = scoped(opportunityRepository.findAll(), requiredScope);
-        List<Lead> leads = scoped(leadRepository.findAll(), requiredScope);
-        List<com.brand.agentpoc.entity.Task> tasks = scoped(taskRepository.findAll(), requiredScope);
-        List<Campaign> campaigns = scoped(campaignRepository.findAll(), requiredScope);
+        Long tenantId = requiredScope.tenantId();
+        List<Dealer> dealers = scoped(requiredScope.unrestricted()
+                ? dealerRepository.findAll() : dealerRepository.findByTenantId(tenantId), requiredScope);
+        List<Target> targets = scoped(requiredScope.unrestricted()
+                ? targetRepository.findAll() : targetRepository.findByTenantId(tenantId), requiredScope);
+        List<Opportunity> opportunities = scoped(requiredScope.unrestricted()
+                ? opportunityRepository.findAll() : opportunityRepository.findByTenantId(tenantId), requiredScope);
+        List<Lead> leads = scoped(requiredScope.unrestricted()
+                ? leadRepository.findAll() : leadRepository.findByTenantId(tenantId), requiredScope);
+        List<com.brand.agentpoc.entity.Task> tasks = scoped(requiredScope.unrestricted()
+                ? taskRepository.findAll() : taskRepository.findByTenantId(tenantId), requiredScope);
+        List<Campaign> campaigns = scoped(requiredScope.unrestricted()
+                ? campaignRepository.findAll() : campaignRepository.findByTenantId(tenantId), requiredScope);
         int visibleRowCount = dealers.size()
                 + targets.size()
                 + opportunities.size()
@@ -99,7 +106,7 @@ public class DashboardService {
             OrganizationDataScope dataScope,
             int visibleRowCount
     ) {
-        ImportDataStatus status = importQualityService.getLatest();
+        ImportDataStatus status = importQualityService.getLatest(dataScope.tenantId());
         if (!dataScope.unrestricted() && !dataScope.rootCoverage()) {
             return new DashboardSummary.DataStatus(
                     status.source(),
@@ -471,11 +478,16 @@ public class DashboardService {
         return importBatchService.filterActive(rows);
     }
 
-    private <T extends com.brand.agentpoc.entity.BatchScoped & DealerScoped> List<T> scoped(
+    private <T extends com.brand.agentpoc.entity.BatchScoped & DealerScoped
+            & com.brand.agentpoc.tenant.domain.TenantScoped> List<T> scoped(
             List<T> rows,
             OrganizationDataScope dataScope
     ) {
-        return dataScope.filter(active(rows), DealerScoped::getDealerCode);
+        return dataScope.filter(
+                dataScope.unrestricted()
+                        ? importBatchService.filterActive(rows)
+                        : importBatchService.filterActive(rows, dataScope.tenantId()),
+                DealerScoped::getDealerCode);
     }
 
     @FunctionalInterface

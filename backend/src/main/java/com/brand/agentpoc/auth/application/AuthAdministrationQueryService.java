@@ -6,6 +6,7 @@ import com.brand.agentpoc.auth.infrastructure.persistence.AuthAuditEventReposito
 import com.brand.agentpoc.auth.infrastructure.persistence.AuthSessionEntity;
 import com.brand.agentpoc.auth.infrastructure.persistence.AuthSessionRepository;
 import com.brand.agentpoc.auth.infrastructure.persistence.AuthUserRepository;
+import com.brand.agentpoc.tenant.infrastructure.persistence.TenantMembershipRepository;
 import java.time.Clock;
 import java.time.Instant;
 import java.util.Comparator;
@@ -24,6 +25,7 @@ public class AuthAdministrationQueryService {
     private final AuthSessionService sessionService;
     private final AuthAuditService auditService;
     private final Clock clock;
+    private final TenantMembershipRepository membershipRepository;
 
     public AuthAdministrationQueryService(
             AuthUserRepository userRepository,
@@ -31,7 +33,8 @@ public class AuthAdministrationQueryService {
             AuthAuditEventRepository auditEventRepository,
             AuthSessionService sessionService,
             AuthAuditService auditService,
-            Clock clock
+            Clock clock,
+            TenantMembershipRepository membershipRepository
     ) {
         this.userRepository = userRepository;
         this.sessionRepository = sessionRepository;
@@ -39,11 +42,12 @@ public class AuthAdministrationQueryService {
         this.sessionService = sessionService;
         this.auditService = auditService;
         this.clock = clock;
+        this.membershipRepository = membershipRepository;
     }
 
     @Transactional(readOnly = true)
-    public List<SessionView> listUserSessions(Long userId) {
-        requireUser(userId);
+    public List<SessionView> listUserSessions(AuthPrincipal actor, Long userId) {
+        requireExclusiveTenantMember(actor, userId);
         Instant now = Instant.now(clock);
         return sessionRepository.findByUserId(userId).stream()
                 .sorted(Comparator.comparing(AuthSessionEntity::getIssuedAt).reversed())
@@ -53,14 +57,24 @@ public class AuthAdministrationQueryService {
 
     @Transactional
     public List<SessionView> revokeUserSessions(AuthPrincipal actor, Long userId, String traceId) {
-        requireUser(userId);
+        requireExclusiveTenantMember(actor, userId);
         sessionService.revokeAllForUser(userId, "administrator_revoked");
-        auditService.record(actor.userId(), "USER_SESSIONS_REVOKE", "USER", String.valueOf(userId),
+        auditService.record(actor.tenantId(), actor.userId(), "USER_SESSIONS_REVOKE", "USER", String.valueOf(userId),
                 "SUCCESS", traceId, "all_sessions_revoked");
-        return listUserSessions(userId);
+        return listUserSessions(actor, userId);
     }
 
     @Transactional(readOnly = true)
+    public List<AuditEventView> listAuditEvents(AuthPrincipal actor) {
+        if (actor == null || !actor.hasTenantContext()) {
+            throw new org.springframework.security.access.AccessDeniedException("Tenant access denied.");
+        }
+        return auditEventRepository.findTop100ByTenantIdOrderByCreatedAtDescIdDesc(actor.tenantId()).stream()
+                .limit(AUDIT_EVENT_LIMIT)
+                .map(AuditEventView::from)
+                .toList();
+    }
+
     public List<AuditEventView> listAuditEvents() {
         return auditEventRepository.findTop100ByOrderByCreatedAtDescIdDesc().stream()
                 .limit(AUDIT_EVENT_LIMIT)
@@ -68,9 +82,18 @@ public class AuthAdministrationQueryService {
                 .toList();
     }
 
-    private void requireUser(Long userId) {
+    private void requireExclusiveTenantMember(AuthPrincipal actor, Long userId) {
+        if (actor == null || !actor.hasTenantContext()) {
+            throw new org.springframework.security.access.AccessDeniedException("Tenant access denied.");
+        }
         if (userId == null || !userRepository.existsById(userId)) {
             throw new IllegalArgumentException("Unknown user.");
+        }
+        if (membershipRepository.findByTenantIdAndUserId(actor.tenantId(), userId).isEmpty()) {
+            throw new IllegalArgumentException("Unknown user.");
+        }
+        if (membershipRepository.findByUserId(userId).size() != 1) {
+            throw new IllegalStateException("Shared identity requires platform administration.");
         }
     }
 

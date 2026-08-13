@@ -28,20 +28,44 @@ class PgVectorKnowledgeIndexTest {
 
         index.replaceAll(List.of(chunk()));
 
-        verify(vectorStore).delete("catalog == 'bundled'");
+        verify(vectorStore).delete("catalog == 'bundled' && tenantId == '1'");
         @SuppressWarnings("unchecked")
         ArgumentCaptor<List<Document>> documents = ArgumentCaptor.forClass(List.class);
         verify(vectorStore).add(documents.capture());
         assertThat(documents.getValue()).singleElement().satisfies(document -> {
-            assertThat(document.getId()).isEqualTo("kpi:2026.08:1");
+            assertThat(document.getId()).isEqualTo("1:kpi:2026.08:1");
             assertThat(document.getText()).contains("赢单商机数");
             assertThat(document.getMetadata())
                     .containsEntry("catalog", "bundled")
+                    .containsEntry("tenantId", "1")
+                    .containsEntry("chunkId", "kpi:2026.08:1")
                     .containsEntry("documentId", "kpi")
                     .containsEntry("version", "2026.08")
                     .containsEntry("section", "目标达成率");
         });
         assertThat(index.isAvailable()).isTrue();
+    }
+
+    @Test
+    void usesTenantQualifiedPhysicalIdsAndFiltersEveryReplacementAndSearch() {
+        VectorStore vectorStore = mock(VectorStore.class);
+        PgVectorKnowledgeIndex index = new PgVectorKnowledgeIndex(vectorStore, 0.45);
+        when(vectorStore.similaritySearch(any(SearchRequest.class))).thenReturn(List.of());
+
+        index.replaceAll(1L, List.of(chunk()));
+        index.replaceAll(2L, List.of(chunk()));
+        index.search(new KnowledgeQuery("target", 1), 2L);
+
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<List<Document>> documents = ArgumentCaptor.forClass(List.class);
+        verify(vectorStore, org.mockito.Mockito.times(2)).add(documents.capture());
+        assertThat(documents.getAllValues().get(0).getFirst().getId()).startsWith("1:");
+        assertThat(documents.getAllValues().get(1).getFirst().getId()).startsWith("2:");
+        verify(vectorStore).delete("catalog == 'bundled' && tenantId == '1'");
+        verify(vectorStore).delete("catalog == 'bundled' && tenantId == '2'");
+        ArgumentCaptor<SearchRequest> search = ArgumentCaptor.forClass(SearchRequest.class);
+        verify(vectorStore).similaritySearch(search.capture());
+        assertThat(search.getValue().getFilterExpression().toString()).contains("tenantId", "2");
     }
 
     @Test

@@ -52,15 +52,15 @@ class OrganizationAdministrationServiceTest {
         OrganizationNodeEntity regionB = node(4L, OrganizationNodeType.REGION, rootB, true);
         OrganizationNodeEntity city = node(5L, OrganizationNodeType.CITY, regionA, true);
 
-        when(nodeRepository.findById(5L)).thenReturn(Optional.of(city));
-        when(nodeRepository.findById(4L)).thenReturn(Optional.of(regionB));
+        when(nodeRepository.findByTenantIdAndId(1L, 5L)).thenReturn(java.util.List.of(city));
+        when(nodeRepository.findByTenantIdAndId(1L, 4L)).thenReturn(java.util.List.of(regionB));
         assertThatThrownBy(() -> service.updateNode(
                 actor(), 5L, "City", OrganizationNodeType.CITY, 4L, true, null, "trace"
         )).isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("across roots");
 
         OrganizationNodeEntity descendantRegion = node(6L, OrganizationNodeType.REGION, city, true);
-        when(nodeRepository.findById(6L)).thenReturn(Optional.of(descendantRegion));
+        when(nodeRepository.findByTenantIdAndId(1L, 6L)).thenReturn(java.util.List.of(descendantRegion));
         assertThatThrownBy(() -> service.updateNode(
                 actor(), 5L, "City", OrganizationNodeType.CITY, 6L, true, null, "trace"
         )).isInstanceOf(IllegalArgumentException.class)
@@ -68,7 +68,8 @@ class OrganizationAdministrationServiceTest {
     }
 
     private AuthPrincipal actor() {
-        return new AuthPrincipal(1L, 1L, "family", "admin", "Admin", true, false, Set.of(), Set.of());
+        return new AuthPrincipal(1L, 1L, "family", "admin", "Admin", true, false,
+                Set.of(), Set.of(), 1L, "default", 1L, Set.of());
     }
 
     private OrganizationNodeEntity node(
@@ -82,6 +83,7 @@ class OrganizationAdministrationServiceTest {
         when(node.getNodeType()).thenReturn(type);
         when(node.getParent()).thenReturn(parent);
         when(node.getEnabled()).thenReturn(enabled);
+        when(node.getTenantId()).thenReturn(1L);
         return node;
     }
 }

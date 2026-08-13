@@ -16,8 +16,12 @@ import java.time.Instant;
 @Table(
         name = "organization_role_grants",
         uniqueConstraints = @UniqueConstraint(
-                name = "uq_organization_role_grants",
-                columnNames = {"role_id", "organization_node_id"}
+                name = "uq_organization_role_grants_tenant",
+                columnNames = {"tenant_id", "role_id", "organization_node_id"}
+        ),
+        indexes = @jakarta.persistence.Index(
+                name = "idx_organization_role_grants_tenant_role",
+                columnList = "tenant_id,role_id,organization_node_id"
         )
 )
 public class OrganizationRoleGrantEntity {
@@ -25,6 +29,9 @@ public class OrganizationRoleGrantEntity {
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
+
+    @Column(name = "tenant_id", nullable = false)
+    private Long tenantId;
 
     @Column(name = "role_id", nullable = false)
     private Long roleId;
@@ -48,7 +55,21 @@ public class OrganizationRoleGrantEntity {
             boolean includeDescendants,
             Instant createdAt
     ) {
+        this(organizationNode.getTenantId(), roleId, organizationNode, includeDescendants, createdAt);
+    }
+
+    public OrganizationRoleGrantEntity(
+            Long tenantId,
+            Long roleId,
+            OrganizationNodeEntity organizationNode,
+            boolean includeDescendants,
+            Instant createdAt
+    ) {
+        if (tenantId == null || organizationNode == null || !tenantId.equals(organizationNode.getTenantId())) {
+            throw new IllegalArgumentException("organization grant tenant is invalid.");
+        }
         this.roleId = roleId;
+        this.tenantId = tenantId;
         this.organizationNode = organizationNode;
         this.includeDescendants = includeDescendants;
         this.createdAt = createdAt;
@@ -56,6 +77,10 @@ public class OrganizationRoleGrantEntity {
 
     public Long getId() {
         return id;
+    }
+
+    public Long getTenantId() {
+        return tenantId;
     }
 
     public Long getRoleId() {

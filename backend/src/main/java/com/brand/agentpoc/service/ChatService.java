@@ -240,7 +240,7 @@ public class ChatService {
                     return;
                 }
 
-                boolean configuredModel = hasConfiguredModelSettings(request);
+                boolean configuredModel = hasConfiguredModelSettings(request, agentScope);
                 AnalyticsPlan analyticsPlan = analyticsRequested
                         ? planAnalytics(request.message(), language, traceId, onStep, agentScope)
                         : null;
@@ -265,7 +265,7 @@ public class ChatService {
                                     analyticsPlan.visibleThinking()
                             );
                     } else if (knowledgeRequested) {
-                        generatedReply = knowledgeFallback(request.message(), language);
+                        generatedReply = knowledgeFallback(request.message(), language, agentScope);
                     } else {
                         generatedReply = new GeneratedReply(
                                     buildModelNotConfiguredReply(language),
@@ -314,7 +314,8 @@ public class ChatService {
                     language,
                     analyticsPlan,
                     prompt,
-                    agentSession
+                    agentSession,
+                    agentScope
             );
             return;
         }
@@ -322,11 +323,12 @@ public class ChatService {
         if (knowledgeRequested) {
             Prompt prompt = buildKnowledgePrompt(request, language);
             ControlledAgentToolSession agentSession = openAgentSession(agentScope, traceId);
-            streamConfiguredKnowledgeReply(writer, request, language, prompt, agentSession);
+            streamConfiguredKnowledgeReply(
+                    writer, request, language, prompt, agentSession, agentScope);
             return;
         }
 
-        ChatModel chatModel = modelConfigService.createChatModel(request);
+        ChatModel chatModel = createChatModel(request, agentScope);
         Prompt prompt = buildStreamingPrompt(request, language, false, null);
         streamConfiguredGeneralReply(writer, request, language, chatModel, prompt);
     }
@@ -379,7 +381,8 @@ public class ChatService {
             String language,
             AnalyticsPlan analyticsPlan,
             Prompt prompt,
-            ControlledAgentToolSession agentSession
+            ControlledAgentToolSession agentSession,
+            AgentRequestScope agentScope
     ) throws IOException {
         StringBuilder streamedReply = new StringBuilder();
         String finalReply;
@@ -390,7 +393,7 @@ public class ChatService {
                     "正在调用外部模型生成经营分析报告",
                     "Calling the external model to generate the business analysis report"
             ));
-            ChatModel chatModel = modelConfigService.createChatModel(request);
+            ChatModel chatModel = createChatModel(request, agentScope);
             streamWithControlledTools(chatModel, prompt, agentSession)
                     .doOnNext(chunkResponse -> {
                         String reasoning = extractReasoningContent(chunkResponse);
@@ -462,7 +465,8 @@ public class ChatService {
             ChatRequest request,
             String language,
             Prompt prompt,
-            ControlledAgentToolSession agentSession
+            ControlledAgentToolSession agentSession,
+            AgentRequestScope agentScope
     ) throws IOException {
         String finalReply;
         try {
@@ -471,11 +475,11 @@ public class ChatService {
                     "正在检索业务知识并生成带引用的回答",
                     "Retrieving business knowledge and preparing a cited answer"
             ));
-            ChatModel chatModel = modelConfigService.createChatModel(request);
+            ChatModel chatModel = createChatModel(request, agentScope);
             finalReply = callConfiguredKnowledgeModel(chatModel, prompt, agentSession);
             finalReply = replyGuard.ensureFollowUpQuestions(finalReply, language, false);
         } catch (Exception exception) {
-            finalReply = knowledgeFallback(request.message(), language).reply();
+            finalReply = knowledgeFallback(request.message(), language, agentScope).reply();
             sseEventWriter.writeEvent(writer, "progress", localizedProgress(
                     language,
                     "模型或知识工具不可用，已返回确定性知识检索结果",
@@ -670,7 +674,7 @@ public class ChatService {
             );
         }
 
-        if (!hasConfiguredModelSettings(request)) {
+        if (!hasConfiguredModelSettings(request, agentScope)) {
             if (analyticsRequested) {
                 AnalyticsPlan plan = planAnalytics(request.message(), language, agentScope);
                 return new GeneratedReply(
@@ -680,7 +684,7 @@ public class ChatService {
                 );
             }
             if (knowledgeRequested) {
-                return knowledgeFallback(request.message(), language);
+                return knowledgeFallback(request.message(), language, agentScope);
             }
 
             return new GeneratedReply(
@@ -696,7 +700,7 @@ public class ChatService {
         if (knowledgeRequested) {
             return generateKnowledgeReply(request, language, agentScope);
         }
-        return generateGeneralReply(request, language);
+        return generateGeneralReply(request, language, agentScope);
     }
 
     private GeneratedReply generateKnowledgeReply(
@@ -705,7 +709,7 @@ public class ChatService {
             AgentRequestScope agentScope
     ) {
         try {
-            ChatModel chatModel = modelConfigService.createChatModel(request);
+            ChatModel chatModel = createChatModel(request, agentScope);
             ControlledAgentToolSession agentSession = openAgentSession(agentScope, newTraceId());
             String reply = callConfiguredKnowledgeModel(
                     chatModel,
@@ -718,12 +722,16 @@ public class ChatService {
                     buildKnowledgeThinking(language)
             );
         } catch (Exception exception) {
-            return knowledgeFallback(request.message(), language);
+            return knowledgeFallback(request.message(), language, agentScope);
         }
     }
 
-    private GeneratedReply generateGeneralReply(ChatRequest request, String language) {
-        ChatModel chatModel = modelConfigService.createChatModel(request);
+    private GeneratedReply generateGeneralReply(
+            ChatRequest request,
+            String language,
+            AgentRequestScope agentScope
+    ) {
+        ChatModel chatModel = createChatModel(request, agentScope);
 
         try {
             String reply = callConfiguredModel(
@@ -750,7 +758,7 @@ public class ChatService {
         AnalyticsPlan plan = planAnalytics(request.message(), language, agentScope);
 
         try {
-            ChatModel chatModel = modelConfigService.createChatModel(request);
+            ChatModel chatModel = createChatModel(request, agentScope);
             String polishedReply = callGroundedAnalyticsModel(
                     chatModel,
                     request.sessionId(),
@@ -885,13 +893,15 @@ public class ChatService {
         return agentToolCallbacks.openSession(scope, traceId);
     }
 
-    private GeneratedReply knowledgeFallback(String query, String language) {
+    private GeneratedReply knowledgeFallback(String query, String language, AgentRequestScope agentScope) {
         String reply;
         try {
             if (knowledgeAnswerComposer == null) {
                 throw new IllegalStateException("Knowledge answer composer is unavailable.");
             }
-            reply = knowledgeAnswerComposer.compose(query, language);
+            reply = legacyUnrestricted(agentScope)
+                    ? knowledgeAnswerComposer.compose(query, language)
+                    : knowledgeAnswerComposer.compose(query, language, agentScope.tenantId());
         } catch (RuntimeException exception) {
             reply = "zh".equals(language)
                     ? "业务知识库当前不可用，无法提供带来源和版本的可靠回答。请稍后重试。"
@@ -1125,8 +1135,20 @@ public class ChatService {
         return normalized.substring(0, HISTORY_ENTRY_LIMIT) + "...";
     }
 
-    private boolean hasConfiguredModelSettings(ChatRequest request) {
-        return modelConfigService.hasConfiguredModelSettings(request);
+    private boolean hasConfiguredModelSettings(ChatRequest request, AgentRequestScope agentScope) {
+        return legacyUnrestricted(agentScope)
+                ? modelConfigService.hasConfiguredModelSettings(request)
+                : modelConfigService.hasConfiguredModelSettings(request, agentScope.tenantId());
+    }
+
+    private ChatModel createChatModel(ChatRequest request, AgentRequestScope agentScope) {
+        return legacyUnrestricted(agentScope)
+                ? modelConfigService.createChatModel(request)
+                : modelConfigService.createChatModel(request, agentScope.tenantId());
+    }
+
+    private boolean legacyUnrestricted(AgentRequestScope agentScope) {
+        return agentScope == null || agentScope.organizationDataScope().unrestricted();
     }
 
     private boolean hasText(String value) {

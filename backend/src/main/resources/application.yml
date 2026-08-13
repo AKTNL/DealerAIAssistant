@@ -42,6 +42,7 @@ app:
     name: ${APP_MODEL_NAME:}
     allowed-hosts: ${APP_MODEL_ALLOWED_HOSTS:}
     allow-private-hosts: ${APP_MODEL_ALLOW_PRIVATE_HOSTS:false}
+    secret-key: ${APP_MODEL_SECRET_KEY:}
   knowledge:
     vector-store: ${APP_KNOWLEDGE_VECTOR_STORE:memory}
     schema-name: ${APP_KNOWLEDGE_SCHEMA_NAME:public}

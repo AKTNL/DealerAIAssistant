@@ -29,8 +29,23 @@ public class AuthAuditService {
             String traceId,
             String detailCode
     ) {
+        record(null, actorUserId, action, targetType, targetId, outcome, traceId, detailCode);
+    }
+
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    public void record(
+            Long tenantId,
+            Long actorUserId,
+            String action,
+            String targetType,
+            String targetId,
+            String outcome,
+            String traceId,
+            String detailCode
+    ) {
         repository.save(new AuthAuditEventEntity(
                 actorUserId,
+                tenantId,
                 action,
                 targetType,
                 targetId,

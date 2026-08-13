@@ -7,6 +7,8 @@ import java.util.function.Function;
 import org.springframework.security.access.AccessDeniedException;
 
 public record OrganizationDataScope(
+        Long tenantId,
+        String tenantKey,
         Set<Long> organizationNodeIds,
         Set<Long> grantNodeIds,
         Set<String> dealerCodes,
@@ -15,6 +17,7 @@ public record OrganizationDataScope(
 ) {
 
     public OrganizationDataScope {
+        tenantKey = tenantKey == null ? null : tenantKey.trim();
         organizationNodeIds = organizationNodeIds == null ? Set.of() : Set.copyOf(organizationNodeIds);
         grantNodeIds = grantNodeIds == null ? Set.of() : Set.copyOf(grantNodeIds);
         dealerCodes = dealerCodes == null
@@ -23,11 +26,19 @@ public record OrganizationDataScope(
     }
 
     public static OrganizationDataScope empty() {
-        return new OrganizationDataScope(Set.of(), Set.of(), Set.of(), false, false);
+        return new OrganizationDataScope(null, null, Set.of(), Set.of(), Set.of(), false, false);
     }
 
     public static OrganizationDataScope unrestrictedScope() {
-        return new OrganizationDataScope(Set.of(), Set.of(), Set.of(), true, true);
+        return new OrganizationDataScope(
+                com.brand.agentpoc.tenant.domain.TenantScoped.DEFAULT_TENANT_ID,
+                "default",
+                Set.of(),
+                Set.of(),
+                Set.of(),
+                true,
+                true
+        );
     }
 
     public OrganizationDataScope(
@@ -36,7 +47,34 @@ public record OrganizationDataScope(
             boolean rootCoverage,
             boolean unrestricted
     ) {
-        this(organizationNodeIds, organizationNodeIds, dealerCodes, rootCoverage, unrestricted);
+        this(com.brand.agentpoc.tenant.domain.TenantScoped.DEFAULT_TENANT_ID, "default",
+                organizationNodeIds, organizationNodeIds, dealerCodes, rootCoverage, unrestricted);
+    }
+
+    public OrganizationDataScope(
+            Set<Long> organizationNodeIds,
+            Set<Long> grantNodeIds,
+            Set<String> dealerCodes,
+            boolean rootCoverage,
+            boolean unrestricted
+    ) {
+        this(com.brand.agentpoc.tenant.domain.TenantScoped.DEFAULT_TENANT_ID, "default",
+                organizationNodeIds, grantNodeIds, dealerCodes, rootCoverage, unrestricted);
+    }
+
+    public static OrganizationDataScope tenantScope(
+            Long tenantId,
+            String tenantKey,
+            Set<Long> organizationNodeIds,
+            Set<Long> grantNodeIds,
+            Set<String> dealerCodes,
+            boolean rootCoverage
+    ) {
+        if (tenantId == null || tenantKey == null || tenantKey.isBlank()) {
+            throw new IllegalArgumentException("tenant context is required.");
+        }
+        return new OrganizationDataScope(
+                tenantId, tenantKey, organizationNodeIds, grantNodeIds, dealerCodes, rootCoverage, false);
     }
 
     public boolean hasDataAccess() {
@@ -46,6 +84,13 @@ public record OrganizationDataScope(
     public void requireDataAccess() {
         if (!hasDataAccess()) {
             throw new AccessDeniedException("No active organization data scope is assigned.");
+        }
+        requireTenant();
+    }
+
+    public void requireTenant() {
+        if (tenantId == null || tenantKey == null || tenantKey.isBlank()) {
+            throw new AccessDeniedException("Tenant context is required.");
         }
     }
 
@@ -73,6 +118,16 @@ public record OrganizationDataScope(
         }
         return rows.stream()
                 .filter(row -> row != null && allowsDealer(dealerCodeExtractor.apply(row)))
+                .toList();
+    }
+
+    public <T extends com.brand.agentpoc.tenant.domain.TenantScoped> List<T> filterTenant(List<T> rows) {
+        requireTenant();
+        if (rows == null || rows.isEmpty()) {
+            return List.of();
+        }
+        return rows.stream()
+                .filter(row -> row != null && tenantId.equals(row.getTenantId()))
                 .toList();
     }
 

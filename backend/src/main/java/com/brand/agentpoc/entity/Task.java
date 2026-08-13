@@ -6,15 +6,19 @@ import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
+import com.brand.agentpoc.tenant.domain.TenantScoped;
 import java.time.LocalDate;
 
 @Entity
 @Table(name = "dealer_tasks")
-public class Task implements BatchScoped, DealerScoped {
+public class Task implements BatchScoped, DealerScoped, TenantScoped {
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
+
+    @Column(name = "tenant_id", nullable = false)
+    private Long tenantId;
 
     @Column(nullable = false, length = 64)
     private String taskId;
@@ -110,7 +114,25 @@ public class Task implements BatchScoped, DealerScoped {
             LocalDate createdDate,
             String importBatchId
     ) {
+        this(taskId, dealerCode, dealerName, city, dealerGroupName, opportunityId, subject, status,
+                createdDate, importBatchId, TenantScoped.DEFAULT_TENANT_ID);
+    }
+
+    public Task(
+            String taskId,
+            String dealerCode,
+            String dealerName,
+            String city,
+            String dealerGroupName,
+            String opportunityId,
+            String subject,
+            String status,
+            LocalDate createdDate,
+            String importBatchId,
+            Long tenantId
+    ) {
         this.taskId = taskId;
+        this.tenantId = requireTenantId(tenantId);
         this.dealerCode = dealerCode;
         this.dealerName = dealerName;
         this.city = city;
@@ -126,8 +148,20 @@ public class Task implements BatchScoped, DealerScoped {
         return value == null || value.isBlank() ? BatchScoped.LEGACY_BATCH_ID : value;
     }
 
+    private static Long requireTenantId(Long value) {
+        if (value == null) {
+            throw new IllegalArgumentException("tenantId is required.");
+        }
+        return value;
+    }
+
     public Long getId() {
         return id;
+    }
+
+    @Override
+    public Long getTenantId() {
+        return tenantId;
     }
 
     public String getTaskId() {

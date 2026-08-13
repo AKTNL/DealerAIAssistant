@@ -19,4 +19,12 @@ public record OrganizationAuthorizationContext(
     public Set<PermissionKey> permissions() {
         return principal.permissions();
     }
+
+    public Long tenantId() {
+        return principal.tenantId();
+    }
+
+    public String tenantKey() {
+        return principal.tenantKey();
+    }
 }

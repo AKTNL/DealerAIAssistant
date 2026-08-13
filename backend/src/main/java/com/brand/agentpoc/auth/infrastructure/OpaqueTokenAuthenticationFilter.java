@@ -1,7 +1,9 @@
 package com.brand.agentpoc.auth.infrastructure;
 
 import com.brand.agentpoc.auth.application.AuthSessionService;
+import com.brand.agentpoc.auth.application.AuthAuditService;
 import com.brand.agentpoc.auth.domain.AuthPrincipal;
+import com.brand.agentpoc.tenant.application.TenantAuthorizationService;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
@@ -12,6 +14,7 @@ import java.util.Optional;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Component;
@@ -24,14 +27,23 @@ public class OpaqueTokenAuthenticationFilter extends OncePerRequestFilter {
     private static final Logger log = LoggerFactory.getLogger(OpaqueTokenAuthenticationFilter.class);
 
     private final AuthSessionService sessionService;
+    private final TenantAuthorizationService tenantAuthorizationService;
     private final JsonAuthenticationEntryPoint authenticationEntryPoint;
+    private final JsonAccessDeniedHandler accessDeniedHandler;
+    private final AuthAuditService auditService;
 
     public OpaqueTokenAuthenticationFilter(
             AuthSessionService sessionService,
-            JsonAuthenticationEntryPoint authenticationEntryPoint
+            TenantAuthorizationService tenantAuthorizationService,
+            JsonAuthenticationEntryPoint authenticationEntryPoint,
+            JsonAccessDeniedHandler accessDeniedHandler,
+            AuthAuditService auditService
     ) {
         this.sessionService = sessionService;
+        this.tenantAuthorizationService = tenantAuthorizationService;
         this.authenticationEntryPoint = authenticationEntryPoint;
+        this.accessDeniedHandler = accessDeniedHandler;
+        this.auditService = auditService;
     }
 
     @Override
@@ -60,6 +72,29 @@ public class OpaqueTokenAuthenticationFilter extends OncePerRequestFilter {
         }
 
         AuthPrincipal authenticated = principal.get();
+        if (requiresTenant(request)) {
+            try {
+                authenticated = tenantAuthorizationService.resolve(
+                        authenticated,
+                        request.getHeader(TenantAuthorizationService.TENANT_HEADER)
+                );
+            } catch (AccessDeniedException exception) {
+                log.warn("Tenant authorization failed: path={}, userId={}, reason={}",
+                        request.getServletPath(), authenticated.userId(), "tenant_context_denied");
+                auditService.record(
+                        null,
+                        authenticated.userId(),
+                        "TENANT_ACCESS_DENIED",
+                        "TENANT_CONTEXT",
+                        null,
+                        "FAILURE",
+                        traceId(request),
+                        "tenant_context_denied"
+                );
+                accessDeniedHandler.handle(request, response, exception);
+                return;
+            }
+        }
         List<SimpleGrantedAuthority> authorities = authenticated.mustChangePassword()
                 ? List.of()
                 : authenticated.permissions().stream()
@@ -69,6 +104,28 @@ public class OpaqueTokenAuthenticationFilter extends OncePerRequestFilter {
                 UsernamePasswordAuthenticationToken.authenticated(authenticated, token, authorities)
         );
         filterChain.doFilter(request, response);
+    }
+
+    private String traceId(HttpServletRequest request) {
+        String provided = request.getHeader("X-Request-ID");
+        if (provided == null || provided.isBlank()) {
+            return java.util.UUID.randomUUID().toString();
+        }
+        String normalized = provided.trim();
+        return normalized.substring(0, Math.min(normalized.length(), 128));
+    }
+
+    private boolean requiresTenant(HttpServletRequest request) {
+        String path = request.getServletPath();
+        if (!path.startsWith("/api/")) {
+            return false;
+        }
+        return !path.equals("/api/auth/login")
+                && !path.equals("/api/auth/refresh")
+                && !path.equals("/api/auth/logout")
+                && !path.equals("/api/auth/me")
+                && !path.equals("/api/auth/password")
+                && !path.equals("/api/auth/logout-all");
     }
 
     private String bearerToken(String authorization) {

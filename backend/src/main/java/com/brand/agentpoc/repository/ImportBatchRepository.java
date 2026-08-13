@@ -8,5 +8,9 @@ public interface ImportBatchRepository extends JpaRepository<ImportBatch, Long> 
 
     List<ImportBatch> findByActiveTrueOrderByActivatedAtDescIdDesc();
 
+    List<ImportBatch> findByTenantIdAndActiveTrueOrderByActivatedAtDescIdDesc(Long tenantId);
+
     List<ImportBatch> findByBatchKeyIgnoreCase(String batchKey);
+
+    List<ImportBatch> findByTenantIdAndBatchKeyIgnoreCase(Long tenantId, String batchKey);
 }

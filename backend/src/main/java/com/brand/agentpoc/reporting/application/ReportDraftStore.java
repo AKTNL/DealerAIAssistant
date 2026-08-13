@@ -8,7 +8,7 @@ public interface ReportDraftStore {
 
     ReportDraft save(ReportDraft draft);
 
-    Optional<ReportDraft> findById(String id);
+    Optional<ReportDraft> findByTenantIdAndId(Long tenantId, String id);
 
-    List<ReportDraft> findAll();
+    List<ReportDraft> findAllByTenantId(Long tenantId);
 }

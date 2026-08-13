@@ -6,15 +6,19 @@ import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
+import com.brand.agentpoc.tenant.domain.TenantScoped;
 import java.time.LocalDate;
 
 @Entity
 @Table(name = "campaigns")
-public class Campaign implements BatchScoped, DealerScoped {
+public class Campaign implements BatchScoped, DealerScoped, TenantScoped {
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
+
+    @Column(name = "tenant_id", nullable = false)
+    private Long tenantId;
 
     @Column(nullable = false, length = 64)
     private String campaignId;
@@ -110,6 +114,25 @@ public class Campaign implements BatchScoped, DealerScoped {
             Integer totalNewCustomerTarget,
             String importBatchId
     ) {
+        this(campaignId, dealerCode, dealerName, city, dealerGroupName, productModel, campaignType,
+                createdDate, actualOpportunityCount, totalNewCustomerTarget, importBatchId,
+                TenantScoped.DEFAULT_TENANT_ID);
+    }
+
+    public Campaign(
+            String campaignId,
+            String dealerCode,
+            String dealerName,
+            String city,
+            String dealerGroupName,
+            String productModel,
+            String campaignType,
+            LocalDate createdDate,
+            Integer actualOpportunityCount,
+            Integer totalNewCustomerTarget,
+            String importBatchId,
+            Long tenantId
+    ) {
         this(
                 campaignId,
                 campaignId,
@@ -127,7 +150,8 @@ public class Campaign implements BatchScoped, DealerScoped {
                 0,
                 0,
                 totalNewCustomerTarget,
-                importBatchId
+                importBatchId,
+                tenantId
         );
     }
 
@@ -189,7 +213,34 @@ public class Campaign implements BatchScoped, DealerScoped {
             Integer totalNewCustomerTarget,
             String importBatchId
     ) {
+        this(campaignId, campaignName, dealerCode, dealerName, city, dealerGroupName, productModel, eventType,
+                campaignType, createdDate, targetOpportunityAmount, actualOpportunityCount, targetOrderAmount,
+                wonOpportunityCount, leadCount, totalNewCustomerTarget, importBatchId,
+                TenantScoped.DEFAULT_TENANT_ID);
+    }
+
+    public Campaign(
+            String campaignId,
+            String campaignName,
+            String dealerCode,
+            String dealerName,
+            String city,
+            String dealerGroupName,
+            String productModel,
+            String eventType,
+            String campaignType,
+            LocalDate createdDate,
+            Integer targetOpportunityAmount,
+            Integer actualOpportunityCount,
+            Integer targetOrderAmount,
+            Integer wonOpportunityCount,
+            Integer leadCount,
+            Integer totalNewCustomerTarget,
+            String importBatchId,
+            Long tenantId
+    ) {
         this.campaignId = campaignId;
+        this.tenantId = requireTenantId(tenantId);
         this.campaignName = defaultText(campaignName, campaignId);
         this.dealerCode = dealerCode;
         this.dealerName = dealerName;
@@ -216,8 +267,20 @@ public class Campaign implements BatchScoped, DealerScoped {
         return value == null || value.isBlank() ? BatchScoped.LEGACY_BATCH_ID : value;
     }
 
+    private static Long requireTenantId(Long value) {
+        if (value == null) {
+            throw new IllegalArgumentException("tenantId is required.");
+        }
+        return value;
+    }
+
     public Long getId() {
         return id;
+    }
+
+    @Override
+    public Long getTenantId() {
+        return tenantId;
     }
 
     public String getCampaignId() {

@@ -9,7 +9,15 @@ public interface KnowledgeIndex {
 
     void replaceAll(List<KnowledgeChunk> chunks);
 
+    default void replaceAll(Long tenantId, List<KnowledgeChunk> chunks) {
+        replaceAll(chunks);
+    }
+
     KnowledgeSearchResult search(KnowledgeQuery query);
+
+    default KnowledgeSearchResult search(KnowledgeQuery query, Long tenantId) {
+        return search(query);
+    }
 
     boolean isAvailable();
 }

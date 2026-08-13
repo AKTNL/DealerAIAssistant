@@ -78,23 +78,18 @@ class AuthHttpIntegrationTest {
                     "roleKey", "OPS_VIEWER",
                     "displayName", "Operations Viewer",
                     "permissions", new String[]{"DASHBOARD_READ"}
-            )), permanentAccess, null).statusCode()).isEqualTo(200);
+            )), permanentAccess, null).statusCode()).isEqualTo(403);
             assertThat(post(port, "/api/admin/users", mapper.writeValueAsString(Map.of(
                     "username", "viewer.user",
                     "displayName", "Viewer User",
                     "temporaryPassword", "viewer-temporary-1",
-                    "roles", new String[]{"OPS_VIEWER"}
-            )), permanentAccess, null).statusCode()).isEqualTo(200);
-            assertThat(post(port, "/api/admin/roles", mapper.writeValueAsString(Map.of(
-                    "roleKey", "CHAT_ONLY",
-                    "displayName", "Chat Only",
-                    "permissions", new String[]{"CHAT_USE"}
+                    "roles", new String[]{"VIEWER"}
             )), permanentAccess, null).statusCode()).isEqualTo(200);
             assertThat(post(port, "/api/admin/users", mapper.writeValueAsString(Map.of(
                     "username", "chat.user",
                     "displayName", "Chat User",
                     "temporaryPassword", "chat-temporary-1",
-                    "roles", new String[]{"CHAT_ONLY"}
+                    "roles", new String[]{"ANALYST"}
             )), permanentAccess, null).statusCode()).isEqualTo(200);
             JsonNode usersBody = mapper.readTree(get(port, "/api/admin/users", permanentAccess).body());
             JsonNode chatUser = findByText(usersBody.at("/data"), "username", "chat.user");

@@ -246,6 +246,10 @@ public class DataQueryService {
     }
 
     private List<Dealer> loadDealers(Map<String, String> filters) {
+        OrganizationDataScope scope = currentScope();
+        if (!scope.unrestricted()) {
+            return active(dealerRepository.findByTenantId(scope.tenantId()));
+        }
         if (normalize(filters.get("keyword")) != null) {
             return active(dealerRepository.findAll());
         }
@@ -269,6 +273,11 @@ public class DataQueryService {
     }
 
     private List<Opportunity> loadOpportunities(Map<String, String> filters, LocalDate startDate, LocalDate endDate) {
+        OrganizationDataScope scope = currentScope();
+        if (!scope.unrestricted()) {
+            return active(opportunityRepository.findByTenantId(scope.tenantId()));
+        }
+
         String dealerCode = filterValue(filters, "dealerCode");
         if (dealerCode != null) {
             return active(opportunityRepository.findByDealerCodeIgnoreCase(dealerCode));
@@ -307,6 +316,11 @@ public class DataQueryService {
     }
 
     private List<Campaign> loadCampaigns(Map<String, String> filters, LocalDate startDate, LocalDate endDate) {
+        OrganizationDataScope scope = currentScope();
+        if (!scope.unrestricted()) {
+            return active(campaignRepository.findByTenantId(scope.tenantId()));
+        }
+
         String dealerCode = filterValue(filters, "dealerCode");
         if (dealerCode != null) {
             return active(campaignRepository.findByDealerCodeIgnoreCase(dealerCode));
@@ -340,6 +354,11 @@ public class DataQueryService {
     }
 
     private List<Task> loadTasks(Map<String, String> filters, LocalDate startDate, LocalDate endDate) {
+        OrganizationDataScope scope = currentScope();
+        if (!scope.unrestricted()) {
+            return active(taskRepository.findByTenantId(scope.tenantId()));
+        }
+
         String dealerCode = filterValue(filters, "dealerCode");
         if (dealerCode != null) {
             return active(taskRepository.findByDealerCodeIgnoreCase(dealerCode));
@@ -373,6 +392,11 @@ public class DataQueryService {
     }
 
     private List<Target> loadTargets(Map<String, String> filters, Integer targetYear, Integer targetMonth) {
+        OrganizationDataScope scope = currentScope();
+        if (!scope.unrestricted()) {
+            return active(targetRepository.findByTenantId(scope.tenantId()));
+        }
+
         String dealerCode = filterValue(filters, "dealerCode");
         if (dealerCode != null) {
             return active(targetRepository.findByDealerCodeIgnoreCase(dealerCode));
@@ -405,14 +429,14 @@ public class DataQueryService {
     }
 
     private List<Lead> loadLeads(Map<String, String> filters, LocalDate startDate, LocalDate endDate, Boolean converted) {
+        OrganizationDataScope scope = currentScope();
+        if (!scope.unrestricted()) {
+            return active(leadRepository.findByTenantId(scope.tenantId()));
+        }
+
         String dealerCode = filterValue(filters, "dealerCode");
         if (dealerCode != null) {
             return active(leadRepository.findByDealerCodeIgnoreCase(dealerCode));
-        }
-
-        String leadSource = filterValue(filters, "leadSource");
-        if (leadSource != null) {
-            return active(leadRepository.findByLeadSourceIgnoreCase(leadSource));
         }
 
         String city = filterValue(filters, "city");
@@ -423,6 +447,11 @@ public class DataQueryService {
         String dealerGroupName = filterValue(filters, "dealerGroupName");
         if (dealerGroupName != null) {
             return active(leadRepository.findByDealerGroupNameIgnoreCase(dealerGroupName));
+        }
+
+        String leadSource = filterValue(filters, "leadSource");
+        if (leadSource != null) {
+            return active(leadRepository.findByLeadSourceIgnoreCase(leadSource));
         }
 
         String stageName = filterValue(filters, "stageName");
@@ -446,10 +475,23 @@ public class DataQueryService {
         return active(leadRepository.findAll());
     }
 
-    private <T extends BatchScoped & DealerScoped> List<T> active(List<T> rows) {
-        List<T> activeRows = importBatchService.filterActive(rows);
+    private <T extends BatchScoped & DealerScoped & com.brand.agentpoc.tenant.domain.TenantScoped> List<T> active(
+            List<T> rows
+    ) {
+        OrganizationDataScope dataScope = currentScope();
+        List<T> activeRows = dataScope.unrestricted()
+                ? importBatchService.filterActive(rows)
+                : importBatchService.filterActive(rows, dataScope.tenantId());
+        return dataScope.filter(activeRows, DealerScoped::getDealerCode);
+    }
+
+    private OrganizationDataScope currentScope() {
         OrganizationDataScope dataScope = organizationScope.get();
-        return dataScope == null ? activeRows : dataScope.filter(activeRows, DealerScoped::getDealerCode);
+        if (dataScope == null) {
+            throw new org.springframework.security.access.AccessDeniedException("Tenant context is required.");
+        }
+        dataScope.requireTenant();
+        return dataScope;
     }
 
     private Map<String, Object> toDealerMap(Dealer dealer) {

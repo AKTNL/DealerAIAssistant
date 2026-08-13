@@ -16,6 +16,7 @@ import java.sql.ResultSet;
 import java.sql.Statement;
 import java.util.Properties;
 import org.flywaydb.core.Flyway;
+import org.flywaydb.core.api.MigrationVersion;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.config.YamlPropertiesFactoryBean;
 import org.springframework.boot.SpringApplication;
@@ -206,23 +207,23 @@ class AgentPocApplicationStartupTest {
                 Statement statement = connection.createStatement()) {
             statement.executeUpdate(
                     "INSERT INTO import_batches "
-                            + "(batch_key, source, scope_type, active, fallback_active, created_at, message) "
-                            + "VALUES ('batch-a', 'test', 'GLOBAL', TRUE, FALSE, CURRENT_TIMESTAMP, 'test')"
+                            + "(tenant_id, batch_key, source, scope_type, active, fallback_active, created_at, message) "
+                            + "VALUES (1, 'batch-a', 'test', 'GLOBAL', TRUE, FALSE, CURRENT_TIMESTAMP, 'test')"
             );
             statement.executeUpdate(
                     "INSERT INTO import_batches "
-                            + "(batch_key, source, scope_type, active, fallback_active, created_at, message) "
-                            + "VALUES ('batch-b', 'test', 'GLOBAL', TRUE, FALSE, CURRENT_TIMESTAMP, 'test')"
+                            + "(tenant_id, batch_key, source, scope_type, active, fallback_active, created_at, message) "
+                            + "VALUES (1, 'batch-b', 'test', 'GLOBAL', TRUE, FALSE, CURRENT_TIMESTAMP, 'test')"
             );
             statement.executeUpdate(
                     "INSERT INTO dealers "
-                            + "(dealer_code, dealer_name, city, dealer_group_name, import_batch_id) "
-                            + "VALUES ('D001', 'Dealer A', 'Beijing', 'Group A', 'batch-a')"
+                            + "(tenant_id, dealer_code, dealer_name, city, dealer_group_name, import_batch_id) "
+                            + "VALUES (1, 'D001', 'Dealer A', 'Beijing', 'Group A', 'batch-a')"
             );
             statement.executeUpdate(
                     "INSERT INTO dealers "
-                            + "(dealer_code, dealer_name, city, dealer_group_name, import_batch_id) "
-                            + "VALUES ('D001', 'Dealer A', 'Beijing', 'Group A', 'batch-b')"
+                            + "(tenant_id, dealer_code, dealer_name, city, dealer_group_name, import_batch_id) "
+                            + "VALUES (1, 'D001', 'Dealer A', 'Beijing', 'Group A', 'batch-b')"
             );
 
             try (ResultSet tables = connection.getMetaData().getTables(null, null, "IMPORT_BATCHES", null);
@@ -232,6 +233,71 @@ class AgentPocApplicationStartupTest {
                 assertThat(dealers.next()).isTrue();
                 assertThat(dealers.getInt(1)).isEqualTo(2);
             }
+        }
+    }
+
+    @Test
+    void tenantMigrationBackfillsExistingSingleTenantRecordsAndMemberships() throws Exception {
+        String url = "jdbc:h2:mem:tenant-backfill-test;MODE=PostgreSQL;DB_CLOSE_DELAY=-1";
+        Flyway flyway = Flyway.configure()
+                .dataSource(url, "sa", "")
+                .locations("classpath:db/migration")
+                .target(MigrationVersion.fromVersion("5"))
+                .load();
+        flyway.migrate();
+
+        try (Connection connection = DriverManager.getConnection(url, "sa", "");
+                Statement statement = connection.createStatement()) {
+            statement.executeUpdate("""
+                    INSERT INTO auth_roles (
+                        id, role_key, display_name, built_in, created_at, updated_at, version
+                    ) VALUES (10, 'TEST_ROLE', 'Test Role', FALSE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, 0)
+                    """);
+            statement.executeUpdate("""
+                    INSERT INTO auth_users (
+                        id, username, display_name, password_hash, enabled,
+                        must_change_password, created_at, updated_at, version
+                    ) VALUES (
+                        20, 'tenant.user', 'Tenant User', '{bcrypt}hash', TRUE,
+                        FALSE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, 0
+                    )
+                    """);
+            statement.executeUpdate("INSERT INTO auth_user_roles (user_id, role_id) VALUES (20, 10)");
+            statement.executeUpdate("""
+                    INSERT INTO import_batches (
+                        batch_key, source, scope_type, active, fallback_active, created_at, message
+                    ) VALUES ('legacy-batch', 'test', 'GLOBAL', TRUE, FALSE, CURRENT_TIMESTAMP, 'legacy')
+                    """);
+            statement.executeUpdate("""
+                    INSERT INTO dealers (
+                        dealer_code, dealer_name, city, dealer_group_name, import_batch_id
+                    ) VALUES ('D001', 'Dealer A', 'Beijing', 'Group A', 'legacy-batch')
+                    """);
+        }
+
+        Flyway.configure()
+                .dataSource(url, "sa", "")
+                .locations("classpath:db/migration")
+                .load()
+                .migrate();
+
+        try (Connection connection = DriverManager.getConnection(url, "sa", "");
+                Statement statement = connection.createStatement();
+                ResultSet rows = statement.executeQuery("""
+                        SELECT t.tenant_key, b.tenant_id AS batch_tenant_id,
+                               d.tenant_id AS dealer_tenant_id, m.enabled, mr.role_id
+                        FROM tenants t
+                        JOIN import_batches b ON b.tenant_id = t.id AND b.batch_key = 'legacy-batch'
+                        JOIN dealers d ON d.tenant_id = t.id AND d.dealer_code = 'D001'
+                        JOIN tenant_memberships m ON m.tenant_id = t.id AND m.user_id = 20
+                        JOIN tenant_membership_roles mr ON mr.membership_id = m.id
+                        """)) {
+            assertThat(rows.next()).isTrue();
+            assertThat(rows.getString("tenant_key")).isEqualTo("default");
+            assertThat(rows.getLong("batch_tenant_id")).isEqualTo(rows.getLong("dealer_tenant_id"));
+            assertThat(rows.getBoolean("enabled")).isTrue();
+            assertThat(rows.getLong("role_id")).isEqualTo(10L);
+            assertThat(rows.next()).isFalse();
         }
     }
 
@@ -337,50 +403,50 @@ class AgentPocApplicationStartupTest {
                     """);
             statement.executeUpdate("""
                     INSERT INTO organization_nodes (
-                        node_key, display_name, node_type, parent_id, enabled,
+                        tenant_id, node_key, display_name, node_type, parent_id, enabled,
                         created_at, updated_at, version
                     ) VALUES (
-                        'REGION_TEST', 'Region Test', 'REGION',
+                        1, 'REGION_TEST', 'Region Test', 'REGION',
                         (SELECT id FROM organization_nodes WHERE node_key = 'GLOBAL_ROOT'),
                         TRUE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, 0
                     )
                     """);
             statement.executeUpdate("""
                     INSERT INTO organization_nodes (
-                        node_key, display_name, node_type, parent_id, enabled,
+                        tenant_id, node_key, display_name, node_type, parent_id, enabled,
                         created_at, updated_at, version
                     ) VALUES (
-                        'CITY_TEST', 'City Test', 'CITY',
+                        1, 'CITY_TEST', 'City Test', 'CITY',
                         (SELECT id FROM organization_nodes WHERE node_key = 'REGION_TEST'),
                         TRUE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, 0
                     )
                     """);
             statement.executeUpdate("""
                     INSERT INTO organization_nodes (
-                        node_key, display_name, node_type, parent_id, enabled,
+                        tenant_id, node_key, display_name, node_type, parent_id, enabled,
                         created_at, updated_at, version
                     ) VALUES (
-                        'DEALER_TEST', 'Dealer Test', 'DEALER',
+                        1, 'DEALER_TEST', 'Dealer Test', 'DEALER',
                         (SELECT id FROM organization_nodes WHERE node_key = 'CITY_TEST'),
                         TRUE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, 0
                     )
                     """);
             statement.executeUpdate("""
                     INSERT INTO organization_dealer_mappings (
-                        organization_node_id, dealer_code, created_at
-                    ) SELECT id, 'D001', CURRENT_TIMESTAMP
+                        tenant_id, organization_node_id, dealer_code, created_at
+                    ) SELECT 1, id, 'D001', CURRENT_TIMESTAMP
                     FROM organization_nodes WHERE node_key = 'DEALER_TEST'
                     """);
             statement.executeUpdate("""
                     INSERT INTO organization_user_grants (
-                        user_id, organization_node_id, include_descendants, created_at
-                    ) SELECT 20, id, FALSE, CURRENT_TIMESTAMP
+                        tenant_id, user_id, organization_node_id, include_descendants, created_at
+                    ) SELECT 1, 20, id, FALSE, CURRENT_TIMESTAMP
                     FROM organization_nodes WHERE node_key = 'DEALER_TEST'
                     """);
             statement.executeUpdate("""
                     INSERT INTO organization_role_grants (
-                        role_id, organization_node_id, include_descendants, created_at
-                    ) SELECT 10, id, TRUE, CURRENT_TIMESTAMP
+                        tenant_id, role_id, organization_node_id, include_descendants, created_at
+                    ) SELECT 1, 10, id, TRUE, CURRENT_TIMESTAMP
                     FROM organization_nodes WHERE node_key = 'GLOBAL_ROOT'
                     """);
 

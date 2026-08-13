@@ -4,6 +4,9 @@ import com.brand.agentpoc.config.AppProperties;
 import com.brand.agentpoc.dto.request.ChatRequest;
 import com.brand.agentpoc.dto.request.ModelConfigRequest;
 import com.brand.agentpoc.dto.response.ModelConfigTestResponse;
+import com.brand.agentpoc.modelconfig.application.TenantModelConfigRegistry;
+import com.brand.agentpoc.modelconfig.application.TenantModelConfigRegistry.ModelConfigView;
+import com.brand.agentpoc.modelconfig.application.TenantModelConfigRegistry.ResolvedModelConfig;
 import io.micrometer.observation.ObservationRegistry;
 import java.net.InetAddress;
 import java.net.URI;
@@ -16,6 +19,7 @@ import org.springframework.ai.model.tool.ToolCallingManager;
 import org.springframework.ai.openai.OpenAiChatModel;
 import org.springframework.ai.openai.OpenAiChatOptions;
 import org.springframework.ai.openai.api.OpenAiApi;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.retry.support.RetryTemplate;
 import org.springframework.stereotype.Service;
 
@@ -28,6 +32,22 @@ public class ModelConfigService {
     private final RetryTemplate retryTemplate;
     private final ObservationRegistry observationRegistry;
     private final AppProperties appProperties;
+    private final TenantModelConfigRegistry tenantConfigRegistry;
+
+    @Autowired
+    public ModelConfigService(
+            ToolCallingManager toolCallingManager,
+            RetryTemplate retryTemplate,
+            ObservationRegistry observationRegistry,
+            AppProperties appProperties,
+            TenantModelConfigRegistry tenantConfigRegistry
+    ) {
+        this.toolCallingManager = toolCallingManager;
+        this.retryTemplate = retryTemplate;
+        this.observationRegistry = observationRegistry;
+        this.appProperties = appProperties;
+        this.tenantConfigRegistry = tenantConfigRegistry;
+    }
 
     public ModelConfigService(
             ToolCallingManager toolCallingManager,
@@ -35,18 +55,27 @@ public class ModelConfigService {
             ObservationRegistry observationRegistry,
             AppProperties appProperties
     ) {
-        this.toolCallingManager = toolCallingManager;
-        this.retryTemplate = retryTemplate;
-        this.observationRegistry = observationRegistry;
-        this.appProperties = appProperties;
+        this(toolCallingManager, retryTemplate, observationRegistry, appProperties, null);
     }
 
     public ChatModel createChatModel(ChatRequest request) {
         return createChatModel(resolveModelConfig(request));
     }
 
+    public ChatModel createChatModel(ChatRequest request, Long tenantId) {
+        ResolvedModelConfig tenantConfig = resolveTenantConfig(tenantId);
+        if (tenantConfig != null) {
+            return createChatModel(tenantConfig.settings(), tenantConfig.allowedHosts());
+        }
+        return createChatModel(request);
+    }
+
     public ChatModel createChatModel(ModelConfigRequest request) {
-        validate(request);
+        return createChatModel(request, null);
+    }
+
+    private ChatModel createChatModel(ModelConfigRequest request, List<String> tenantAllowedHosts) {
+        validate(request, tenantAllowedHosts);
 
         String baseUrl = request.baseUrl().trim();
         String completionsPath = resolveCompletionsPath(baseUrl);
@@ -78,6 +107,30 @@ public class ModelConfigService {
         return hasText(resolved.baseUrl()) && hasText(resolved.apiKey()) && hasText(resolved.model());
     }
 
+    public boolean hasConfiguredModelSettings(ChatRequest request, Long tenantId) {
+        return resolveTenantConfig(tenantId) != null || hasConfiguredModelSettings(request);
+    }
+
+    public ModelConfigView saveTenantConfig(
+            Long tenantId,
+            ModelConfigRequest request,
+            List<String> allowedHosts
+    ) {
+        requireRegistry();
+        validateTenantSave(request, allowedHosts);
+        return tenantConfigRegistry.save(tenantId, request, allowedHosts);
+    }
+
+    public java.util.Optional<ModelConfigView> tenantConfigView(Long tenantId) {
+        requireRegistry();
+        return tenantConfigRegistry.view(tenantId);
+    }
+
+    public void deleteTenantConfig(Long tenantId) {
+        requireRegistry();
+        tenantConfigRegistry.delete(tenantId);
+    }
+
     private ModelConfigRequest resolveModelConfig(ChatRequest request) {
         AppProperties.Model defaults = appProperties.getModel();
         return new ModelConfigRequest(
@@ -106,8 +159,24 @@ public class ModelConfigService {
     }
 
     public ModelConfigTestResponse testConnection(ModelConfigRequest request) {
+        return testConnection(request, com.brand.agentpoc.tenant.domain.TenantScoped.DEFAULT_TENANT_ID);
+    }
+
+    public ModelConfigTestResponse testConnection(ModelConfigRequest request, Long tenantId) {
+        return testConnection(request, tenantId, null);
+    }
+
+    public ModelConfigTestResponse testConnection(
+            ModelConfigRequest request,
+            Long tenantId,
+            List<String> allowedHosts
+    ) {
+        if (tenantId == null) {
+            throw new org.springframework.security.access.AccessDeniedException("Tenant context is required.");
+        }
         try {
-            ChatModel chatModel = createChatModel(request);
+            ModelConfigRequest resolved = resolveTestConfig(request, tenantId);
+            ChatModel chatModel = createChatModel(resolved, allowedHosts);
             String reply = chatModel.call("Reply with OK.");
 
             if (reply == null || reply.isBlank()) {
@@ -124,7 +193,7 @@ public class ModelConfigService {
         }
     }
 
-    private void validate(ModelConfigRequest request) {
+    private void validate(ModelConfigRequest request, List<String> tenantAllowedHosts) {
         if (request == null) {
             throw new IllegalArgumentException("Model settings are required.");
         }
@@ -133,10 +202,29 @@ public class ModelConfigService {
             throw new IllegalArgumentException("Base URL, API key, and model are required.");
         }
 
-        validateBaseUrl(request.baseUrl().trim());
+        validateBaseUrl(request.baseUrl().trim(), tenantAllowedHosts);
     }
 
-    private void validateBaseUrl(String baseUrl) {
+    private ModelConfigRequest resolveTestConfig(ModelConfigRequest request, Long tenantId) {
+        if (request == null || hasText(request.apiKey()) || tenantConfigRegistry == null) {
+            return request;
+        }
+        ResolvedModelConfig stored = tenantConfigRegistry.resolve(tenantId)
+                .orElseThrow(() -> new IllegalArgumentException("Model API key is required."));
+        return new ModelConfigRequest(request.baseUrl(), stored.settings().apiKey(), request.model());
+    }
+
+    private void validateTenantSave(ModelConfigRequest request, List<String> allowedHosts) {
+        if (request == null || !hasText(request.baseUrl()) || !hasText(request.model())) {
+            throw new IllegalArgumentException("Base URL and model are required.");
+        }
+        if (allowedHosts == null || allowedHosts.stream().noneMatch(this::hasText)) {
+            throw new IllegalArgumentException("At least one allowed model host is required.");
+        }
+        validateBaseUrl(request.baseUrl().trim(), allowedHosts);
+    }
+
+    private void validateBaseUrl(String baseUrl, List<String> tenantAllowedHosts) {
         try {
             URI uri = URI.create(baseUrl);
             String scheme = uri.getScheme();
@@ -149,7 +237,7 @@ public class ModelConfigService {
                 throw new IllegalArgumentException("Invalid base URL.");
             }
 
-            validateAllowedModelHost(uri);
+            validateAllowedModelHost(uri, tenantAllowedHosts);
         } catch (IllegalArgumentException exception) {
             if ("Invalid base URL.".equals(exception.getMessage())
                     || "Model base URL is not allowed.".equals(exception.getMessage())) {
@@ -160,13 +248,15 @@ public class ModelConfigService {
         }
     }
 
-    private void validateAllowedModelHost(URI uri) {
+    private void validateAllowedModelHost(URI uri, List<String> tenantAllowedHosts) {
         String host = uri.getHost();
         if (!appProperties.getModel().isAllowPrivateHosts() && isUnsafeHost(host)) {
             throw new IllegalArgumentException("Model base URL is not allowed.");
         }
 
-        List<String> allowedHosts = appProperties.getModel().getAllowedHosts();
+        List<String> allowedHosts = tenantAllowedHosts == null
+                ? appProperties.getModel().getAllowedHosts()
+                : tenantAllowedHosts;
         if (allowedHosts == null || allowedHosts.isEmpty()) {
             return;
         }
@@ -250,5 +340,18 @@ public class ModelConfigService {
 
     private boolean hasText(String value) {
         return value != null && !value.isBlank();
+    }
+
+    private ResolvedModelConfig resolveTenantConfig(Long tenantId) {
+        if (tenantId == null || tenantConfigRegistry == null) {
+            return null;
+        }
+        return tenantConfigRegistry.resolve(tenantId).orElse(null);
+    }
+
+    private void requireRegistry() {
+        if (tenantConfigRegistry == null) {
+            throw new IllegalStateException("Tenant model configuration persistence is unavailable.");
+        }
     }
 }

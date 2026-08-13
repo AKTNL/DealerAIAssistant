@@ -14,7 +14,8 @@ import java.time.Instant;
         name = "auth_audit_events",
         indexes = {
             @Index(name = "idx_auth_audit_created", columnList = "created_at,id"),
-            @Index(name = "idx_auth_audit_actor", columnList = "actor_user_id,created_at")
+            @Index(name = "idx_auth_audit_actor", columnList = "actor_user_id,created_at"),
+            @Index(name = "idx_auth_audit_tenant", columnList = "tenant_id,created_at,id")
         }
 )
 public class AuthAuditEventEntity {
@@ -25,6 +26,9 @@ public class AuthAuditEventEntity {
 
     @Column(name = "actor_user_id")
     private Long actorUserId;
+
+    @Column(name = "tenant_id")
+    private Long tenantId;
 
     @Column(nullable = false, length = 64)
     private String action;
@@ -52,6 +56,7 @@ public class AuthAuditEventEntity {
 
     public AuthAuditEventEntity(
             Long actorUserId,
+            Long tenantId,
             String action,
             String targetType,
             String targetId,
@@ -61,6 +66,7 @@ public class AuthAuditEventEntity {
             Instant createdAt
     ) {
         this.actorUserId = actorUserId;
+        this.tenantId = tenantId;
         this.action = action;
         this.targetType = targetType;
         this.targetId = targetId;
@@ -70,12 +76,29 @@ public class AuthAuditEventEntity {
         this.createdAt = createdAt;
     }
 
+    public AuthAuditEventEntity(
+            Long actorUserId,
+            String action,
+            String targetType,
+            String targetId,
+            String outcome,
+            String traceId,
+            String detailCode,
+            Instant createdAt
+    ) {
+        this(actorUserId, null, action, targetType, targetId, outcome, traceId, detailCode, createdAt);
+    }
+
     public Long getId() {
         return id;
     }
 
     public Long getActorUserId() {
         return actorUserId;
+    }
+
+    public Long getTenantId() {
+        return tenantId;
     }
 
     public String getAction() {

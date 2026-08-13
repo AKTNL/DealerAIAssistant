@@ -96,7 +96,8 @@ public class ReportService {
                 batchId,
                 scope,
                 model,
-                PROMPT_VERSION
+                PROMPT_VERSION,
+                requiredScope.tenantId()
         );
         return draftStore.save(draft);
     }
@@ -109,9 +110,11 @@ public class ReportService {
         if (id == null || id.isBlank()) {
             throw new IllegalArgumentException("report id is required.");
         }
-        ReportDraft draft = draftStore.findById(id.trim())
+        OrganizationDataScope requiredScope = dataScope == null ? OrganizationDataScope.empty() : dataScope;
+        requiredScope.requireDataAccess();
+        ReportDraft draft = draftStore.findByTenantIdAndId(requiredScope.tenantId(), id.trim())
                 .orElseThrow(() -> new java.util.NoSuchElementException("Report draft was not found."));
-        if (!canRead(draft, dataScope)) {
+        if (!canRead(draft, requiredScope)) {
             throw new AccessDeniedException("Report draft is outside the active organization scope.");
         }
         return draft;
@@ -124,7 +127,7 @@ public class ReportService {
     public List<ReportDraft> list(OrganizationDataScope dataScope) {
         OrganizationDataScope requiredScope = dataScope == null ? OrganizationDataScope.empty() : dataScope;
         requiredScope.requireDataAccess();
-        return draftStore.findAll().stream()
+        return draftStore.findAllByTenantId(requiredScope.tenantId()).stream()
                 .filter(draft -> canRead(draft, requiredScope))
                 .sorted(Comparator.comparing(ReportDraft::generatedAt).reversed())
                 .collect(Collectors.toUnmodifiableList());
@@ -133,7 +136,10 @@ public class ReportService {
     private boolean canRead(ReportDraft draft, OrganizationDataScope dataScope) {
         OrganizationDataScope requiredScope = dataScope == null ? OrganizationDataScope.empty() : dataScope;
         if (requiredScope.unrestricted()) {
-            return true;
+            return requiredScope.tenantId().equals(draft.tenantId());
+        }
+        if (!requiredScope.tenantId().equals(draft.tenantId())) {
+            return false;
         }
         if ("GLOBAL".equals(draft.scope().type())) {
             return requiredScope.rootCoverage();

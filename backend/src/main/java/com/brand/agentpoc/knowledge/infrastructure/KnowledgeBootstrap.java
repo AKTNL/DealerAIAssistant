@@ -5,6 +5,7 @@ import com.brand.agentpoc.knowledge.application.KnowledgeDocumentSource;
 import com.brand.agentpoc.knowledge.application.KnowledgeIndex;
 import com.brand.agentpoc.knowledge.domain.KnowledgeChunk;
 import java.util.List;
+import com.brand.agentpoc.tenant.infrastructure.persistence.TenantRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.boot.ApplicationArguments;
@@ -19,21 +20,29 @@ public class KnowledgeBootstrap implements ApplicationRunner {
     private final KnowledgeDocumentSource documentSource;
     private final KnowledgeIndex knowledgeIndex;
     private final KnowledgeDocumentChunker documentChunker;
+    private final TenantRepository tenantRepository;
 
     public KnowledgeBootstrap(
             KnowledgeDocumentSource documentSource,
             KnowledgeIndex knowledgeIndex,
-            KnowledgeDocumentChunker documentChunker
+            KnowledgeDocumentChunker documentChunker,
+            TenantRepository tenantRepository
     ) {
         this.documentSource = documentSource;
         this.knowledgeIndex = knowledgeIndex;
         this.documentChunker = documentChunker;
+        this.tenantRepository = tenantRepository;
     }
 
     @Override
     public void run(ApplicationArguments arguments) {
         List<KnowledgeChunk> chunks = documentChunker.split(documentSource.load());
-        knowledgeIndex.replaceAll(chunks);
-        log.info("Knowledge catalog initialized: chunks={}", chunks.size());
+        List<Long> tenantIds = tenantRepository.findByEnabledTrueOrderByIdAsc().stream()
+                .map(com.brand.agentpoc.tenant.infrastructure.persistence.TenantEntity::getId)
+                .toList();
+        for (Long tenantId : tenantIds) {
+            knowledgeIndex.replaceAll(tenantId, chunks);
+        }
+        log.info("Knowledge catalog initialized: tenantCount={}, chunksPerTenant={}", tenantIds.size(), chunks.size());
     }
 }

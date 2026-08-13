@@ -1,6 +1,7 @@
 package com.brand.agentpoc.organization.infrastructure.persistence;
 
 import com.brand.agentpoc.organization.domain.OrganizationNodeType;
+import com.brand.agentpoc.tenant.domain.TenantScoped;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
@@ -20,14 +21,23 @@ import java.time.Instant;
 @Entity
 @Table(
         name = "organization_nodes",
-        uniqueConstraints = @UniqueConstraint(name = "uq_organization_nodes_key", columnNames = "node_key"),
-        indexes = @Index(name = "idx_organization_nodes_parent", columnList = "parent_id,id")
+        uniqueConstraints = @UniqueConstraint(
+                name = "uq_organization_nodes_tenant_key",
+                columnNames = {"tenant_id", "node_key"}
+        ),
+        indexes = {
+            @Index(name = "idx_organization_nodes_parent", columnList = "tenant_id,parent_id,id"),
+            @Index(name = "idx_organization_nodes_tenant", columnList = "tenant_id,id")
+        }
 )
 public class OrganizationNodeEntity {
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
+
+    @Column(name = "tenant_id", nullable = false)
+    private Long tenantId;
 
     @Column(name = "node_key", nullable = false, length = 128)
     private String nodeKey;
@@ -67,7 +77,23 @@ public class OrganizationNodeEntity {
             boolean enabled,
             Instant createdAt
     ) {
+        this(TenantScoped.DEFAULT_TENANT_ID, nodeKey, displayName, nodeType, parent, enabled, createdAt);
+    }
+
+    public OrganizationNodeEntity(
+            Long tenantId,
+            String nodeKey,
+            String displayName,
+            OrganizationNodeType nodeType,
+            OrganizationNodeEntity parent,
+            boolean enabled,
+            Instant createdAt
+    ) {
+        if (tenantId == null || (parent != null && !tenantId.equals(parent.getTenantId()))) {
+            throw new IllegalArgumentException("organization node tenant is invalid.");
+        }
         this.nodeKey = nodeKey;
+        this.tenantId = tenantId;
         this.displayName = displayName;
         this.nodeType = nodeType;
         this.parent = parent;
@@ -78,6 +104,10 @@ public class OrganizationNodeEntity {
 
     public Long getId() {
         return id;
+    }
+
+    public Long getTenantId() {
+        return tenantId;
     }
 
     public String getNodeKey() {
@@ -119,6 +149,9 @@ public class OrganizationNodeEntity {
             boolean enabled,
             Instant now
     ) {
+        if (parent != null && !tenantId.equals(parent.getTenantId())) {
+            throw new IllegalArgumentException("organization node tenant is invalid.");
+        }
         this.displayName = displayName;
         this.nodeType = nodeType;
         this.parent = parent;

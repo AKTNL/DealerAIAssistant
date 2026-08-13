@@ -16,8 +16,12 @@ import java.time.Instant;
 @Table(
         name = "organization_user_grants",
         uniqueConstraints = @UniqueConstraint(
-                name = "uq_organization_user_grants",
-                columnNames = {"user_id", "organization_node_id"}
+                name = "uq_organization_user_grants_tenant",
+                columnNames = {"tenant_id", "user_id", "organization_node_id"}
+        ),
+        indexes = @jakarta.persistence.Index(
+                name = "idx_organization_user_grants_tenant_user",
+                columnList = "tenant_id,user_id,organization_node_id"
         )
 )
 public class OrganizationUserGrantEntity {
@@ -25,6 +29,9 @@ public class OrganizationUserGrantEntity {
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
+
+    @Column(name = "tenant_id", nullable = false)
+    private Long tenantId;
 
     @Column(name = "user_id", nullable = false)
     private Long userId;
@@ -48,7 +55,21 @@ public class OrganizationUserGrantEntity {
             boolean includeDescendants,
             Instant createdAt
     ) {
+        this(organizationNode.getTenantId(), userId, organizationNode, includeDescendants, createdAt);
+    }
+
+    public OrganizationUserGrantEntity(
+            Long tenantId,
+            Long userId,
+            OrganizationNodeEntity organizationNode,
+            boolean includeDescendants,
+            Instant createdAt
+    ) {
+        if (tenantId == null || organizationNode == null || !tenantId.equals(organizationNode.getTenantId())) {
+            throw new IllegalArgumentException("organization grant tenant is invalid.");
+        }
         this.userId = userId;
+        this.tenantId = tenantId;
         this.organizationNode = organizationNode;
         this.includeDescendants = includeDescendants;
         this.createdAt = createdAt;
@@ -56,6 +77,10 @@ public class OrganizationUserGrantEntity {
 
     public Long getId() {
         return id;
+    }
+
+    public Long getTenantId() {
+        return tenantId;
     }
 
     public Long getUserId() {

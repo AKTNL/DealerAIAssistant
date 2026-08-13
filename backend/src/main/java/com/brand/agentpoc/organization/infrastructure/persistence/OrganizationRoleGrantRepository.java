@@ -9,5 +9,11 @@ public interface OrganizationRoleGrantRepository extends JpaRepository<Organizat
 
     List<OrganizationRoleGrantEntity> findByRoleId(Long roleId);
 
+    List<OrganizationRoleGrantEntity> findByTenantIdAndRoleIdIn(Long tenantId, Collection<Long> roleIds);
+
+    List<OrganizationRoleGrantEntity> findByTenantIdAndRoleId(Long tenantId, Long roleId);
+
     void deleteByRoleId(Long roleId);
+
+    void deleteByTenantIdAndRoleId(Long tenantId, Long roleId);
 }

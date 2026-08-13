@@ -6,15 +6,19 @@ import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
+import com.brand.agentpoc.tenant.domain.TenantScoped;
 import java.time.LocalDate;
 
 @Entity
 @Table(name = "opportunities")
-public class Opportunity implements BatchScoped, DealerScoped {
+public class Opportunity implements BatchScoped, DealerScoped, TenantScoped {
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
+
+    @Column(name = "tenant_id", nullable = false)
+    private Long tenantId;
 
     @Column(nullable = false, length = 64)
     private String opportunityId;
@@ -134,7 +138,29 @@ public class Opportunity implements BatchScoped, DealerScoped {
             Integer probability,
             String importBatchId
     ) {
+        this(opportunityId, dealerCode, dealerName, city, dealerGroupName, productModel, purchaseHorizon,
+                stageName, leadSource, createdDate, expectedCloseDate, probability, importBatchId,
+                TenantScoped.DEFAULT_TENANT_ID);
+    }
+
+    public Opportunity(
+            String opportunityId,
+            String dealerCode,
+            String dealerName,
+            String city,
+            String dealerGroupName,
+            String productModel,
+            String purchaseHorizon,
+            String stageName,
+            String leadSource,
+            LocalDate createdDate,
+            LocalDate expectedCloseDate,
+            Integer probability,
+            String importBatchId,
+            Long tenantId
+    ) {
         this.opportunityId = opportunityId;
+        this.tenantId = requireTenantId(tenantId);
         this.dealerCode = dealerCode;
         this.dealerName = dealerName;
         this.city = city;
@@ -153,8 +179,20 @@ public class Opportunity implements BatchScoped, DealerScoped {
         return value == null || value.isBlank() ? BatchScoped.LEGACY_BATCH_ID : value;
     }
 
+    private static Long requireTenantId(Long value) {
+        if (value == null) {
+            throw new IllegalArgumentException("tenantId is required.");
+        }
+        return value;
+    }
+
     public Long getId() {
         return id;
+    }
+
+    @Override
+    public Long getTenantId() {
+        return tenantId;
     }
 
     public String getOpportunityId() {

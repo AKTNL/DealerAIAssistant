@@ -7,4 +7,10 @@ public interface OrganizationDealerMappingRepository extends JpaRepository<Organ
     List<OrganizationDealerMappingEntity> findByDealerCodeIgnoreCase(String dealerCode);
 
     List<OrganizationDealerMappingEntity> findByOrganizationNodeId(Long organizationNodeId);
+
+    List<OrganizationDealerMappingEntity> findByTenantId(Long tenantId);
+
+    List<OrganizationDealerMappingEntity> findByTenantIdAndDealerCodeIgnoreCase(Long tenantId, String dealerCode);
+
+    List<OrganizationDealerMappingEntity> findByTenantIdAndOrganizationNodeId(Long tenantId, Long organizationNodeId);
 }

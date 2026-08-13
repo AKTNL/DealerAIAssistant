@@ -160,6 +160,7 @@ public class AppProperties {
         private String name = "";
         private List<String> allowedHosts = List.of();
         private boolean allowPrivateHosts = false;
+        private String secretKey = "";
 
         public String getBaseUrl() {
             return baseUrl;
@@ -204,6 +205,14 @@ public class AppProperties {
 
         public void setAllowPrivateHosts(boolean allowPrivateHosts) {
             this.allowPrivateHosts = allowPrivateHosts;
+        }
+
+        public String getSecretKey() {
+            return secretKey;
+        }
+
+        public void setSecretKey(String secretKey) {
+            this.secretKey = secretKey == null ? "" : secretKey.trim();
         }
     }
 

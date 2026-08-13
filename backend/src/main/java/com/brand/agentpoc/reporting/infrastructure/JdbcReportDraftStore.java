@@ -18,7 +18,7 @@ import org.springframework.stereotype.Repository;
 public class JdbcReportDraftStore implements ReportDraftStore {
 
     private static final String SELECT_COLUMNS = """
-            SELECT id, report_type, title, language, markdown, generated_at,
+            SELECT id, tenant_id, report_type, title, language, markdown, generated_at,
                    import_batch_id, scope_type, scope_id, model, prompt_version
             FROM report_drafts
             """;
@@ -33,11 +33,12 @@ public class JdbcReportDraftStore implements ReportDraftStore {
     public ReportDraft save(ReportDraft draft) {
         jdbcTemplate.update("""
                         INSERT INTO report_drafts (
-                            id, report_type, title, language, markdown, generated_at,
+                            id, tenant_id, report_type, title, language, markdown, generated_at,
                             import_batch_id, scope_type, scope_id, model, prompt_version
-                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                         """,
                 draft.id(),
+                draft.tenantId(),
                 draft.reportType().wireName(),
                 draft.title(),
                 draft.language(),
@@ -53,20 +54,22 @@ public class JdbcReportDraftStore implements ReportDraftStore {
     }
 
     @Override
-    public Optional<ReportDraft> findById(String id) {
+    public Optional<ReportDraft> findByTenantIdAndId(Long tenantId, String id) {
         return jdbcTemplate.query(
-                        SELECT_COLUMNS + " WHERE id = ?",
+                        SELECT_COLUMNS + " WHERE tenant_id = ? AND id = ?",
                         this::mapRow,
+                        tenantId,
                         id
                 ).stream()
                 .findFirst();
     }
 
     @Override
-    public List<ReportDraft> findAll() {
+    public List<ReportDraft> findAllByTenantId(Long tenantId) {
         return jdbcTemplate.query(
-                SELECT_COLUMNS + " ORDER BY generated_at DESC",
-                this::mapRow
+                SELECT_COLUMNS + " WHERE tenant_id = ? ORDER BY generated_at DESC",
+                this::mapRow,
+                tenantId
         );
     }
 
@@ -81,7 +84,8 @@ public class JdbcReportDraftStore implements ReportDraftStore {
                 resultSet.getString("import_batch_id"),
                 new ReportScope(resultSet.getString("scope_type"), resultSet.getString("scope_id")),
                 resultSet.getString("model"),
-                resultSet.getString("prompt_version")
+                resultSet.getString("prompt_version"),
+                resultSet.getLong("tenant_id")
         );
     }
 }

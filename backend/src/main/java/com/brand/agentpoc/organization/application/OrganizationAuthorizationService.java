@@ -1,9 +1,6 @@
 package com.brand.agentpoc.organization.application;
 
 import com.brand.agentpoc.auth.domain.AuthPrincipal;
-import com.brand.agentpoc.auth.infrastructure.persistence.AuthRoleEntity;
-import com.brand.agentpoc.auth.infrastructure.persistence.AuthUserEntity;
-import com.brand.agentpoc.auth.infrastructure.persistence.AuthUserRepository;
 import com.brand.agentpoc.organization.domain.OrganizationAuthorizationContext;
 import com.brand.agentpoc.organization.domain.OrganizationDataScope;
 import com.brand.agentpoc.organization.infrastructure.persistence.OrganizationDealerMappingEntity;
@@ -33,20 +30,17 @@ import org.springframework.transaction.annotation.Transactional;
 @Transactional(readOnly = true)
 public class OrganizationAuthorizationService {
 
-    private final AuthUserRepository userRepository;
     private final OrganizationNodeRepository nodeRepository;
     private final OrganizationDealerMappingRepository mappingRepository;
     private final OrganizationUserGrantRepository userGrantRepository;
     private final OrganizationRoleGrantRepository roleGrantRepository;
 
     public OrganizationAuthorizationService(
-            AuthUserRepository userRepository,
             OrganizationNodeRepository nodeRepository,
             OrganizationDealerMappingRepository mappingRepository,
             OrganizationUserGrantRepository userGrantRepository,
             OrganizationRoleGrantRepository roleGrantRepository
     ) {
-        this.userRepository = userRepository;
         this.nodeRepository = nodeRepository;
         this.mappingRepository = mappingRepository;
         this.userGrantRepository = userGrantRepository;
@@ -57,23 +51,27 @@ public class OrganizationAuthorizationService {
         if (principal == null) {
             throw new AccessDeniedException("Authenticated principal is required.");
         }
-        AuthUserEntity user = userRepository.findById(principal.userId())
-                .filter(candidate -> Boolean.TRUE.equals(candidate.getEnabled()))
-                .orElseThrow(() -> new AccessDeniedException("Authenticated user is unavailable."));
-        Set<Long> roleIds = user.getRoles().stream()
-                .map(AuthRoleEntity::getId)
-                .collect(java.util.stream.Collectors.toUnmodifiableSet());
+        if (!principal.hasTenantContext()) {
+            throw new AccessDeniedException("Tenant context is required.");
+        }
+        Long tenantId = principal.tenantId();
 
         List<GrantSeed> grants = new ArrayList<>();
-        userGrantRepository.findByUserId(user.getId()).stream()
+        userGrantRepository.findByTenantIdAndUserId(tenantId, principal.userId()).stream()
                 .map(this::toSeed)
                 .forEach(grants::add);
-        if (!roleIds.isEmpty()) {
-            roleGrantRepository.findByRoleIdIn(roleIds).stream()
+        if (!principal.roleIds().isEmpty()) {
+            roleGrantRepository.findByTenantIdAndRoleIdIn(tenantId, principal.roleIds()).stream()
                     .map(this::toSeed)
                     .forEach(grants::add);
         }
-        OrganizationDataScope dataScope = resolveDataScope(grants, nodeRepository.findAll(), mappingRepository.findAll());
+        OrganizationDataScope dataScope = resolveDataScope(
+                principal.tenantId(),
+                principal.tenantKey(),
+                grants,
+                nodeRepository.findByTenantId(tenantId),
+                mappingRepository.findByTenantId(tenantId)
+        );
         return new OrganizationAuthorizationContext(principal, dataScope);
     }
 
@@ -92,8 +90,25 @@ public class OrganizationAuthorizationService {
             List<OrganizationNodeEntity> nodes,
             List<OrganizationDealerMappingEntity> mappings
     ) {
+        return resolveDataScope(
+                com.brand.agentpoc.tenant.domain.TenantScoped.DEFAULT_TENANT_ID,
+                "default",
+                grants,
+                nodes,
+                mappings
+        );
+    }
+
+    OrganizationDataScope resolveDataScope(
+            Long tenantId,
+            String tenantKey,
+            Collection<GrantSeed> grants,
+            List<OrganizationNodeEntity> nodes,
+            List<OrganizationDealerMappingEntity> mappings
+    ) {
         if (grants == null || grants.isEmpty()) {
-            return OrganizationDataScope.empty();
+            return OrganizationDataScope.tenantScope(
+                    tenantId, tenantKey, Set.of(), Set.of(), Set.of(), false);
         }
 
         Map<Long, OrganizationNodeEntity> nodesById = new HashMap<>();
@@ -127,7 +142,8 @@ public class OrganizationAuthorizationService {
                 .filter(mapping -> allowedNodeIds.contains(mapping.getOrganizationNode().getId()))
                 .map(OrganizationDealerMappingEntity::getDealerCode)
                 .collect(java.util.stream.Collectors.toUnmodifiableSet());
-        return new OrganizationDataScope(allowedNodeIds, grantNodeIds, dealerCodes, rootCoverage, false);
+        return OrganizationDataScope.tenantScope(
+                tenantId, tenantKey, allowedNodeIds, grantNodeIds, dealerCodes, rootCoverage);
     }
 
     private void addEnabledDescendants(

@@ -6,6 +6,12 @@ import com.brand.agentpoc.auth.infrastructure.persistence.AuthRoleEntity;
 import com.brand.agentpoc.auth.infrastructure.persistence.AuthRoleRepository;
 import com.brand.agentpoc.auth.infrastructure.persistence.AuthUserEntity;
 import com.brand.agentpoc.auth.infrastructure.persistence.AuthUserRepository;
+import com.brand.agentpoc.tenant.infrastructure.persistence.TenantEntity;
+import com.brand.agentpoc.tenant.infrastructure.persistence.TenantMembershipEntity;
+import com.brand.agentpoc.tenant.infrastructure.persistence.TenantMembershipRepository;
+import com.brand.agentpoc.tenant.infrastructure.persistence.TenantMembershipRoleEntity;
+import com.brand.agentpoc.tenant.infrastructure.persistence.TenantMembershipRoleRepository;
+import com.brand.agentpoc.tenant.infrastructure.persistence.TenantRepository;
 import java.time.Clock;
 import java.time.Instant;
 import java.util.EnumSet;
@@ -30,6 +36,9 @@ public class AuthAdministrationService {
     private final AuthSessionService sessionService;
     private final AuthAuditService auditService;
     private final Clock clock;
+    private final TenantRepository tenantRepository;
+    private final TenantMembershipRepository membershipRepository;
+    private final TenantMembershipRoleRepository membershipRoleRepository;
 
     public AuthAdministrationService(
             AuthUserRepository userRepository,
@@ -38,7 +47,10 @@ public class AuthAdministrationService {
             IdentityInputPolicy inputPolicy,
             AuthSessionService sessionService,
             AuthAuditService auditService,
-            Clock clock
+            Clock clock,
+            TenantRepository tenantRepository,
+            TenantMembershipRepository membershipRepository,
+            TenantMembershipRoleRepository membershipRoleRepository
     ) {
         this.userRepository = userRepository;
         this.roleRepository = roleRepository;
@@ -47,11 +59,21 @@ public class AuthAdministrationService {
         this.sessionService = sessionService;
         this.auditService = auditService;
         this.clock = clock;
+        this.tenantRepository = tenantRepository;
+        this.membershipRepository = membershipRepository;
+        this.membershipRoleRepository = membershipRoleRepository;
     }
 
     @Transactional(readOnly = true)
-    public List<UserView> listUsers() {
-        return userRepository.findAll().stream().map(UserView::from).toList();
+    public List<UserView> listUsers(AuthPrincipal actor) {
+        Long tenantId = requireActorTenantId(actor);
+        return membershipRepository.findByTenantId(tenantId).stream()
+                .map(membership -> UserView.from(
+                        requireUser(membership.getUserId()),
+                        membership,
+                        roleKeys(membership)
+                ))
+                .toList();
     }
 
     @Transactional
@@ -76,12 +98,23 @@ public class AuthAdministrationService {
                 passwordEncoder.encode(temporaryPassword),
                 true,
                 true,
-                roles,
+                Set.of(),
                 now
         ));
+        TenantEntity tenant = requireActorTenant(actor);
+        TenantMembershipEntity membership = membershipRepository.saveAndFlush(new TenantMembershipEntity(
+                tenant,
+                saved.getId(),
+                true,
+                now
+        ));
+        roles.stream()
+                .map(AuthRoleEntity::getId)
+                .map(roleId -> new TenantMembershipRoleEntity(membership, roleId))
+                .forEach(membershipRoleRepository::save);
         auditService.record(actor.userId(), "USER_CREATE", "USER", String.valueOf(saved.getId()),
                 "SUCCESS", traceId, "temporary_password_assigned");
-        return UserView.from(saved);
+        return UserView.from(saved, membership, roleKeys(roles));
     }
 
     @Transactional
@@ -92,22 +125,18 @@ public class AuthAdministrationService {
             Long expectedVersion,
             String traceId
     ) {
-        if (!enabled) {
-            userRepository.lockAllForAdministrationUpdate();
-        }
         AuthUserEntity user = requireUser(userId);
-        requireVersion(user.getVersion(), expectedVersion);
-        if (!enabled && isEffectiveAdministrator(user)) {
-            requireAnotherEffectiveAdministrator(user.getId(), null, null);
+        TenantMembershipEntity membership = requireMembership(actor, userId);
+        requireVersion(membership.getVersion(), expectedVersion);
+        if (!enabled && isEffectiveAdministrator(membership)) {
+            requireAnotherTenantAdministrator(actor.tenantId(), membership.getId(), null);
         }
-        user.changeEnabled(enabled, Instant.now(clock));
-        userRepository.saveAndFlush(user);
-        if (!enabled) {
-            sessionService.revokeAllForUser(userId, "account_disabled");
-        }
+        membership.updateEnabled(enabled, Instant.now(clock));
+        membershipRepository.saveAndFlush(membership);
         auditService.record(actor.userId(), enabled ? "USER_ENABLE" : "USER_DISABLE", "USER",
-                String.valueOf(userId), "SUCCESS", traceId, enabled ? "account_enabled" : "sessions_revoked");
-        return UserView.from(user);
+                String.valueOf(userId), "SUCCESS", traceId,
+                enabled ? "tenant_membership_enabled" : "tenant_membership_disabled");
+        return UserView.from(user, membership, roleKeys(membership));
     }
 
     @Transactional
@@ -118,21 +147,25 @@ public class AuthAdministrationService {
             Long expectedVersion,
             String traceId
     ) {
-        userRepository.lockAllForAdministrationUpdate();
         AuthUserEntity user = requireUser(userId);
-        requireVersion(user.getVersion(), expectedVersion);
+        TenantMembershipEntity membership = requireMembership(actor, userId);
+        requireVersion(membership.getVersion(), expectedVersion);
         Set<AuthRoleEntity> roles = requireRoles(roleKeys);
-        boolean losesAdministration = isEffectiveAdministrator(user)
+        boolean losesAdministration = isEffectiveAdministrator(membership)
                 && roles.stream().noneMatch(role -> role.getPermissions().contains(PermissionKey.USER_MANAGE));
-        if (losesAdministration && Boolean.TRUE.equals(user.getEnabled())) {
-            requireAnotherEffectiveAdministrator(userId, null, null);
+        if (losesAdministration && Boolean.TRUE.equals(membership.getEnabled())) {
+            requireAnotherTenantAdministrator(actor.tenantId(), membership.getId(), null);
         }
-        user.replaceRoles(roles, Instant.now(clock));
-        userRepository.saveAndFlush(user);
-        sessionService.revokeAllForUser(userId, "roles_changed");
+        membershipRoleRepository.deleteByMembershipId(membership.getId());
+        roles.stream()
+                .map(AuthRoleEntity::getId)
+                .map(roleId -> new TenantMembershipRoleEntity(membership, roleId))
+                .forEach(membershipRoleRepository::save);
+        membership.touch(Instant.now(clock));
+        membershipRepository.saveAndFlush(membership);
         auditService.record(actor.userId(), "USER_ROLES_UPDATE", "USER", String.valueOf(userId),
-                "SUCCESS", traceId, "sessions_revoked");
-        return UserView.from(user);
+                "SUCCESS", traceId, "tenant_membership_roles_updated");
+        return UserView.from(user, membership, roleKeys(roles));
     }
 
     @Transactional
@@ -144,6 +177,7 @@ public class AuthAdministrationService {
             String traceId
     ) {
         inputPolicy.validatePassword(temporaryPassword);
+        requireExclusiveMembership(actor, userId);
         AuthUserEntity user = requireUser(userId);
         requireVersion(user.getVersion(), expectedVersion);
         user.changePassword(passwordEncoder.encode(temporaryPassword), true, Instant.now(clock));
@@ -151,7 +185,8 @@ public class AuthAdministrationService {
         sessionService.revokeAllForUser(userId, "password_reset");
         auditService.record(actor.userId(), "PASSWORD_RESET", "USER", String.valueOf(userId),
                 "SUCCESS", traceId, "temporary_password_assigned_sessions_revoked");
-        return UserView.from(user);
+        TenantMembershipEntity membership = requireMembership(actor, userId);
+        return UserView.from(user, membership, roleKeys(membership));
     }
 
     @Transactional(readOnly = true)
@@ -167,6 +202,7 @@ public class AuthAdministrationService {
             Set<PermissionKey> permissions,
             String traceId
     ) {
+        requirePlatformRoleAdministration();
         String normalizedKey = normalizeRoleKey(roleKey);
         if (!roleRepository.findByRoleKeyIgnoreCase(normalizedKey).isEmpty()) {
             throw new IllegalArgumentException("Role key already exists.");
@@ -193,6 +229,7 @@ public class AuthAdministrationService {
             Long expectedVersion,
             String traceId
     ) {
+        requirePlatformRoleAdministration();
         AuthRoleEntity role = requireRole(roleId);
         requireVersion(role.getVersion(), expectedVersion);
         if (Boolean.TRUE.equals(role.getBuiltIn())) {
@@ -213,6 +250,51 @@ public class AuthAdministrationService {
         auditService.record(actor.userId(), "ROLE_PERMISSIONS_UPDATE", "ROLE", String.valueOf(roleId),
                 "SUCCESS", traceId, "affected_sessions_revoked");
         return RoleView.from(role);
+    }
+
+    private TenantEntity requireActorTenant(AuthPrincipal actor) {
+        Long tenantId = requireActorTenantId(actor);
+        return tenantRepository.findById(tenantId)
+                .filter(tenant -> Boolean.TRUE.equals(tenant.getEnabled()))
+                .orElseThrow(() -> new org.springframework.security.access.AccessDeniedException(
+                        "Tenant access denied."));
+    }
+
+    private Long requireActorTenantId(AuthPrincipal actor) {
+        if (actor == null || !actor.hasTenantContext()) {
+            throw new org.springframework.security.access.AccessDeniedException("Tenant access denied.");
+        }
+        return actor.tenantId();
+    }
+
+    private TenantMembershipEntity requireMembership(AuthPrincipal actor, Long userId) {
+        return membershipRepository.findByTenantIdAndUserId(requireActorTenantId(actor), userId).stream()
+                .findFirst()
+                .orElseThrow(() -> new IllegalArgumentException("Unknown user."));
+    }
+
+    private void requireExclusiveMembership(AuthPrincipal actor, Long userId) {
+        requireMembership(actor, userId);
+        if (membershipRepository.findByUserId(userId).size() != 1) {
+            throw new IllegalStateException("Shared identity requires platform administration.");
+        }
+    }
+
+    private Set<String> roleKeys(TenantMembershipEntity membership) {
+        Set<Long> roleIds = membershipRoleRepository.findByMembershipId(membership.getId()).stream()
+                .map(TenantMembershipRoleEntity::getRoleId)
+                .collect(java.util.stream.Collectors.toSet());
+        return roleIds.isEmpty()
+                ? Set.of()
+                : roleRepository.findAllById(roleIds).stream()
+                        .map(AuthRoleEntity::getRoleKey)
+                        .collect(java.util.stream.Collectors.toUnmodifiableSet());
+    }
+
+    private Set<String> roleKeys(Set<AuthRoleEntity> roles) {
+        return roles.stream()
+                .map(AuthRoleEntity::getRoleKey)
+                .collect(java.util.stream.Collectors.toUnmodifiableSet());
     }
 
     private Set<AuthRoleEntity> requireRoles(Set<String> roleKeys) {
@@ -236,6 +318,11 @@ public class AuthAdministrationService {
             throw new IllegalArgumentException("At least one known permission is required.");
         }
         return Set.copyOf(permissions);
+    }
+
+    private void requirePlatformRoleAdministration() {
+        throw new org.springframework.security.access.AccessDeniedException(
+                "Global role templates require platform administration.");
     }
 
     private void requireAnotherEffectiveAdministrator(
@@ -277,6 +364,32 @@ public class AuthAdministrationService {
                         .anyMatch(PermissionKey.USER_MANAGE::equals);
     }
 
+    private boolean isEffectiveAdministrator(TenantMembershipEntity membership) {
+        if (!Boolean.TRUE.equals(membership.getEnabled())) {
+            return false;
+        }
+        Set<Long> roleIds = membershipRoleRepository.findByMembershipId(membership.getId()).stream()
+                .map(TenantMembershipRoleEntity::getRoleId)
+                .collect(java.util.stream.Collectors.toSet());
+        return roleRepository.findAllById(roleIds).stream()
+                .flatMap(role -> role.getPermissions().stream())
+                .anyMatch(PermissionKey.USER_MANAGE::equals);
+    }
+
+    private void requireAnotherTenantAdministrator(
+            Long tenantId,
+            Long excludedMembershipId,
+            Set<Long> replacementRoleIds
+    ) {
+        long remaining = membershipRepository.findByTenantIdAndEnabledTrue(tenantId).stream()
+                .filter(membership -> !membership.getId().equals(excludedMembershipId))
+                .filter(this::isEffectiveAdministrator)
+                .count();
+        if (remaining == 0 && (replacementRoleIds == null || replacementRoleIds.isEmpty())) {
+            throw new IllegalStateException("The last effective administrator cannot be removed or disabled.");
+        }
+    }
+
     private AuthUserEntity requireUser(Long userId) {
         return userRepository.findById(userId)
                 .orElseThrow(() -> new IllegalArgumentException("Unknown user."));
@@ -310,15 +423,19 @@ public class AuthAdministrationService {
             Set<String> roles,
             Long version
     ) {
-        private static UserView from(AuthUserEntity user) {
+        private static UserView from(
+                AuthUserEntity user,
+                TenantMembershipEntity membership,
+                Set<String> tenantRoles
+        ) {
             return new UserView(
                     user.getId(),
                     user.getUsername(),
                     user.getDisplayName(),
-                    Boolean.TRUE.equals(user.getEnabled()),
+                    Boolean.TRUE.equals(user.getEnabled()) && Boolean.TRUE.equals(membership.getEnabled()),
                     Boolean.TRUE.equals(user.getMustChangePassword()),
-                    user.getRoles().stream().map(AuthRoleEntity::getRoleKey).collect(java.util.stream.Collectors.toSet()),
-                    user.getVersion()
+                    tenantRoles,
+                    membership.getVersion()
             );
         }
     }

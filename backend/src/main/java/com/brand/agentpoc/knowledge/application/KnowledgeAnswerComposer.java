@@ -12,7 +12,14 @@ public class KnowledgeAnswerComposer {
     }
 
     public String compose(String query, String language) {
-        KnowledgeSearchResult result = knowledgeService.retrieve(query, null);
+        return render(knowledgeService.retrieve(query, null), language);
+    }
+
+    public String compose(String query, String language, Long tenantId) {
+        return render(knowledgeService.retrieve(query, null, tenantId), language);
+    }
+
+    private String render(KnowledgeSearchResult result, String language) {
         if (result.noMatch()) {
             return noMatch(language);
         }

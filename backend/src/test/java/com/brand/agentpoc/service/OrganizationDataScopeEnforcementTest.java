@@ -50,8 +50,7 @@ class OrganizationDataScopeEnforcementTest {
                 false,
                 false
         );
-        when(dealerRepository.findAll()).thenReturn(List.of(allowed, denied));
-        when(dealerRepository.findByDealerCodeIgnoreCase("DENY-1")).thenReturn(List.of(denied));
+        when(dealerRepository.findByTenantId(1L)).thenReturn(List.of(allowed, denied));
 
         DataQueryResponse visible = dataQueryService.query("dealers", Map.of(), scope);
         DataQueryResponse forged = dataQueryService.query(

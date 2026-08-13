@@ -39,8 +39,8 @@ public class OrganizationAdminController {
     }
 
     @GetMapping("/nodes")
-    public ApiResult<List<NodeView>> listNodes() {
-        return ApiResult.success(administrationService.listNodes());
+    public ApiResult<List<NodeView>> listNodes(@AuthenticationPrincipal AuthPrincipal actor) {
+        return ApiResult.success(administrationService.listNodes(actor));
     }
 
     @PostMapping("/nodes")
@@ -80,8 +80,8 @@ public class OrganizationAdminController {
     }
 
     @GetMapping("/dealer-mappings")
-    public ApiResult<List<DealerMappingView>> listDealerMappings() {
-        return ApiResult.success(administrationService.listDealerMappings());
+    public ApiResult<List<DealerMappingView>> listDealerMappings(@AuthenticationPrincipal AuthPrincipal actor) {
+        return ApiResult.success(administrationService.listDealerMappings(actor));
     }
 
     @PutMapping("/dealer-mappings/{dealerCode}")
@@ -115,8 +115,11 @@ public class OrganizationAdminController {
     }
 
     @GetMapping("/user-grants/{userId}")
-    public ResponseEntity<ApiResult<List<GrantView>>> listUserGrants(@PathVariable Long userId) {
-        return executeGrants(() -> administrationService.listUserGrants(userId));
+    public ResponseEntity<ApiResult<List<GrantView>>> listUserGrants(
+            @AuthenticationPrincipal AuthPrincipal actor,
+            @PathVariable Long userId
+    ) {
+        return executeGrants(() -> administrationService.listUserGrants(actor, userId));
     }
 
     @PutMapping("/role-grants/{roleId}")
@@ -135,8 +138,11 @@ public class OrganizationAdminController {
     }
 
     @GetMapping("/role-grants/{roleId}")
-    public ResponseEntity<ApiResult<List<GrantView>>> listRoleGrants(@PathVariable Long roleId) {
-        return executeGrants(() -> administrationService.listRoleGrants(roleId));
+    public ResponseEntity<ApiResult<List<GrantView>>> listRoleGrants(
+            @AuthenticationPrincipal AuthPrincipal actor,
+            @PathVariable Long roleId
+    ) {
+        return executeGrants(() -> administrationService.listRoleGrants(actor, roleId));
     }
 
     private String traceId(HttpServletRequest request) {
