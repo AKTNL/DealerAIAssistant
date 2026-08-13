@@ -21,7 +21,7 @@ Composables hold the application's shared reactive state. When multiple componen
 | `useAuth` | `src/composables/useAuth.js` | `currentUser`, `authVerified`, `mustChangePassword`, credentials, loading/error state |
 | `useChat` | `src/composables/useChat.js` | `messages`, `isSending`, `promptInput`, `streamPhase`, `sessionId`, `requestError`, `toastMessage` |
 | `useI18nState` | `src/composables/useI18nState.js` | `locale`, `dictionary` |
-| `useModelSettings` | `src/composables/useModelSettings.js` | Module-level `modelSettingsState` (singleton) |
+| `useModelSettings` | `src/composables/useModelSettings.js` | Legacy compatibility helpers; clears old browser credentials and does not persist model secrets |
 
 **How state flows down to child components:**
 
@@ -95,8 +95,9 @@ Storage keys are centralized in `frontend/src/constants/storageKeys.js`:
 export const STORAGE_KEYS = {
   auth: "agentpoc.authVerified",      // sessionStorage (user session)
   locale: "agentpoc.locale",           // localStorage (persists across sessions)
-  modelSettings: "agentpoc.modelSettings", // localStorage
-  session: "brand_session_id"          // localStorage (chat session)
+  modelSettings: "agentpoc.modelSettings", // legacy key; cleared, never written
+  session: "brand_session_id",         // localStorage (chat session)
+  tenant: "agentpoc.tenantKey"         // sessionStorage (tenant selection intent)
 };
 ```
 
@@ -104,7 +105,8 @@ export const STORAGE_KEYS = {
 - **Access token + expiry + normalized current user**: sessionStorage (clears when tab closes).
 - **Refresh token**: HttpOnly Cookie only; JavaScript must never read or persist it.
 - **Locale preference**: localStorage (persists across visits).
-- **Model settings**: localStorage (persists across visits).
+- **Model settings**: server-side tenant resource via `/api/model-config`; browser retains only transient form metadata and `apiKeyConfigured`.
+- **Tenant selection**: sessionStorage (clears when the tab/auth session is cleared).
 - **Chat session ID**: localStorage (persists across page reloads within same session).
 - **Chat messages**: NOT persisted -- they live only in memory (`messages` ref). Clearing or refreshing loses message history.
 - **UI state** (sidebar collapsed, panel open): NOT persisted -- resets on page load.
@@ -142,7 +144,7 @@ Since there is no store library, "global" means "owned by a composable and passe
 | Auth identity/permissions | `useAuth` composable | Shared by App.vue, ChatView, TopNav |
 | Chat messages | `useChat` composable | Core data, shared by message list + input |
 | Locale | `useI18nState` composable | Every component needs translations |
-| Model settings | `useModelSettings` (module-level) | Needed by ChatView + useChat for API calls |
+| Model settings | `ChatView` + `api/modelConfig.js` | Tenant-scoped server state; `useChat` receives no model credentials |
 | Textarea focus state | Component `ref` | Only ChatInput needs it |
 | Timeline expand/collapse | Component `ref` | Only AssistantMessage needs it |
 
@@ -158,7 +160,7 @@ There is no server-state cache. Every interaction with the backend is a fresh fe
 - **Recovery**: `refreshSession()` restores identity from the HttpOnly refresh Cookie and is single-flight.
 - **Chat streaming**: `streamChat(...)` POST with SSE response, called on each message send.
 - **Clear session**: `clearSession(sessionId)` DELETE called on button click.
-- **Test model connection**: `testModelConnection(config)` POST called from settings panel.
+- **Read/save/delete/test model connection**: `getModelConfig`, `saveModelConfig`, `deleteModelConfig`, and `testModelConnection` are called from the settings panel; chat sends only `sessionId` and `message`.
 
 No optimistic updates, no stale-while-revalidate, no cache invalidation. This is appropriate for a real-time chat application where freshness is critical.
 

@@ -76,17 +76,15 @@ export function useSseParser() {
 }
 ```
 
-### Pattern C: Module-Scoped Singleton State (useModelSettings)
+### Pattern C: Legacy Model Settings Compatibility Helpers
 
-`frontend/src/composables/useModelSettings.js` is unique -- it exports plain functions, not a `use*` factory. It maintains a module-level `modelSettingsState` variable. This is a transitional pattern used because model settings are needed imperatively by the chat composable, not just reactively.
+`frontend/src/composables/useModelSettings.js` exports plain functions for normalization and cleanup. It intentionally does not keep a module-level secret or persist model credentials; `readModelSettings()` clears legacy local/session storage and returns `null`.
 
 ```js
 // useModelSettings.js line 3
-let modelSettingsState = null;
-
-export function readModelSettings() { /* ... */ }
-export function writeModelSettings(settings) { /* ... */ }
-export function resetModelSettings() { /* ... */ }
+export function readModelSettings() { /* clears legacy storage; returns null */ }
+export function writeModelSettings(settings) { /* cleanup-only compatibility result */ }
+export function resetModelSettings() { /* clears legacy storage */ }
 ```
 
 **Prefer Pattern A for new composables.** Pattern C exists for legacy model-settings wiring only.
@@ -110,8 +108,6 @@ const {
   authVerified,
   dictionary: computed(() => props.dictionary),
   locale: computed(() => props.locale),
-  modelSettings: savedModelSettings,
-  openModelSettings: handleOpenSettings,
   onAuthExpired: () => emit("sign-out")
 });
 ```

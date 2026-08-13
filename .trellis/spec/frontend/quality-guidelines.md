@@ -167,8 +167,9 @@ All storage keys must be defined in `frontend/src/constants/storageKeys.js`:
 export const STORAGE_KEYS = {
   auth: "agentpoc.authVerified",
   locale: "agentpoc.locale",
-  modelSettings: "agentpoc.modelSettings",
-  session: "brand_session_id"
+  modelSettings: "agentpoc.modelSettings", // legacy cleanup key only
+  session: "brand_session_id",
+  tenant: "agentpoc.tenantKey"
 };
 ```
 
@@ -278,15 +279,13 @@ Composables are tested by mounting a minimal harness component that calls the co
 
 ```js
 // useChat.spec.js lines 61-78
-function mountChatHarness(modelSettings, overrides = {}) {
+function mountChatHarness(overrides = {}) {
   const Harness = defineComponent({
     setup() {
       return useChat({
         authVerified: ref(true),
         dictionary: ref(dictionary),
         locale: ref("en"),
-        modelSettings,
-        openModelSettings: openModelSettingsMock,
         ...overrides
       });
     },

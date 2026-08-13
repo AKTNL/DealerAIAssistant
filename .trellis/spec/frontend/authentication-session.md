@@ -135,3 +135,52 @@ const permissions = computed(() => new Set(currentUser.value?.permissions ?? [])
 const canManageUsers = computed(() => permissions.value.has("USER_MANAGE"));
 oneTimePassword.value = { label: user.displayName, password };
 ```
+
+## Scenario: Tenant Selection and Server-Side Model Credentials
+
+### 1. Scope / Trigger
+- Trigger: any frontend change to tenant switching, `/api/auth/me`, model settings, chat payloads, or auth cleanup.
+
+### 2. Signatures
+- Tenant storage: `getSelectedTenantKey()/setSelectedTenantKey()/clearSelectedTenantKey()` uses `sessionStorage` only.
+- API client: every request adds `X-Tenant-Key` when selected; the value is never treated as authorization.
+- Auth response: `user.tenants[]` and nullable `user.currentTenant`; roles/permissions are empty until a required multi-membership selection is made.
+- Model API: `GET/PUT/DELETE /api/model-config`, `POST /api/model-config/test`.
+- Chat API: `streamChat({sessionId,message})`; no model credentials in the request body.
+
+### 3. Contracts
+- Tenant selection clears on logout/auth recovery failure and is sent only as a normalized lowercase key.
+- Switching tenant refreshes `/api/auth/me` and recreates tenant-local Chat state; stale tenant messages must not remain visible.
+- Browser model settings contain metadata and an `apiKeyConfigured` flag only. Legacy stored credentials are deleted during read and never rewritten.
+- Existing API keys are represented by a fixed mask; blank save preserves the server-side key. API responses never expose plaintext or ciphertext.
+
+### 4. Validation & Error Matrix
+- Multiple memberships without selection -> show tenant choices, no business workspace permissions.
+- Unknown/disabled tenant header -> backend 403; clear the selection only when the server confirms it is invalid.
+- Model config 401 -> sign out; 403 -> show forbidden state; 400 -> show validation feedback without raw secrets.
+- Chat request inspection -> body contains only `sessionId` and `message`; any legacy model fields are a regression.
+
+### 5. Good/Base/Bad Cases
+- Good: switching from tenant A to B changes `/api/auth/me` and rebuilds Chat state before B data is rendered.
+- Base: a single-membership user has an automatic current tenant and no selector is required.
+- Bad: persist tenant choice in localStorage, trust a tenant key as authorization, or send a masked/API key value in chat.
+
+### 6. Tests Required
+- API client test: selected tenant header and auth cleanup behavior.
+- Auth/composable tests: tenant choices, current tenant, and selection refresh.
+- Model config/chat tests: no storage of credentials, no key in request bodies, fixed mask handling.
+- Final gates: `npm.cmd run lint`, `npm.cmd test -- --run`, and `npm.cmd run build`.
+
+### 7. Wrong vs Correct
+
+Wrong:
+```js
+localStorage.setItem("modelApiKey", apiKey);
+streamChat({ sessionId, message, apiKey });
+```
+
+Correct:
+```js
+setSelectedTenantKey(tenant.key); // sessionStorage selection intent only
+streamChat({ sessionId, message }); // server resolves encrypted tenant config
+```

@@ -254,47 +254,51 @@ const response = await requestJson("/api/dashboard", {
 ### Scenario: Default Model Configuration With Request Override
 
 #### 1. Scope / Trigger
-- Trigger: Chat requests can use backend-provided default OpenAI-compatible model settings, while the browser settings panel can still send request-scoped overrides.
-- This is a backend config and cross-layer request contract because env keys, `ChatRequest` fields, `ModelConfigService`, and frontend local settings all participate in the final model connection.
+- Trigger: Chat requests resolve an OpenAI-compatible model from server defaults or the current tenant's encrypted configuration.
+- This is a backend config and cross-layer request contract because env keys, tenant selection, `ChatRequest`, `ModelConfigService`, `TenantModelConfigRegistry`, and the frontend settings panel participate in the final model connection.
 
 #### 2. Signatures
 - Config: `AppProperties.Model.baseUrl/apiKey/name`
+- Secret: `APP_MODEL_SECRET_KEY` (production-required Base64 value decoding to exactly 32 bytes)
 - YAML/env:
   - `app.model.base-url` -> `APP_MODEL_BASE_URL`
   - `app.model.api-key` -> `APP_MODEL_API_KEY`
   - `app.model.name` -> `APP_MODEL_NAME`
-- Request DTO: `ChatRequest(sessionId, message, baseUrl, apiKey, model)`
+- Request DTO: `ChatRequest(sessionId, message, baseUrl, apiKey, model)`; legacy model fields remain backend-compatible but are not part of the browser contract.
+- Tenant header: optional `X-Tenant-Key`; it is selection intent and never an authorization claim.
+- Tenant config API: `GET/PUT/DELETE /api/model-config`, `POST /api/model-config/test` with `MODEL_CONFIG_TEST`.
 - Service methods:
   - `ModelConfigService.hasConfiguredModelSettings(ChatRequest request)`
   - `ModelConfigService.createChatModel(ChatRequest request)`
   - `ModelConfigService.createChatModel(ModelConfigRequest request)` for explicit model-connection tests
 
 #### 3. Contracts
-- `ChatRequest.baseUrl/apiKey/model` are optional for chat calls.
-- For chat calls, each non-blank request field overrides the corresponding backend default.
-- Blank request fields fall back independently to `app.model.base-url`, `app.model.api-key`, and `app.model.name`.
-- `ModelConfigRequest` remains explicit and does not silently fall back for `/api/model-config/test`; controller validation still requires all fields.
+- Browser chat requests send only `{sessionId,message}`. The server resolves the selected tenant's config, then server defaults where applicable.
+- Tenant model API keys are AES-256-GCM encrypted with tenant ID as additional authenticated data. Responses expose `apiKeyConfigured`, never plaintext or ciphertext.
+- Updating an existing tenant config with a blank `apiKey` preserves the current ciphertext; creating a config without a key fails.
+- `ModelConfigRequest` remains explicit for connection tests; a blank test key may reuse the current tenant's encrypted key.
 - Resolved model settings must still pass URL scheme, host, private-host, and allowlist validation before an `OpenAiChatModel` is created.
 - API keys and session tokens must never be logged.
 
 #### 4. Validation & Error Matrix
-- Request blank + defaults blank -> `hasConfiguredModelSettings(...) == false`; chat returns configuration guidance or analytics fallback.
-- Request blank + all defaults present -> `hasConfiguredModelSettings(...) == true`; chat can create the configured model.
-- Request field present + different backend default -> request value wins.
+- No tenant context or disabled tenant -> HTTP 403/fail closed before model resolution.
+- Tenant config absent + defaults blank -> `hasConfiguredModelSettings(...) == false`; chat returns configuration guidance or analytics fallback.
+- Tenant config present -> blank chat request resolves tenant config without receiving credentials from the browser.
 - Resolved base URL is localhost/private and private hosts are disabled -> `IllegalArgumentException("Model base URL is not allowed.")`.
 - Resolved host is outside `app.model.allowed-hosts` -> `IllegalArgumentException("Model base URL is not allowed.")`.
 - Explicit `/api/model-config/test` request with blank fields -> request validation fails before model creation.
 
 #### 5. Good/Base/Bad Cases
-- Good: `APP_MODEL_BASE_URL`, `APP_MODEL_API_KEY`, and `APP_MODEL_NAME` are set; a chat request with empty model fields still uses the configured model.
-- Good: Browser local settings send `baseUrl/apiKey/model`; those values override backend defaults for that request only.
-- Base: Existing browser-only configuration continues to work when backend defaults are empty.
-- Bad: `ChatService` checks only request fields and returns "model not configured" even though backend defaults are present.
-- Bad: Model settings resolution logs API keys or bypasses host validation.
+- Good: `APP_MODEL_SECRET_KEY` is stable across restarts and tenant A cannot decrypt tenant B's ciphertext.
+- Good: Browser saves a tenant config through `/api/model-config`; subsequent chat sends no API key and uses the server-side value.
+- Base: No tenant config and no server defaults still follows deterministic analytics fallback.
+- Bad: store API keys in local/session storage, include them in chat bodies, or return ciphertext in a response.
+- Bad: use `X-Tenant-Key` as proof of membership or resolve a model config without checking the enabled tenant.
 
 #### 6. Tests Required
-- `ModelConfigServiceTest` asserts backend defaults make an empty chat request configured.
-- `ModelConfigServiceTest` asserts request-scoped fields override backend defaults.
+- `AesGcmModelConfigSecretProviderTest` asserts round-trip, fresh nonce, plaintext exclusion, and wrong-tenant AAD failure.
+- `TenantModelConfigRegistryTest` asserts tenant-local reads, disabled-tenant rejection, no ciphertext in views, and blank-key preservation.
+- `ModelConfigServiceTest` asserts tenant config resolution and host validation.
 - `ChatServiceTest` asserts a blank chat request can call the model when `ModelConfigService.hasConfiguredModelSettings(...)` returns true.
 - Full backend verification must include `mvn "-Dfrontend.skip=true" pmd:check` and `mvn "-Dfrontend.skip=true" test`.
 
@@ -310,7 +314,7 @@ private boolean hasConfiguredModelSettings(ChatRequest request) {
 Correct:
 ```java
 public boolean hasConfiguredModelSettings(ChatRequest request) {
-    ModelConfigRequest resolved = resolveModelConfig(request);
+    ModelConfigRequest resolved = resolveModelConfigForTenant(request, tenantId);
     return hasText(resolved.baseUrl()) && hasText(resolved.apiKey()) && hasText(resolved.model());
 }
 ```

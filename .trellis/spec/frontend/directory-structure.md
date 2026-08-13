@@ -59,7 +59,7 @@ frontend/
     │   ├── useAuth.js                  # Login / refresh / forced password change / logout state
     │   ├── useChat.js                  # Chat orchestration (streaming, messages, scroll)
     │   ├── useI18nState.js             # Locale toggle + dictionary lookup
-    │   ├── useModelSettings.js         # Model config CRUD (localStorage-backed)
+    │   ├── useModelSettings.js         # Legacy model-settings normalization and browser-credential cleanup
     │   ├── useSseParser.js             # SSE stream parser (ReadableStream consumer)
     │   └── __tests__/                  # Co-located composable tests
     │       ├── useAuth.spec.js

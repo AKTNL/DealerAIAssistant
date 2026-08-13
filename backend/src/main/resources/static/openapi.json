@@ -3,7 +3,7 @@
   "info": {
     "title": "经销商分析助手全域业务 API",
     "version": "4.0.0",
-    "description": "提供大模型分析经销商业务的核心API。包含【汇总指标】与【全字段明细】。\n\n**大模型（AI）调度规则（必须遵守）：**\n1. **首选汇总**：遇到分析趋势、达成率、对比、宏观统计时，优先调用 `_metrics` 接口获取已计算好的数据。\n2. **按需抓取明细**：只有用户明确要求查看具体流水记录时，才调用 `_details` 接口。\n3. **分页与归纳法则**：当 `_details` 返回大量数据时，AI必须使用 `page` 和 `pageSize` (默认50) 进行分批抓取。"
+    "description": "提供大模型分析经销商业务的核心API。包含【汇总指标】与【全字段明细】。\n\n除公开认证入口外，API 使用短期 Bearer token。业务与管理请求可通过 `X-Tenant-Key` 选择当前 tenant；该 header 只是选择意图，服务端仍会校验启用的 membership。用户有多个 tenant membership 时必须显式选择。\n\n**大模型（AI）调度规则（必须遵守）：**\n1. **首选汇总**：遇到分析趋势、达成率、对比、宏观统计时，优先调用 `_metrics` 接口获取已计算好的数据。\n2. **按需抓取明细**：只有用户明确要求查看具体流水记录时，才调用 `_details` 接口。\n3. **分页与归纳法则**：当 `_details` 返回大量数据时，AI必须使用 `page` 和 `pageSize` (默认50) 进行分批抓取。"
   },
   "servers": [
     {
@@ -26,6 +26,19 @@
         "type": "http",
         "scheme": "bearer",
         "description": "Short-lived opaque access token returned by /api/auth/login or /api/auth/refresh."
+      }
+    },
+    "parameters": {
+      "TenantKey": {
+        "name": "X-Tenant-Key",
+        "in": "header",
+        "required": false,
+        "description": "当前 tenant 的选择意图。单 membership 用户可省略；多 membership 用户必须填写自己已启用 membership 的 tenant key。该值不作为可信授权声明。",
+        "schema": {
+          "type": "string",
+          "maxLength": 64,
+          "pattern": "^[a-z0-9][a-z0-9_-]*$"
+        }
       }
     },
     "schemas": {
@@ -526,6 +539,121 @@
             "items": { "$ref": "#/components/schemas/OrganizationGrant" }
           }
         }
+      },
+      "TenantSummary": {
+        "type": "object",
+        "required": ["id", "key", "displayName"],
+        "properties": {
+          "id": { "type": "integer", "format": "int64" },
+          "key": { "type": "string" },
+          "displayName": { "type": "string" }
+        }
+      },
+      "UserResponse": {
+        "type": "object",
+        "required": ["id", "username", "displayName", "enabled", "mustChangePassword", "roles", "permissions", "tenants"],
+        "properties": {
+          "id": { "type": "integer", "format": "int64" },
+          "username": { "type": "string" },
+          "displayName": { "type": "string" },
+          "enabled": { "type": "boolean" },
+          "mustChangePassword": { "type": "boolean" },
+          "roles": { "type": "array", "items": { "type": "string" } },
+          "permissions": { "type": "array", "items": { "type": "string" } },
+          "tenants": { "type": "array", "items": { "$ref": "#/components/schemas/TenantSummary" } },
+          "currentTenant": {
+            "description": "已选择的 tenant；多 membership 且未提供 X-Tenant-Key 时为 null，同时 roles/permissions 为空。",
+            "oneOf": [
+              { "$ref": "#/components/schemas/TenantSummary" },
+              { "type": "null" }
+            ]
+          }
+        }
+      },
+      "SessionResponse": {
+        "type": "object",
+        "required": ["accessToken", "accessExpiresAt", "user"],
+        "properties": {
+          "accessToken": { "type": "string", "writeOnly": true },
+          "accessExpiresAt": { "type": "string", "format": "date-time" },
+          "user": { "$ref": "#/components/schemas/UserResponse" }
+        }
+      },
+      "ApiResultSessionResponse": {
+        "type": "object",
+        "required": ["code", "data", "message"],
+        "properties": {
+          "code": { "type": "integer" },
+          "data": { "$ref": "#/components/schemas/SessionResponse" },
+          "message": { "type": "string" }
+        }
+      },
+      "ApiResultUserResponse": {
+        "type": "object",
+        "required": ["code", "data", "message"],
+        "properties": {
+          "code": { "type": "integer" },
+          "data": { "$ref": "#/components/schemas/UserResponse" },
+          "message": { "type": "string" }
+        }
+      },
+      "ChatRequest": {
+        "type": "object",
+        "required": ["sessionId", "message"],
+        "properties": {
+          "sessionId": { "type": "string" },
+          "message": { "type": "string" }
+        },
+        "description": "浏览器只发送会话 ID 与消息；模型连接由服务端按当前 tenant 解析。"
+      },
+      "ChatResponse": {
+        "type": "object",
+        "required": ["reply"],
+        "properties": {
+          "reply": { "type": "string" }
+        }
+      },
+      "ModelConfigView": {
+        "type": "object",
+        "required": ["baseUrl", "model", "allowedHosts", "apiKeyConfigured", "version", "updatedAt"],
+        "description": "Tenant 级模型配置视图。响应永不包含 API key 明文或加密密文。",
+        "properties": {
+          "baseUrl": { "type": "string", "format": "uri" },
+          "model": { "type": "string" },
+          "allowedHosts": { "type": "array", "items": { "type": "string" } },
+          "apiKeyConfigured": { "type": "boolean" },
+          "version": { "type": "integer", "format": "int64" },
+          "updatedAt": { "type": "string", "format": "date-time" }
+        }
+      },
+      "ModelConfigWriteRequest": {
+        "type": "object",
+        "required": ["baseUrl", "model", "allowedHosts"],
+        "properties": {
+          "baseUrl": { "type": "string", "format": "uri" },
+          "apiKey": { "type": "string", "format": "password", "writeOnly": true, "description": "新配置必填；更新时留空保留现有加密密钥。" },
+          "model": { "type": "string" },
+          "allowedHosts": { "type": "array", "minItems": 1, "items": { "type": "string" } }
+        }
+      },
+      "ModelConfigTestRequest": {
+        "type": "object",
+        "required": ["baseUrl", "model"],
+        "properties": {
+          "baseUrl": { "type": "string", "format": "uri" },
+          "apiKey": { "type": "string", "format": "password", "writeOnly": true },
+          "model": { "type": "string" },
+          "allowedHosts": { "type": "array", "items": { "type": "string" } }
+        },
+        "description": "连接测试可提供新 API key；留空时复用当前 tenant 已加密保存的密钥。allowedHosts 留空时使用服务端允许列表。"
+      },
+      "ModelConfigTestResponse": {
+        "type": "object",
+        "required": ["success", "message"],
+        "properties": {
+          "success": { "type": "boolean" },
+          "message": { "type": "string" }
+        }
       }
     }
   },
@@ -551,7 +679,10 @@
           }
         },
         "responses": {
-          "200": { "description": "返回一次性 opaque access token，并通过 HttpOnly Cookie 设置 refresh token" },
+          "200": {
+            "description": "返回一次性 opaque access token、tenant 候选列表，并通过 HttpOnly Cookie 设置 refresh token",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ApiResultSessionResponse" } } }
+          },
           "401": { "description": "通用凭据错误" },
           "429": { "description": "登录尝试过于频繁" }
         }
@@ -563,7 +694,10 @@
         "summary": "轮换 refresh token 并签发新的 opaque access token",
         "security": [],
         "responses": {
-          "200": { "description": "轮换成功；refresh token 仅通过 HttpOnly Cookie 返回" },
+          "200": {
+            "description": "轮换成功；refresh token 仅通过 HttpOnly Cookie 返回",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ApiResultSessionResponse" } } }
+          },
           "401": { "description": "refresh token 过期、撤销或发生重放" },
           "403": { "description": "Origin 不在可信前端来源列表" }
         }
@@ -572,9 +706,13 @@
     "/api/auth/me": {
       "get": {
         "operationId": "getCurrentUser",
-        "summary": "获取当前用户、角色与权限",
+        "summary": "获取当前用户、tenant 候选、所选 tenant 的角色与权限",
+        "parameters": [{ "$ref": "#/components/parameters/TenantKey" }],
         "responses": {
-          "200": { "description": "当前用户身份、mustChangePassword、角色和权限键" },
+          "200": {
+            "description": "当前用户身份、mustChangePassword、tenant 候选以及所选 tenant 的角色和权限键",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ApiResultUserResponse" } } }
+          },
           "401": { "description": "access token 无效或已撤销" }
         }
       }
@@ -622,6 +760,95 @@
         "operationId": "logoutAll",
         "summary": "撤销当前用户全部会话",
         "responses": { "200": { "description": "全部会话已撤销" } }
+      }
+    },
+    "/api/chat": {
+      "post": {
+        "operationId": "chat",
+        "summary": "在当前 tenant 中执行同步聊天",
+        "parameters": [{ "$ref": "#/components/parameters/TenantKey" }],
+        "requestBody": {
+          "required": true,
+          "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ChatRequest" } } }
+        },
+        "responses": {
+          "200": { "description": "聊天回复", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ChatResponse" } } } },
+          "403": { "description": "tenant、权限、组织范围或会话所有权校验失败" }
+        }
+      }
+    },
+    "/api/chat/stream": {
+      "post": {
+        "operationId": "streamChat",
+        "summary": "在当前 tenant 中执行 SSE 流式聊天",
+        "parameters": [{ "$ref": "#/components/parameters/TenantKey" }],
+        "requestBody": {
+          "required": true,
+          "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ChatRequest" } } }
+        },
+        "responses": {
+          "200": { "description": "step、analysis_metadata、progress、message、done 或 error 事件流", "content": { "text/event-stream": { "schema": { "type": "string" } } } },
+          "403": { "description": "tenant、权限、组织范围或会话所有权校验失败" }
+        }
+      }
+    },
+    "/api/chat/{sessionId}": {
+      "delete": {
+        "operationId": "clearChatSession",
+        "summary": "清除当前 tenant 用户拥有的聊天会话",
+        "parameters": [
+          { "$ref": "#/components/parameters/TenantKey" },
+          { "name": "sessionId", "in": "path", "required": true, "schema": { "type": "string" } }
+        ],
+        "responses": {
+          "200": { "description": "会话已清除" },
+          "403": { "description": "当前身份不拥有该会话" }
+        }
+      }
+    },
+    "/api/model-config": {
+      "parameters": [{ "$ref": "#/components/parameters/TenantKey" }],
+      "get": {
+        "operationId": "getModelConfig",
+        "summary": "读取当前 tenant 的模型配置元数据（MODEL_CONFIG_TEST）",
+        "responses": {
+          "200": {
+            "description": "未配置时为 null；已配置时不包含 API key 明文或密文",
+            "content": { "application/json": { "schema": { "oneOf": [{ "$ref": "#/components/schemas/ModelConfigView" }, { "type": "null" }] } } }
+          }
+        }
+      },
+      "put": {
+        "operationId": "saveModelConfig",
+        "summary": "保存当前 tenant 的加密模型配置（MODEL_CONFIG_TEST）",
+        "requestBody": {
+          "required": true,
+          "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ModelConfigWriteRequest" } } }
+        },
+        "responses": {
+          "200": { "description": "已保存且响应不回显密钥", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ModelConfigView" } } } },
+          "400": { "description": "配置、host allowlist 或新配置密钥无效" }
+        }
+      },
+      "delete": {
+        "operationId": "deleteModelConfig",
+        "summary": "删除当前 tenant 的模型配置（MODEL_CONFIG_TEST）",
+        "responses": { "200": { "description": "配置已删除或原本不存在" } }
+      }
+    },
+    "/api/model-config/test": {
+      "post": {
+        "operationId": "testModelConfig",
+        "summary": "测试当前 tenant 的模型连接（MODEL_CONFIG_TEST）",
+        "parameters": [{ "$ref": "#/components/parameters/TenantKey" }],
+        "requestBody": {
+          "required": true,
+          "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ModelConfigTestRequest" } } }
+        },
+        "responses": {
+          "200": { "description": "连接测试结果，不回显密钥", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ModelConfigTestResponse" } } } },
+          "400": { "description": "配置或 host allowlist 无效" }
+        }
       }
     },
     "/api/admin/users": {

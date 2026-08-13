@@ -42,7 +42,7 @@
 - 流式聊天：`POST /api/chat/stream` 返回 `step`、`analysis_metadata`、`progress`、`message`、`done`、`error` 事件
 - 同步聊天：`POST /api/chat`
 - 会话清理：`DELETE /api/chat/{sessionId}`
-- 模型连接配置：后端可提供默认 `baseUrl`、`apiKey`、`model`，浏览器本地设置可随聊天请求发送并覆盖默认值
+- 模型连接配置：按当前 tenant 保存于服务端，API key 使用 AES-256-GCM 加密；浏览器聊天请求只发送 `sessionId` 和 `message`，响应不回显明文或密文
 - 中英文输出：前端文案可切换，后端按用户消息语言生成回答
 - Markdown 渲染：代码高亮、HTML 表格白名单渲染、Mermaid 图表渲染、空图表状态提示
 - 思考时间线：分析过程以 `step` 事件流式推送（数据加载、过滤、计算、工具调用、模型思考、洞察），前端通过统一时间线面板展示
@@ -232,6 +232,7 @@ npm run dev
 | `app.model.name` | `APP_MODEL_NAME` | 空 | 可选默认模型名称 |
 | `app.model.allowed-hosts` | `APP_MODEL_ALLOWED_HOSTS` | 空 | 可选模型 Base URL 主机允许列表，支持 `api.example.com,*.example.com` |
 | `app.model.allow-private-hosts` | `APP_MODEL_ALLOW_PRIVATE_HOSTS` | `false` | 是否允许模型 Base URL 指向 localhost 或内网地址 |
+| `app.model.secret-key` | `APP_MODEL_SECRET_KEY` | 空 | 生产必填的 Base64 32-byte AES-256-GCM 密钥；用于 tenant 模型 API key 加密，禁止写入仓库、日志或前端 |
 | `app.knowledge.vector-store` | `APP_KNOWLEDGE_VECTOR_STORE` | `memory`（`prod` 为 `pgvector`） | 知识检索 adapter；生产配置不可用时不会自动回退 |
 | `app.knowledge.schema-name` | `APP_KNOWLEDGE_SCHEMA_NAME` | `public` | PGvector 表所在 schema，仅接受 SQL 标识符 |
 | `app.knowledge.table-name` | `APP_KNOWLEDGE_TABLE_NAME` | `knowledge_vector_store` | PGvector 表名，仅接受 SQL 标识符 |
@@ -245,7 +246,8 @@ npm run dev
 - Dashboard、数据、Chat、知识、报告、模型测试和管理 API 分别检查固定权限键；权限和账号状态来自数据库，变更会即时撤销受影响会话。
 - `ADMIN`、`ANALYST`、`VIEWER` 是幂等预置角色；自定义角色只能组合代码内固定的权限目录。系统拒绝停用或移除最后一个有效管理员的管理能力。
 - 数据读取还会实时合并用户与角色的组织 grant。`includeDescendants=false` 只允许当前节点；客户端传入的 `dealerCode`、城市或组织相关参数只能缩小服务端范围，不能扩大范围。
-- 可通过 `APP_MODEL_BASE_URL`、`APP_MODEL_API_KEY`、`APP_MODEL_NAME` 配置后端默认模型连接；浏览器 `localStorage` 中的模型设置会随聊天请求发送，并优先覆盖后端默认值。
+- 可通过 `APP_MODEL_BASE_URL`、`APP_MODEL_API_KEY`、`APP_MODEL_NAME` 提供服务端默认模型连接；tenant 专属配置通过 `/api/model-config` 管理。浏览器不保存模型 API key，也不会把密钥放入聊天请求。
+- 多 tenant 用户登录后必须在 `X-Tenant-Key` 中选择已加入的 tenant；该 header 只是选择意图，角色、权限、数据范围和资源归属仍由服务端实时校验。`/api/auth/me` 返回 `tenants` 和 `currentTenant`。
 - 模型 `Base URL` 会拒绝 localhost、内网地址和未进入允许列表的主机，允许列表可通过 `APP_MODEL_ALLOWED_HOSTS` 配置。
 
 ## API 概览
@@ -256,7 +258,7 @@ npm run dev
 | --- | --- | --- |
 | `/api/auth/login` | POST | 用户名/密码登录，返回短期 access token 并设置 refresh Cookie |
 | `/api/auth/refresh` | POST | 轮换 refresh token 并恢复 access token |
-| `/api/auth/me` | GET | 返回当前用户、角色和权限 |
+| `/api/auth/me` | GET | 返回当前用户、tenant 候选和所选 tenant 的角色、权限 |
 | `/api/auth/password` | POST | 修改密码并撤销该用户全部会话 |
 | `/api/auth/logout` / `/api/auth/logout-all` | POST | 通过受 Origin 保护的 refresh Cookie 撤销当前会话族 / 通过 Bearer 撤销全部会话 |
 | `/api/admin/users/**` | GET/POST/PATCH/PUT | 用户查询、创建、启停、重置密码与角色分配 |
@@ -267,7 +269,8 @@ npm run dev
 | `/api/chat` | POST | 同步聊天 |
 | `/api/chat/stream` | POST | SSE 流式聊天 |
 | `/api/chat/{sessionId}` | DELETE | 清空指定会话记忆 |
-| `/api/model-config/test` | POST | 测试模型连接配置 |
+| `/api/model-config` | GET/PUT/DELETE | 读取、保存、删除当前 tenant 的模型配置；响应永不包含 API key 明文或密文 |
+| `/api/model-config/test` | POST | 测试当前 tenant 的模型连接，可复用服务端已保存密钥 |
 | `/api/data-status` | GET | 查看当前导入来源、样例回退状态和质量汇总 |
 
 ### 报告草稿 API
@@ -318,12 +321,11 @@ SSE 流式聊天事件类型：
 ```json
 {
   "sessionId": "demo-session",
-  "message": "本月哪些经销商目标达成率最低？",
-  "baseUrl": "https://example.com/v1",
-  "apiKey": "sk-...",
-  "model": "your-model-name"
+  "message": "本月哪些经销商目标达成率最低？"
 }
 ```
+
+模型配置使用独立的 `/api/model-config` API 提交，聊天请求不接受浏览器传入的模型凭据。更新已有配置时 `apiKey` 留空表示保留当前服务端密钥；新配置必须提供密钥。
 
 ### 原始数据查询
 
