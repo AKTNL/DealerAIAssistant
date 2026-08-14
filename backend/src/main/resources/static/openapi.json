@@ -590,6 +590,55 @@
           "data": { "type": "array", "items": { "$ref": "#/components/schemas/ReportSubscriptionRecipient" } }
         }
       },
+      "ReportGenerationJob": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "integer", "format": "int64" },
+          "subscriptionId": { "type": "integer", "format": "int64" },
+          "tenantId": { "type": "integer", "format": "int64" },
+          "creatorUserId": { "type": "integer", "format": "int64" },
+          "scheduledAt": { "type": "string", "format": "date-time" },
+          "idempotencyKey": { "type": "string" },
+          "reportType": { "type": "string", "enum": ["daily", "weekly", "monthly", "topic"] },
+          "scope": {
+            "type": "object",
+            "properties": {
+              "type": { "type": "string", "enum": ["GLOBAL", "ORGANIZATION"] },
+              "id": { "type": "string" }
+            }
+          },
+          "language": { "type": "string", "enum": ["zh", "en"] },
+          "topic": { "type": "string" },
+          "status": { "type": "string", "enum": ["READY", "RUNNING", "RETRY_WAIT", "SUCCEEDED", "PERMANENT_FAILURE", "SKIPPED", "CANCELLED"] },
+          "attempt": { "type": "integer" },
+          "maxAttempts": { "type": "integer" },
+          "leaseOwner": { "type": "string", "nullable": true },
+          "leaseExpiresAt": { "type": "string", "format": "date-time", "nullable": true },
+          "nextRetryAt": { "type": "string", "format": "date-time", "nullable": true },
+          "errorCode": { "type": "string", "nullable": true },
+          "traceId": { "type": "string" },
+          "reportDraftId": { "type": "string", "nullable": true },
+          "createdAt": { "type": "string", "format": "date-time" },
+          "updatedAt": { "type": "string", "format": "date-time" },
+          "version": { "type": "integer", "format": "int64" }
+        }
+      },
+      "ReportGenerationJobListResponse": {
+        "type": "object",
+        "properties": {
+          "code": { "type": "integer" },
+          "message": { "type": "string" },
+          "data": { "type": "array", "items": { "$ref": "#/components/schemas/ReportGenerationJob" } }
+        }
+      },
+      "ReportGenerationJobResponse": {
+        "type": "object",
+        "properties": {
+          "code": { "type": "integer" },
+          "message": { "type": "string" },
+          "data": { "$ref": "#/components/schemas/ReportGenerationJob" }
+        }
+      },
       "OrganizationNode": {
         "type": "object",
         "properties": {
@@ -1936,6 +1985,32 @@
               }
             }
           }
+        }
+      }
+    },
+    "/api/report-jobs": {
+      "get": {
+        "operationId": "listReportGenerationJobs",
+        "security": [{ "BearerAuth": [] }],
+        "parameters": [{ "$ref": "#/components/parameters/TenantKey" }],
+        "responses": {
+          "200": { "description": "tenant-scoped report generation jobs", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ReportGenerationJobListResponse" } } } },
+          "403": { "description": "REPORT_READ or tenant context is missing" }
+        }
+      }
+    },
+    "/api/report-jobs/{id}/retry": {
+      "parameters": [
+        { "$ref": "#/components/parameters/TenantKey" },
+        { "name": "id", "in": "path", "required": true, "schema": { "type": "integer", "format": "int64" } }
+      ],
+      "post": {
+        "operationId": "retryReportGenerationJob",
+        "security": [{ "BearerAuth": [] }],
+        "responses": {
+          "200": { "description": "job reset to READY", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ReportGenerationJobResponse" } } } },
+          "404": { "description": "owned job not found" },
+          "409": { "description": "job is not in a terminal replayable state" }
         }
       }
     },

@@ -49,6 +49,10 @@ app:
     table-name: ${APP_KNOWLEDGE_TABLE_NAME:knowledge_vector_store}
     dimensions: ${APP_KNOWLEDGE_EMBEDDING_DIMENSIONS:1536}
     similarity-threshold: ${APP_KNOWLEDGE_SIMILARITY_THRESHOLD:0.45}
+  reporting:
+    jobs:
+      enabled: ${APP_REPORTING_JOBS_ENABLED:false}
+      poll-interval: ${APP_REPORTING_JOBS_POLL_INTERVAL:30s}
 
 management:
   endpoints:

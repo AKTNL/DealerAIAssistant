@@ -25,3 +25,6 @@ app:
     fallback-enabled: false
   knowledge:
     vector-store: ${APP_KNOWLEDGE_VECTOR_STORE:pgvector}
+  reporting:
+    jobs:
+      enabled: ${APP_REPORTING_JOBS_ENABLED:true}

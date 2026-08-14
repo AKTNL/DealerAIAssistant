@@ -95,6 +95,9 @@ class AuthHttpIntegrationTest {
             assertThat(createdSubscription.statusCode()).isEqualTo(200);
             assertThat(mapper.readTree(createdSubscription.body()).at("/data/executionEligible").asBoolean())
                     .isTrue();
+            assertThat(get(port, "/api/report-jobs", permanentAccess).statusCode()).isEqualTo(200);
+            assertThat(post(port, "/api/report-jobs/999/retry", "", permanentAccess, null).statusCode())
+                    .isEqualTo(404);
             assertThat(get(port, "/api/admin/users", permanentAccess).statusCode()).isEqualTo(200);
             assertThat(post(port, "/api/admin/roles", mapper.writeValueAsString(Map.of(
                     "roleKey", "OPS_VIEWER",

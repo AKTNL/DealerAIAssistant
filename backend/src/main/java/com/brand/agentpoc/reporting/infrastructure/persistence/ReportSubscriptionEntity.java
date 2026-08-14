@@ -174,6 +174,11 @@ public class ReportSubscriptionEntity {
         this.updatedAt = now;
     }
 
+    public void advanceNextRunAt(Instant nextRunAt, Instant now) {
+        this.nextRunAt = nextRunAt;
+        this.updatedAt = now;
+    }
+
     public void softDelete(Instant now) {
         enabled = false;
         nextRunAt = null;
@@ -185,6 +190,8 @@ public class ReportSubscriptionEntity {
     public ReportType reportType() {
         return ReportType.parse(reportType);
     }
+
+    public String getReportType() { return reportType; }
 
     public ReportScope scope() {
         return new ReportScope(scopeType, scopeId);

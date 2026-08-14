@@ -145,6 +145,8 @@ class AgentPocApplicationStartupTest {
                 .isEqualTo("${APP_AUTH_BOOTSTRAP_REQUIRED:true}");
         assertThat(properties.getProperty("app.knowledge.vector-store"))
                 .isEqualTo("${APP_KNOWLEDGE_VECTOR_STORE:pgvector}");
+        assertThat(properties.getProperty("app.reporting.jobs.enabled"))
+                .isEqualTo("${APP_REPORTING_JOBS_ENABLED:true}");
     }
 
     @Test
@@ -530,6 +532,10 @@ class AgentPocApplicationStartupTest {
                 .isEqualTo("string");
         assertThat(openApi.at("/components/schemas/ReportSubscription/properties/executionEligible/type").asText())
                 .isEqualTo("boolean");
+        assertThat(openApi.at("/paths/~1api~1report-jobs/get/operationId").asText())
+                .isEqualTo("listReportGenerationJobs");
+        assertThat(openApi.at("/components/schemas/ReportGenerationJob/properties/status/type").asText())
+                .isEqualTo("string");
     }
 
     @Test
@@ -547,6 +553,64 @@ class AgentPocApplicationStartupTest {
                 "--app.excel.path=classpath:missing-for-migration-test.xlsx"
         )) {
             // Context creation proves that Flyway's schema satisfies Hibernate mappings.
+        }
+    }
+
+    @Test
+    void reportGenerationJobMigrationCreatesIdempotentLeaseSchema() throws Exception {
+        String url = "jdbc:h2:mem:report-job-migration-test;MODE=PostgreSQL;DB_CLOSE_DELAY=-1";
+        Flyway.configure()
+                .dataSource(url, "sa", "")
+                .locations("classpath:db/migration")
+                .load()
+                .migrate();
+
+        try (Connection connection = DriverManager.getConnection(url, "sa", "");
+                Statement statement = connection.createStatement()) {
+            statement.executeUpdate("""
+                    INSERT INTO auth_users (
+                        id, username, display_name, password_hash, enabled,
+                        must_change_password, created_at, updated_at, version
+                    ) VALUES (
+                        40, 'job.creator', 'Job Creator', '{bcrypt}hash', TRUE,
+                        FALSE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, 0
+                    )
+                    """);
+            statement.executeUpdate("""
+                    INSERT INTO report_subscriptions (
+                        id, tenant_id, creator_user_id, report_type, scope_type, scope_id,
+                        language, topic, schedule_kind, local_time, time_zone, channel_key,
+                        enabled, next_run_at, misfire_policy, misfire_grace_minutes,
+                        active_configuration_key, created_at, updated_at, version
+                    ) VALUES (
+                        40, 1, 40, 'daily', 'GLOBAL', '', 'en', '', 'DAILY', '09:00:00',
+                        'Asia/Shanghai', 'email', TRUE, CURRENT_TIMESTAMP, 'SKIP', 60,
+                        'job-config', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, 0
+                    )
+                    """);
+            statement.executeUpdate("""
+                    INSERT INTO report_generation_jobs (
+                        id, subscription_id, tenant_id, creator_user_id, scheduled_at,
+                        idempotency_key, report_type, scope_type, scope_id, language, topic,
+                        status, attempt, max_attempts, trace_id, created_at, updated_at, version
+                    ) VALUES (
+                        40, 40, 1, 40, CURRENT_TIMESTAMP, '40:window-1', 'daily', 'GLOBAL',
+                        '', 'en', '', 'READY', 0, 4, 'trace-job-1', CURRENT_TIMESTAMP,
+                        CURRENT_TIMESTAMP, 0
+                    )
+                    """);
+
+            try (ResultSet rows = statement.executeQuery("""
+                    SELECT status, attempt, max_attempts, trace_id
+                    FROM report_generation_jobs
+                    WHERE id = 40
+                    """)) {
+                assertThat(rows.next()).isTrue();
+                assertThat(rows.getString("status")).isEqualTo("READY");
+                assertThat(rows.getInt("attempt")).isZero();
+                assertThat(rows.getInt("max_attempts")).isEqualTo(4);
+                assertThat(rows.getString("trace_id")).isEqualTo("trace-job-1");
+            }
         }
     }
 
