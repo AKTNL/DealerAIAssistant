@@ -20,6 +20,7 @@ This directory contains guidelines for backend development. Fill in each file wi
 | [Quality Guidelines](./quality-guidelines.md) | Code standards, forbidden patterns | Active |
 | [Logging Guidelines](./logging-guidelines.md) | Structured logging, log levels | To fill |
 | [Authentication and Authorization](./authentication-authorization.md) | Database identity, opaque sessions, RBAC, and Agent authorization | Active |
+| [Email Notification Delivery](./notification-delivery.md) | Tenant email, SMTP security, durable report outbox, and retry semantics | Active |
 
 ---
 

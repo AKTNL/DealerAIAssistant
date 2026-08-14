@@ -21,6 +21,7 @@ This directory contains guidelines for frontend development. Each file documents
 | [Quality Guidelines](./quality-guidelines.md) | Code standards, forbidden patterns | Filled |
 | [Type Safety](./type-safety.md) | Type patterns, validation | Filled |
 | [Authentication Session](./authentication-session.md) | Login, refresh recovery, forced password change, and permission UI | Filled |
+| [Email Notification Delivery](./notification-delivery.md) | Membership email readiness, SMTP administration, delivery state, and mobile layout | Filled |
 
 ---
 
