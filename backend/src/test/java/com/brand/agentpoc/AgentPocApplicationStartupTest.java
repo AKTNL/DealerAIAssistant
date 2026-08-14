@@ -6,6 +6,8 @@ import static org.assertj.core.api.Assertions.assertThatCode;
 import com.brand.agentpoc.auth.infrastructure.persistence.AuthAuditEventRepository;
 import com.brand.agentpoc.auth.infrastructure.persistence.AuthUserEntity;
 import com.brand.agentpoc.auth.infrastructure.persistence.AuthUserRepository;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -461,6 +463,73 @@ class AgentPocApplicationStartupTest {
                 assertThat(rows.getInt(1)).isEqualTo(1);
             }
         }
+    }
+
+    @Test
+    void reportSubscriptionMigrationPersistsTenantScheduleAndRecipients() throws Exception {
+        String url = "jdbc:h2:mem:report-subscription-migration-test;MODE=PostgreSQL;DB_CLOSE_DELAY=-1";
+        Flyway.configure()
+                .dataSource(url, "sa", "")
+                .locations("classpath:db/migration")
+                .load()
+                .migrate();
+
+        try (Connection connection = DriverManager.getConnection(url, "sa", "");
+                Statement statement = connection.createStatement()) {
+            statement.executeUpdate("""
+                    INSERT INTO auth_users (
+                        id, username, display_name, password_hash, enabled,
+                        must_change_password, created_at, updated_at, version
+                    ) VALUES (
+                        20, 'subscriber', 'Subscriber', '{bcrypt}hash', TRUE,
+                        FALSE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, 0
+                    )
+                    """);
+            statement.executeUpdate("""
+                    INSERT INTO report_subscriptions (
+                        id, tenant_id, creator_user_id, report_type, scope_type, scope_id,
+                        language, topic, schedule_kind, local_time, time_zone, channel_key,
+                        enabled, next_run_at, misfire_policy, misfire_grace_minutes,
+                        active_configuration_key, created_at, updated_at, version
+                    ) VALUES (
+                        30, 1, 20, 'weekly', 'ORGANIZATION', '1',
+                        'zh', '', 'WEEKLY', '09:00:00', 'Asia/Shanghai', 'email',
+                        TRUE, CURRENT_TIMESTAMP, 'SKIP', 60,
+                        'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+                        CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, 0
+                    )
+                    """);
+            statement.executeUpdate("""
+                    INSERT INTO report_subscription_recipients (subscription_id, recipient_user_id)
+                    VALUES (30, 20)
+                    """);
+
+            try (ResultSet rows = statement.executeQuery("""
+                    SELECT s.tenant_id, s.schedule_kind, s.time_zone, r.recipient_user_id
+                    FROM report_subscriptions s
+                    JOIN report_subscription_recipients r ON r.subscription_id = s.id
+                    WHERE s.id = 30
+                    """)) {
+                assertThat(rows.next()).isTrue();
+                assertThat(rows.getLong("tenant_id")).isEqualTo(1L);
+                assertThat(rows.getString("schedule_kind")).isEqualTo("WEEKLY");
+                assertThat(rows.getString("time_zone")).isEqualTo("Asia/Shanghai");
+                assertThat(rows.getLong("recipient_user_id")).isEqualTo(20L);
+            }
+        }
+    }
+
+    @Test
+    void openApiDocumentsReportSubscriptionContract() throws Exception {
+        JsonNode openApi = new ObjectMapper().readTree(
+                new ClassPathResource("static/openapi.json").getInputStream());
+
+        assertThat(openApi.at("/paths/~1api~1report-subscriptions/post/operationId").asText())
+                .isEqualTo("createReportSubscription");
+        assertThat(openApi.at("/components/schemas/ReportSubscriptionRequest/properties/timeZone/type").asText())
+                .isEqualTo("string");
+        assertThat(openApi.at("/components/schemas/ReportSubscription/properties/executionEligible/type").asText())
+                .isEqualTo("boolean");
     }
 
     @Test

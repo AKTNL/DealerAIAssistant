@@ -73,6 +73,28 @@ class AuthHttpIntegrationTest {
             String permanentAccess = accessToken(mapper, permanentLogin);
             String oldRefresh = refreshCookie(permanentLogin);
             assertThat(get(port, "/api/dashboard", permanentAccess).statusCode()).isEqualTo(200);
+            long administratorId = mapper.readTree(get(port, "/api/auth/me", permanentAccess).body())
+                    .at("/data/id").asLong();
+            assertThat(get(port, "/api/report-subscriptions", permanentAccess).statusCode()).isEqualTo(200);
+            HttpResponse<String> createdSubscription = post(
+                    port,
+                    "/api/report-subscriptions",
+                    mapper.writeValueAsString(Map.of(
+                            "reportType", "daily",
+                            "language", "zh",
+                            "scheduleKind", "DAILY",
+                            "localTime", "09:00",
+                            "timeZone", "Asia/Shanghai",
+                            "channelKey", "email",
+                            "recipientUserIds", new long[]{administratorId},
+                            "enabled", true
+                    )),
+                    permanentAccess,
+                    null
+            );
+            assertThat(createdSubscription.statusCode()).isEqualTo(200);
+            assertThat(mapper.readTree(createdSubscription.body()).at("/data/executionEligible").asBoolean())
+                    .isTrue();
             assertThat(get(port, "/api/admin/users", permanentAccess).statusCode()).isEqualTo(200);
             assertThat(post(port, "/api/admin/roles", mapper.writeValueAsString(Map.of(
                     "roleKey", "OPS_VIEWER",

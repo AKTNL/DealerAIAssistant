@@ -3742,6 +3742,258 @@ textarea::placeholder {
   border-color: var(--danger);
 }
 
+.subscription-view {
+  width: min(1180px, calc(100% - 2rem));
+  margin: 0 auto;
+  padding: 1.2rem 0 2rem;
+}
+
+.subscription-header,
+.subscription-form-heading,
+.subscription-list-heading,
+.subscription-card-heading,
+.subscription-card-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.subscription-header h1,
+.subscription-form h2,
+.subscription-list-heading h2,
+.subscription-card h3 {
+  margin: 0;
+  color: var(--text-strong);
+}
+
+.subscription-header p,
+.subscription-form-heading p,
+.subscription-card p {
+  margin: 0.3rem 0 0;
+  color: var(--text-muted);
+}
+
+.subscription-form,
+.subscription-card,
+.subscription-state,
+.subscription-feedback,
+.subscription-empty {
+  border: 1px solid var(--border-soft);
+  border-radius: 12px;
+  background: var(--surface);
+  box-shadow: var(--shadow-sm);
+}
+
+.subscription-state,
+.subscription-empty {
+  display: grid;
+  gap: 0.35rem;
+  margin-top: 1rem;
+  padding: 1rem;
+  color: var(--text-muted);
+}
+
+.subscription-state-error,
+.subscription-feedback-error {
+  border-color: var(--danger-border-soft);
+  background: var(--danger-surface-soft);
+  color: var(--danger);
+}
+
+.subscription-form {
+  margin-top: 1rem;
+  padding: 1.15rem;
+}
+
+.subscription-form-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: 0.75rem;
+  margin-top: 1rem;
+}
+
+.subscription-form-grid label,
+.subscription-enabled-field {
+  display: grid;
+  gap: 0.35rem;
+  color: var(--text-muted);
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.subscription-form-wide {
+  grid-column: 1 / -1;
+}
+
+.subscription-form input,
+.subscription-form select {
+  min-height: 40px;
+  border: 1px solid var(--border-soft);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--text-main);
+}
+
+.subscription-recipients {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+  gap: 0.55rem;
+  margin: 1rem 0;
+  padding: 0.85rem;
+  border: 1px solid var(--border-soft);
+  border-radius: 8px;
+}
+
+.subscription-recipients legend {
+  padding: 0 0.35rem;
+  color: var(--text-muted);
+  font-size: 0.75rem;
+  font-weight: 800;
+}
+
+.subscription-recipients label,
+.subscription-enabled-field {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+}
+
+.subscription-form > .primary-button {
+  min-height: 40px;
+  margin-top: 0.85rem;
+  padding: 0.55rem 0.9rem;
+}
+
+.subscription-feedback {
+  margin-top: 1rem;
+  padding: 0.72rem 0.9rem;
+  color: var(--brand-primary);
+}
+
+.subscription-list-heading {
+  margin: 1.25rem 0 0.75rem;
+}
+
+.subscription-list-heading span,
+.subscription-status,
+.subscription-eligibility {
+  border-radius: 999px;
+  background: var(--brand-primary-soft);
+  color: var(--brand-primary);
+  font-size: 0.72rem;
+  font-weight: 800;
+}
+
+.subscription-list-heading span {
+  padding: 0.2rem 0.55rem;
+}
+
+.subscription-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(310px, 1fr));
+  gap: 0.85rem;
+}
+
+.subscription-card {
+  padding: 1rem;
+}
+
+.subscription-status,
+.subscription-eligibility {
+  display: inline-flex;
+  padding: 0.22rem 0.55rem;
+}
+
+.subscription-status.inactive,
+.subscription-eligibility.denied {
+  background: var(--danger-surface-soft);
+  color: var(--danger);
+}
+
+.subscription-card dl {
+  display: grid;
+  gap: 0.55rem;
+  margin: 0.9rem 0;
+}
+
+.subscription-card dl > div {
+  display: grid;
+  grid-template-columns: minmax(110px, 0.45fr) minmax(0, 1fr);
+  gap: 0.65rem;
+}
+
+.subscription-card dt {
+  color: var(--text-helper);
+  font-size: 0.74rem;
+}
+
+.subscription-card dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+  color: var(--text-main);
+  font-size: 0.8rem;
+}
+
+.subscription-reason {
+  padding: 0.6rem;
+  border-radius: 8px;
+  background: var(--danger-surface-soft);
+  color: var(--danger) !important;
+  font-size: 0.78rem;
+}
+
+.secondary-button,
+.text-button,
+.danger-button {
+  min-height: 36px;
+  padding: 0.45rem 0.72rem;
+  border: 1px solid var(--border-soft);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--text-main);
+  font-size: 0.78rem;
+  font-weight: 800;
+}
+
+.secondary-button:hover,
+.text-button:hover {
+  border-color: var(--border-focus);
+  color: var(--brand-primary);
+}
+
+.danger-button {
+  border-color: var(--danger-border-soft);
+  background: var(--danger-surface-soft);
+  color: var(--danger);
+}
+
+.secondary-button:disabled,
+.text-button:disabled,
+.danger-button:disabled,
+.subscription-form .primary-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+@media (max-width: 720px) {
+  .subscription-header,
+  .subscription-form-heading,
+  .subscription-card-heading {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .subscription-list {
+    grid-template-columns: 1fr;
+  }
+
+  .subscription-card dl > div {
+    grid-template-columns: 1fr;
+    gap: 0.18rem;
+  }
+}
+
 .admin-danger-button:disabled,
 .admin-section-tab:disabled {
   cursor: not-allowed;

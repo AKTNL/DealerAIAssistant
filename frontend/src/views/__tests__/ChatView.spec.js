@@ -64,7 +64,8 @@ const dictionary = {
   switchLanguage: "Switch language",
   workspaceTitle: "Dealer workspace",
   dashboardTab: "Dashboard",
-  chatTab: "AI analysis"
+  chatTab: "AI analysis",
+  subscriptionTab: "Report subscriptions"
 };
 
 const authorizedUser = {
@@ -94,6 +95,9 @@ function mountChatView(props = {}) {
         },
         AdminView: {
           template: "<section class='admin-view-stub'></section>"
+        },
+        ReportSubscriptionsView: {
+          template: "<section class='report-subscriptions-view-stub'></section>"
         },
         ExampleSidebar: {
           template: "<aside class='example-sidebar-stub'></aside>"
@@ -307,5 +311,16 @@ describe("ChatView", () => {
     expect(wrapper.find(".admin-view-stub").exists()).toBe(true);
     expect(wrapper.find(".chat-screen").exists()).toBe(false);
     expect(wrapper.find(".dashboard-view-stub").exists()).toBe(false);
+  });
+
+  it("opens the subscriptions workspace for a report-read-only user", () => {
+    const wrapper = mountChatView({
+      authVerified: true,
+      currentUser: { id: 5, permissions: ["REPORT_READ"] }
+    });
+
+    expect(wrapper.find(".report-subscriptions-view-stub").exists()).toBe(true);
+    expect(wrapper.find(".chat-screen").exists()).toBe(false);
+    expect(wrapper.text()).toContain("Report subscriptions");
   });
 });

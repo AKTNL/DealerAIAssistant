@@ -2,6 +2,7 @@
 import { computed, onMounted, ref } from "vue";
 import AdminView from "../components/admin/AdminView.vue";
 import DashboardView from "../components/dashboard/DashboardView.vue";
+import ReportSubscriptionsView from "../components/reporting/ReportSubscriptionsView.vue";
 import ChatInput from "../components/chat/ChatInput.vue";
 import ChatMessageList from "../components/chat/ChatMessageList.vue";
 import { deleteModelConfig, getModelConfig, saveModelConfig, testModelConnection } from "../api/modelConfig";
@@ -47,6 +48,7 @@ const permissions = computed(() => new Set(props.currentUser?.permissions ?? [])
 const canDashboard = computed(() => permissions.value.has("DASHBOARD_READ"));
 const canReadData = computed(() => permissions.value.has("DATA_READ"));
 const canUseChat = computed(() => permissions.value.has("CHAT_USE"));
+const canReadReports = computed(() => permissions.value.has("REPORT_READ"));
 const canConfigureModel = computed(() => permissions.value.has("MODEL_CONFIG_TEST"));
 const canOpenAdministration = computed(() => ADMIN_READ_PERMISSIONS.some(
   (permission) => permissions.value.has(permission)
@@ -108,6 +110,9 @@ function defaultWorkspace() {
   }
   if (canUseChat.value) {
     return "chat";
+  }
+  if (canReadReports.value) {
+    return "subscriptions";
   }
   return canOpenAdministration.value ? "admin" : "";
 }
@@ -331,6 +336,17 @@ async function handleTestConnection(settings) {
           <span>{{ dictionary.chatTab }}</span>
         </button>
         <button
+          v-if="canReadReports"
+          :class="['workspace-mode-tab', { active: activeWorkspace === 'subscriptions' }]"
+          type="button"
+          role="tab"
+          :aria-selected="activeWorkspace === 'subscriptions'"
+          @click="activeWorkspace = 'subscriptions'"
+        >
+          <span class="material-icons" aria-hidden="true">schedule_send</span>
+          <span>{{ dictionary.subscriptionTab }}</span>
+        </button>
+        <button
           v-if="canOpenAdministration"
           :class="['workspace-mode-tab', { active: activeWorkspace === 'admin' }]"
           type="button"
@@ -357,6 +373,14 @@ async function handleTestConnection(settings) {
 
       <AdminView
         v-else-if="canOpenAdministration && activeWorkspace === 'admin'"
+        :current-user="currentUser"
+        :dictionary="dictionary"
+        :locale="locale"
+        @sign-out="emit('sign-out')"
+      />
+
+      <ReportSubscriptionsView
+        v-else-if="canReadReports && activeWorkspace === 'subscriptions'"
         :current-user="currentUser"
         :dictionary="dictionary"
         :locale="locale"
