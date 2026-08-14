@@ -536,6 +536,68 @@ private String importBatchId;
 
 ---
 
+## Scenario: Report Subscription Schedule Persistence
+
+### 1. Scope / Trigger
+
+- Trigger: P2-3A adds durable tenant-scoped recurring report definitions and recipient membership rows.
+- This is a Flyway/JPA contract because schema types, element collections, unique definitions, and Hibernate validation must remain aligned.
+
+### 2. Signatures
+
+- Migration: `backend/src/main/resources/db/migration/V8__create_report_subscriptions.sql`.
+- Tables: `report_subscriptions` and `report_subscription_recipients`.
+- Key columns: `tenant_id`, `creator_user_id`, `scope_type`, `scope_id`, `schedule_kind`, `local_time`, `time_zone`, `next_run_at`, `version`, and `deleted_at`.
+- Unique key: `(tenant_id, creator_user_id, active_configuration_key)` for non-deleted definitions; recipient key `(subscription_id, recipient_user_id)`.
+
+### 3. Contracts
+
+- IDs are identity `BIGINT`; timestamps and `next_run_at` use `TIMESTAMP WITH TIME ZONE`; local schedule time uses SQL `TIME` and IANA zone text.
+- Creator and recipient foreign keys point to `auth_users`; creator ownership is additionally checked against the current tenant membership in the service.
+- `ReportSubscriptionEntity` uses a protected no-arg constructor, an eager `@ElementCollection` for recipient IDs, and JPA `@Version` for optimistic updates.
+- Soft delete sets `enabled=false`, clears `next_run_at` and `active_configuration_key`, and retains the row for audit/history.
+- The H2 migration test location applies V8 after V6 and Hibernate `ddl-auto=validate` must accept the same mapping used by production PostgreSQL.
+
+### 4. Validation & Error Matrix
+
+- Missing V8 or mismatched column/index/collection mapping -> Flyway/Hibernate startup or validation failure; never fall back to an in-memory subscription store.
+- Duplicate active configuration or duplicate recipient pair -> service HTTP 409 or database constraint failure mapped to 409.
+- Missing referenced tenant/user -> foreign-key failure; service validates active membership before persistence.
+- Editing an applied migration -> reject; add V9 for future schema changes.
+
+### 5. Good/Base/Bad Cases
+
+- Good: a fresh H2 migration reaches V8, inserts one subscription and recipient, and round-trips the time zone and schedule kind.
+- Base: disabled rows remain queryable by owner but have no due-run timestamp.
+- Bad: add global uniqueness to subscription definitions, persist external channel credentials, or edit V8 after deployment.
+
+### 6. Tests Required
+
+- `AgentPocApplicationStartupTest`: apply V8, insert a complete subscription and recipient, assert round-trip fields, and run Flyway-to-Hibernate validation.
+- `ReportSubscriptionServiceTest`: verify repository writes use `saveAndFlush()` and optimistic version/duplicate failures are mapped.
+- Full backend migration and test gates must pass after every schema change.
+
+### 7. Wrong vs Correct
+
+Wrong:
+
+```sql
+ALTER TABLE report_subscriptions ADD COLUMN recipient_emails TEXT;
+```
+
+Correct:
+
+```sql
+CREATE TABLE report_subscription_recipients (
+    subscription_id BIGINT NOT NULL,
+    recipient_user_id BIGINT NOT NULL,
+    CONSTRAINT uq_report_subscription_recipients
+        UNIQUE (subscription_id, recipient_user_id)
+);
+```
+
+---
+
 ## Common Mistakes
 
 ### Scenario: Lead Import With Blank CreatedDate

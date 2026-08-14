@@ -998,6 +998,81 @@ return draftStore.save(draft); // !prod memory adapter; prod JDBC adapter
 
 ---
 
+## Scenario: Report Subscription Scheduling
+
+### 1. Scope / Trigger
+
+- Trigger: an authenticated tenant user creates, reads, edits, enables, disables, or soft-deletes a recurring report subscription.
+- This is a cross-layer authorization, scheduling, persistence, audit, and frontend contract. P2-3A defines the schedule record; leasing, retries, generation, and delivery belong to later phases.
+
+### 2. Signatures
+
+- HTTP:
+  - `GET /api/report-subscriptions -> ApiResult<List<ReportSubscription>>`
+  - `GET /api/report-subscriptions/recipients -> ApiResult<List<ReportSubscriptionRecipient>>`
+  - `POST /api/report-subscriptions -> ApiResult<ReportSubscription>`
+  - `PUT /api/report-subscriptions/{id} -> ApiResult<ReportSubscription>`
+  - `PATCH /api/report-subscriptions/{id}/enabled -> ApiResult<ReportSubscription>`
+  - `DELETE /api/report-subscriptions/{id} -> ApiResult<Void>`
+- Domain schedule: `ReportSubscriptionSchedule.nextAfter(Instant) -> Instant` with `DAILY`, `WEEKLY`, and `MONTHLY` kinds.
+- Service entry points: `ReportSubscriptionService.create/update/changeEnabled/delete/list/evaluateExecutionEligibility`.
+- Persistence: `report_subscriptions` plus `report_subscription_recipients`, keyed by tenant and creator.
+
+### 3. Contracts
+
+- Requests accept only `DAILY`, `WEEKLY`, or `MONTHLY`; local time is `HH:mm`, time zones are IANA IDs, weekly day is `1..7`, and monthly day is `1..28`.
+- DST gaps resolve to the first valid local time and overlaps use the earlier offset. The persisted missed-window policy is `SKIP` with a 60-minute grace value for P2-3B.
+- The service stores the current server-resolved organization grant anchors, never client scope fields. Create/update require current `REPORT_GENERATE` and organization data access; list/recipient reads require `REPORT_READ` and tenant context.
+- Recipients are active users in the same enabled tenant with `REPORT_READ`; one stale or disabled user is skipped from the picker, while an existing subscription becomes execution-ineligible until corrected.
+- Execution eligibility reloads creator membership, creator `REPORT_GENERATE`, tenant state, organization coverage, and recipient eligibility on every check. Listing remains available when the creator has no current organization data rows so an ineligible subscription can be inspected or cleaned up.
+- Mutations require the persisted optimistic `version`; duplicate non-deleted definitions are rejected by a deterministic SHA-256 configuration key. Deletes are soft deletes and clear that key.
+- Every successful mutation writes a tenant-scoped audit event without secrets or recipient addresses. `channelKey` is a normalized abstract key; delivery is out of scope.
+
+### 4. Validation & Error Matrix
+
+- Missing/invalid schedule, time zone, language, topic, channel, or recipients -> HTTP 400; do not persist.
+- Missing tenant context, permission, or current organization data access for create/update -> HTTP 403.
+- Unknown/non-owned/deleted subscription -> HTTP 404; stale or missing mutation version -> HTTP 400/409 respectively.
+- Duplicate active definition or optimistic persistence conflict -> HTTP 409.
+- Revoked creator permission -> `report_permission_revoked`; missing organization coverage -> `organization_scope_revoked`; missing membership or recipient -> `membership_or_recipient_revoked`.
+- Unexpected infrastructure failures must roll back the write; do not return a success envelope.
+
+### 5. Good/Base/Bad Cases
+
+- Good: a weekly subscription stores sorted grant anchors and recalculates the next run from the current instant after an edit or re-enable.
+- Good: removing all organization coverage marks the record ineligible while the owner can still list and disable/delete it.
+- Base: a disabled subscription has no `nextRunAt` but remains visible until soft-deleted.
+- Bad: trust a client-supplied scope, keep a stale grant snapshot for execution, or expose a recipient email/channel credential in the record.
+
+### 6. Tests Required
+
+- `ReportSubscriptionScheduleTest`: daily/weekly/monthly next runs, DST gap/overlap, invalid zones/selectors, and sub-minute rejection.
+- `ReportSubscriptionServiceTest`: permission/scope validation, duplicate hash, optimistic version, audit payload, no-data listing, and dynamic eligibility reasons.
+- `TenantMemberDirectoryTest`: active tenant/report-read filtering and skipping disabled users without failing the entire recipient list.
+- `ReportSubscriptionControllerTest` and `AuthHttpIntegrationTest`: envelope, validation, exact RBAC paths, tenant isolation, and real create/eligibility.
+- `AgentPocApplicationStartupTest`: V8 migration round-trip, Hibernate validation, and UTF-8 OpenAPI parse.
+- Final gates: `mvn "-Dfrontend.skip=true" pmd:check` and `mvn "-Dfrontend.skip=true" test`.
+
+### 7. Wrong vs Correct
+
+Wrong:
+
+```java
+scope = new ReportScope(request.scopeType(), request.scopeId());
+return subscriptionRepository.save(subscription);
+```
+
+Correct:
+
+```java
+OrganizationDataScope current = authorizationService.resolve(actor).dataScope();
+current.requireDataAccess();
+ReportScope scope = ReportScope.organization(current.grantNodeIds());
+return subscriptionRepository.saveAndFlush(subscription); // after version and duplicate checks
+```
+
+---
+
 ## Code Review Checklist
 
 - [ ] Constructor injection used (no `@Autowired` on fields)

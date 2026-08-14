@@ -184,3 +184,63 @@ Correct:
 setSelectedTenantKey(tenant.key); // sessionStorage selection intent only
 streamChat({ sessionId, message }); // server resolves encrypted tenant config
 ```
+
+## Scenario: Report Subscription Workspace
+
+### 1. Scope / Trigger
+
+- Trigger: the authenticated SPA exposes the tenant-scoped report subscription list, controlled schedule form, and enable/disable/delete actions.
+- This is a cross-layer permission and API contract; hidden controls are usability only and backend RBAC remains authoritative.
+
+### 2. Signatures
+
+- API module: `src/api/reportSubscriptions.js` uses `requestJson()` for the six subscription endpoints.
+- Composable: `useReportSubscriptions({ currentUser, dictionary, onAuthExpired })` returns loading, error, pending, subscription, recipient, and mutation methods.
+- Workspace: `components/reporting/ReportSubscriptionsView.vue`, selected from `ChatView.vue` when `REPORT_READ` is present.
+
+### 3. Contracts
+
+- `REPORT_READ` users can inspect their own list and eligible recipient directory; `REPORT_GENERATE` additionally reveals create/edit/enable/disable/delete controls.
+- All user-facing text comes from both `zh` and `en` dictionaries. API calls never use raw `fetch()` or browser storage.
+- The form sends only controlled `DAILY`/`WEEKLY`/`MONTHLY` fields, a normalized channel key, selected tenant user IDs, and the optimistic `version` on edits.
+- Editing filters recipients that are no longer eligible instead of silently submitting hidden stale IDs. Enablement is a separate action; edit mode does not display a non-functional enable checkbox.
+- Loading, empty, forbidden, validation, conflict, ineligible, and 401 sign-out states are explicit. A 409 leaves the current list unchanged and asks the user to refresh.
+
+### 4. Validation & Error Matrix
+
+- Missing `REPORT_READ` -> no subscription tab and no subscription API call from the workspace.
+- HTTP 401 -> call the root sign-out callback; HTTP 403 -> localized forbidden message; HTTP 400 -> localized/server validation message; HTTP 409 -> localized conflict state.
+- Empty recipients disable submit; topic is required only for topic reports; monthly day input is constrained to `1..28`.
+- Refresh failure keeps the page state explicit and never fabricates an empty successful list.
+
+### 5. Good/Base/Bad Cases
+
+- Good: a report-read-only user sees cards but no form or mutation actions.
+- Good: a subscription with a revoked recipient can be edited to remove or replace that recipient.
+- Base: an ineligible subscription remains visible with its backend reason and can be refreshed after authorization changes.
+- Bad: default missing permissions to allow, persist tenant/recipient data in Web Storage, or show an edit toggle that the backend ignores.
+
+### 6. Tests Required
+
+- `api/__tests__/reportSubscriptions.spec.js`: exact paths, methods, request bodies, and shared client usage.
+- `composables/__tests__/useReportSubscriptions.spec.js`: loading, list replacement, conflict preservation, and 401 delegation.
+- `components/__tests__/ReportSubscriptionsView.spec.js`: controlled form, read-only gate, revoked-recipient edit state, and explicit status states.
+- `views/__tests__/ChatView.spec.js`: tab visibility and default workspace for report-read-only users.
+- Final frontend gates: `npm.cmd run lint`, `npm.cmd test -- --run`, and `npm.cmd run build`.
+
+### 7. Wrong vs Correct
+
+Wrong:
+
+```js
+const canManage = currentUser?.permissions?.includes("REPORT_GENERATE") ?? true;
+localStorage.setItem("subscription", JSON.stringify(form));
+```
+
+Correct:
+
+```js
+const permissions = computed(() => new Set(currentUser.value?.permissions ?? []));
+const canManage = computed(() => permissions.value.has("REPORT_GENERATE"));
+return requestJson("/api/report-subscriptions", { method: "POST", body: JSON.stringify(input) });
+```
