@@ -12,6 +12,7 @@ public class AppProperties {
     private final Excel excel = new Excel();
     private final Model model = new Model();
     private final Knowledge knowledge = new Knowledge();
+    private final Notification notification = new Notification();
 
     public Auth getAuth() {
         return auth;
@@ -31,6 +32,10 @@ public class AppProperties {
 
     public Knowledge getKnowledge() {
         return knowledge;
+    }
+
+    public Notification getNotification() {
+        return notification;
     }
 
     public static class Auth {
@@ -265,6 +270,70 @@ public class AppProperties {
 
         private String normalize(String value, String fallback) {
             return value == null || value.isBlank() ? fallback : value.trim();
+        }
+    }
+
+    public static class Notification {
+        private String secretKey = "";
+        private List<String> smtpAllowedHosts = List.of();
+        private Duration smtpConnectionTimeout = Duration.ofSeconds(5);
+        private Duration smtpReadTimeout = Duration.ofSeconds(10);
+        private Duration smtpWriteTimeout = Duration.ofSeconds(5);
+        private int maxMessageBytes = 262144;
+
+        public String getSecretKey() {
+            return secretKey;
+        }
+
+        public void setSecretKey(String secretKey) {
+            this.secretKey = secretKey == null ? "" : secretKey.trim();
+        }
+
+        public List<String> getSmtpAllowedHosts() {
+            return smtpAllowedHosts;
+        }
+
+        public void setSmtpAllowedHosts(List<String> smtpAllowedHosts) {
+            this.smtpAllowedHosts = smtpAllowedHosts == null
+                    ? List.of()
+                    : smtpAllowedHosts.stream()
+                            .filter(value -> value != null && !value.isBlank())
+                            .map(value -> value.trim().toLowerCase(java.util.Locale.ROOT))
+                            .distinct()
+                            .sorted()
+                            .toList();
+        }
+
+        public Duration getSmtpConnectionTimeout() {
+            return smtpConnectionTimeout;
+        }
+
+        public void setSmtpConnectionTimeout(Duration smtpConnectionTimeout) {
+            this.smtpConnectionTimeout = smtpConnectionTimeout;
+        }
+
+        public Duration getSmtpReadTimeout() {
+            return smtpReadTimeout;
+        }
+
+        public void setSmtpReadTimeout(Duration smtpReadTimeout) {
+            this.smtpReadTimeout = smtpReadTimeout;
+        }
+
+        public Duration getSmtpWriteTimeout() {
+            return smtpWriteTimeout;
+        }
+
+        public void setSmtpWriteTimeout(Duration smtpWriteTimeout) {
+            this.smtpWriteTimeout = smtpWriteTimeout;
+        }
+
+        public int getMaxMessageBytes() {
+            return maxMessageBytes;
+        }
+
+        public void setMaxMessageBytes(int maxMessageBytes) {
+            this.maxMessageBytes = maxMessageBytes;
         }
     }
 }

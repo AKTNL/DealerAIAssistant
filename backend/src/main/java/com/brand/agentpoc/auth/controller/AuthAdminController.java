@@ -54,7 +54,24 @@ public class AuthAdminController {
             HttpServletRequest servletRequest
     ) {
         return execute(() -> administrationService.createUser(
-                actor, request.username(), request.displayName(), request.temporaryPassword(), request.roles(),
+                actor, request.username(), request.displayName(), request.email(), request.temporaryPassword(),
+                request.roles(),
+                AuthRequestTrace.resolve(servletRequest)
+        ));
+    }
+
+    @PatchMapping("/users/{id}/email")
+    public ResponseEntity<ApiResult<UserView>> changeEmail(
+            @AuthenticationPrincipal AuthPrincipal actor,
+            @PathVariable Long id,
+            @RequestBody EmailRequest request,
+            HttpServletRequest servletRequest
+    ) {
+        return execute(() -> administrationService.changeEmail(
+                actor,
+                id,
+                request.email(),
+                request.version(),
                 AuthRequestTrace.resolve(servletRequest)
         ));
     }
@@ -217,9 +234,14 @@ public class AuthAdminController {
     public record CreateUserRequest(
             @NotBlank String username,
             String displayName,
+            String email,
             @NotBlank String temporaryPassword,
             @NotEmpty Set<String> roles
     ) {
+    }
+
+    public record EmailRequest(String email, @jakarta.validation.constraints.NotNull
+            @jakarta.validation.constraints.PositiveOrZero Long version) {
     }
 
     public record EnabledRequest(boolean enabled, Long version) {

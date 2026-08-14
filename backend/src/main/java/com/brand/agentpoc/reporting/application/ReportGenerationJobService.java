@@ -45,6 +45,7 @@ public class ReportGenerationJobService {
     private final ReportSubscriptionRepository subscriptionRepository;
     private final ReportSubscriptionService subscriptionService;
     private final ReportService reportService;
+    private final ReportDeliveryService deliveryService;
     private final TenantMemberDirectory memberDirectory;
     private final TenantRepository tenantRepository;
     private final OrganizationAuthorizationService organizationAuthorizationService;
@@ -56,6 +57,7 @@ public class ReportGenerationJobService {
             ReportSubscriptionRepository subscriptionRepository,
             ReportSubscriptionService subscriptionService,
             ReportService reportService,
+            ReportDeliveryService deliveryService,
             TenantMemberDirectory memberDirectory,
             TenantRepository tenantRepository,
             OrganizationAuthorizationService organizationAuthorizationService,
@@ -66,6 +68,7 @@ public class ReportGenerationJobService {
         this.subscriptionRepository = subscriptionRepository;
         this.subscriptionService = subscriptionService;
         this.reportService = reportService;
+        this.deliveryService = deliveryService;
         this.memberDirectory = memberDirectory;
         this.tenantRepository = tenantRepository;
         this.organizationAuthorizationService = organizationAuthorizationService;
@@ -221,6 +224,7 @@ public class ReportGenerationJobService {
             scope.requireDataAccess();
             ReportDraft draft = reportService.generate(new ReportGenerationRequest(
                     job.getReportType(), job.getLanguage(), job.getScope().type(), job.getScope().id(), job.getTopic()), scope);
+            deliveryService.materialize(job, draft, now);
             job.markSucceeded(draft.id(), now);
             ReportGenerationJobEntity saved = jobRepository.saveAndFlush(job);
             audit(saved, "REPORT_JOB_SUCCEEDED", "report_generated");

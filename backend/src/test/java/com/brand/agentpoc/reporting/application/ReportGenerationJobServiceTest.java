@@ -43,6 +43,7 @@ class ReportGenerationJobServiceTest {
     private ReportSubscriptionRepository subscriptionRepository;
     private ReportSubscriptionService subscriptionService;
     private ReportService reportService;
+    private ReportDeliveryService deliveryService;
     private TenantMemberDirectory memberDirectory;
     private TenantRepository tenantRepository;
     private OrganizationAuthorizationService organizationAuthorizationService;
@@ -55,13 +56,14 @@ class ReportGenerationJobServiceTest {
         subscriptionRepository = org.mockito.Mockito.mock(ReportSubscriptionRepository.class);
         subscriptionService = org.mockito.Mockito.mock(ReportSubscriptionService.class);
         reportService = org.mockito.Mockito.mock(ReportService.class);
+        deliveryService = org.mockito.Mockito.mock(ReportDeliveryService.class);
         memberDirectory = org.mockito.Mockito.mock(TenantMemberDirectory.class);
         tenantRepository = org.mockito.Mockito.mock(TenantRepository.class);
         organizationAuthorizationService = org.mockito.Mockito.mock(OrganizationAuthorizationService.class);
         auditService = org.mockito.Mockito.mock(AuthAuditService.class);
         service = new ReportGenerationJobService(
                 jobRepository, subscriptionRepository, subscriptionService, reportService,
-                memberDirectory, tenantRepository, organizationAuthorizationService, auditService,
+                deliveryService, memberDirectory, tenantRepository, organizationAuthorizationService, auditService,
                 Clock.fixed(NOW, ZoneOffset.UTC));
         when(jobRepository.saveAndFlush(any())).thenAnswer(invocation -> invocation.getArgument(0));
         when(tenantRepository.findById(7L)).thenReturn(Optional.of(
@@ -142,6 +144,7 @@ class ReportGenerationJobServiceTest {
         assertThat(result.status()).isEqualTo(ReportGenerationJobStatus.SUCCEEDED);
         assertThat(result.reportDraftId()).isEqualTo("draft-1");
         verify(reportService).generate(any(), eq(scope));
+        verify(deliveryService).materialize(eq(job), eq(draft), eq(NOW.plusSeconds(30)));
         verify(auditService).record(
                 eq(7L), eq(2L), eq("REPORT_JOB_SUCCEEDED"), eq("REPORT_GENERATION_JOB"),
                 eq("11"), eq("SUCCESS"), any(), eq("report_generated"));

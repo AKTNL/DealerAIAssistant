@@ -60,7 +60,7 @@ class ReportSubscriptionServiceTest {
         dataScope = OrganizationDataScope.tenantScope(
                 7L, "tenant-a", Set.of(10L), Set.of(10L), Set.of("D001"), false);
         when(memberDirectory.requireReportRecipients(eq(7L), any()))
-                .thenReturn(java.util.List.of(new TenantRecipient(2L, "analyst", "Analyst")));
+                .thenReturn(java.util.List.of(new TenantRecipient(2L, "analyst", "Analyst", true)));
         when(memberDirectory.requireActivePrincipal(7L, 2L)).thenReturn(actor);
         when(organizationAuthorizationService.resolve(actor))
                 .thenReturn(new OrganizationAuthorizationContext(actor, dataScope));

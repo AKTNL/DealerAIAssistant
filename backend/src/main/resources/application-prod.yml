@@ -28,3 +28,10 @@ app:
   reporting:
     jobs:
       enabled: ${APP_REPORTING_JOBS_ENABLED:true}
+  notification:
+    secret-key: ${APP_NOTIFICATION_SECRET_KEY:}
+    smtp-allowed-hosts: ${APP_NOTIFICATION_SMTP_ALLOWED_HOSTS:}
+    smtp-connection-timeout: ${APP_NOTIFICATION_SMTP_CONNECTION_TIMEOUT:5s}
+    smtp-read-timeout: ${APP_NOTIFICATION_SMTP_READ_TIMEOUT:10s}
+    smtp-write-timeout: ${APP_NOTIFICATION_SMTP_WRITE_TIMEOUT:5s}
+    max-message-bytes: ${APP_NOTIFICATION_MAX_MESSAGE_BYTES:262144}

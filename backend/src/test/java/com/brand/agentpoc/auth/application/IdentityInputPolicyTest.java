@@ -33,4 +33,16 @@ class IdentityInputPolicyTest {
         assertThatThrownBy(() -> policy.normalizeDisplayName("x".repeat(129), "fallback"))
                 .isInstanceOf(IllegalArgumentException.class);
     }
+
+    @Test
+    void normalizesOneMailboxAndRejectsHeaderOrDisplayNameSyntax() {
+        assertThat(policy.normalizeEmail("  Analyst@Example.COM ")).isEqualTo("analyst@example.com");
+        assertThat(policy.normalizeEmail("   ")).isNull();
+        assertThatThrownBy(() -> policy.normalizeEmail("Analyst <analyst@example.com>"))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> policy.normalizeEmail("one@example.com,two@example.com"))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> policy.normalizeEmail("analyst@example.com\r\nBcc:other@example.com"))
+                .isInstanceOf(IllegalArgumentException.class);
+    }
 }

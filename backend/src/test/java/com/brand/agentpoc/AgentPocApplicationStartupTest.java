@@ -536,6 +536,14 @@ class AgentPocApplicationStartupTest {
                 .isEqualTo("listReportGenerationJobs");
         assertThat(openApi.at("/components/schemas/ReportGenerationJob/properties/status/type").asText())
                 .isEqualTo("string");
+        assertThat(openApi.at("/components/schemas/ReportSubscriptionRecipient/properties/emailConfigured/type")
+                .asText()).isEqualTo("boolean");
+        assertThat(openApi.at("/paths/~1api~1notification~1smtp/put/operationId").asText())
+                .isEqualTo("saveTenantSmtpConfig");
+        assertThat(openApi.at("/paths/~1api~1report-deliveries~1{id}~1force-replay/post/operationId")
+                .asText()).isEqualTo("forceReplayReportDelivery");
+        assertThat(openApi.at("/components/schemas/AdminUser/properties/email/format").asText())
+                .isEqualTo("email");
     }
 
     @Test

@@ -51,10 +51,11 @@ public class TenantMemberDirectory {
             throw denied();
         }
         return activeMemberships(tenantId).stream()
-                .flatMap(membership -> findActivePrincipal(membership).stream())
-                .filter(principal -> principal.hasPermission(PermissionKey.REPORT_READ))
-                .map(principal -> new TenantRecipient(
-                        principal.userId(), principal.username(), principal.displayName()))
+                .flatMap(membership -> findActivePrincipal(membership).stream()
+                        .filter(principal -> principal.hasPermission(PermissionKey.REPORT_READ))
+                        .map(principal -> new TenantRecipient(
+                                principal.userId(), principal.username(), principal.displayName(),
+                                membership.getEmail() != null && !membership.getEmail().isBlank())))
                 .sorted(Comparator.comparing(TenantRecipient::displayName)
                         .thenComparing(TenantRecipient::userId))
                 .toList();
@@ -88,6 +89,21 @@ public class TenantMemberDirectory {
                 .findFirst()
                 .orElseThrow(TenantMemberDirectory::denied);
         return findActivePrincipal(membership).orElseThrow(TenantMemberDirectory::denied);
+    }
+
+    public String requireEmail(Long tenantId, Long userId) {
+        if (tenantId == null || userId == null) {
+            throw denied();
+        }
+        TenantMembershipEntity membership = membershipRepository.findByTenantIdAndUserId(tenantId, userId).stream()
+                .filter(item -> Boolean.TRUE.equals(item.getEnabled()))
+                .filter(item -> Boolean.TRUE.equals(item.getTenant().getEnabled()))
+                .findFirst()
+                .orElseThrow(TenantMemberDirectory::denied);
+        if (membership.getEmail() == null || membership.getEmail().isBlank()) {
+            throw new IllegalStateException("Recipient email is not configured.");
+        }
+        return membership.getEmail();
     }
 
     private List<TenantMembershipEntity> activeMemberships(Long tenantId) {
@@ -145,6 +161,9 @@ public class TenantMemberDirectory {
         return new AccessDeniedException("Active tenant membership is required.");
     }
 
-    public record TenantRecipient(Long userId, String username, String displayName) {
+    public record TenantRecipient(Long userId, String username, String displayName, boolean emailConfigured) {
+        public TenantRecipient(Long userId, String username, String displayName) {
+            this(userId, username, displayName, false);
+        }
     }
 }

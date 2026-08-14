@@ -6,6 +6,7 @@ import jakarta.persistence.FetchType;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
+import jakarta.persistence.Index;
 import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
@@ -16,10 +17,17 @@ import java.time.Instant;
 @Entity
 @Table(
         name = "tenant_memberships",
-        uniqueConstraints = @UniqueConstraint(
-                name = "uq_tenant_memberships_user_tenant",
-                columnNames = {"tenant_id", "user_id"}
-        )
+        uniqueConstraints = {
+                @UniqueConstraint(
+                        name = "uq_tenant_memberships_user_tenant",
+                        columnNames = {"tenant_id", "user_id"}
+                ),
+                @UniqueConstraint(
+                        name = "uq_tenant_memberships_tenant_email",
+                        columnNames = {"tenant_id", "email"}
+                )
+        },
+        indexes = @Index(name = "idx_tenant_memberships_tenant_email", columnList = "tenant_id,email")
 )
 public class TenantMembershipEntity {
 
@@ -33,6 +41,9 @@ public class TenantMembershipEntity {
 
     @Column(name = "user_id", nullable = false)
     private Long userId;
+
+    @Column(length = 254)
+    private String email;
 
     @Column(nullable = false)
     private Boolean enabled;
@@ -56,8 +67,19 @@ public class TenantMembershipEntity {
             boolean enabled,
             Instant createdAt
     ) {
+        this(tenant, userId, null, enabled, createdAt);
+    }
+
+    public TenantMembershipEntity(
+            TenantEntity tenant,
+            Long userId,
+            String email,
+            boolean enabled,
+            Instant createdAt
+    ) {
         this.tenant = tenant;
         this.userId = userId;
+        this.email = email;
         this.enabled = enabled;
         this.createdAt = createdAt == null ? Instant.now() : createdAt;
         this.updatedAt = this.createdAt;
@@ -73,6 +95,10 @@ public class TenantMembershipEntity {
 
     public Long getUserId() {
         return userId;
+    }
+
+    public String getEmail() {
+        return email;
     }
 
     public Boolean getEnabled() {
@@ -97,6 +123,11 @@ public class TenantMembershipEntity {
     }
 
     public void touch(Instant now) {
+        this.updatedAt = now == null ? Instant.now() : now;
+    }
+
+    public void updateEmail(String email, Instant now) {
+        this.email = email;
         this.updatedAt = now == null ? Instant.now() : now;
     }
 }

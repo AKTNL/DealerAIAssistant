@@ -75,6 +75,18 @@ class AuthHttpIntegrationTest {
             assertThat(get(port, "/api/dashboard", permanentAccess).statusCode()).isEqualTo(200);
             long administratorId = mapper.readTree(get(port, "/api/auth/me", permanentAccess).body())
                     .at("/data/id").asLong();
+            JsonNode administrator = findByText(
+                    mapper.readTree(get(port, "/api/admin/users", permanentAccess).body()).at("/data"),
+                    "username", "initial.admin");
+            assertThat(patch(
+                    port,
+                    "/api/admin/users/" + administratorId + "/email",
+                    mapper.writeValueAsString(Map.of(
+                            "email", "initial.admin@example.com",
+                            "version", administrator.path("version").asLong()
+                    )),
+                    permanentAccess
+            ).statusCode()).isEqualTo(200);
             assertThat(get(port, "/api/report-subscriptions", permanentAccess).statusCode()).isEqualTo(200);
             HttpResponse<String> createdSubscription = post(
                     port,
@@ -98,6 +110,8 @@ class AuthHttpIntegrationTest {
             assertThat(get(port, "/api/report-jobs", permanentAccess).statusCode()).isEqualTo(200);
             assertThat(post(port, "/api/report-jobs/999/retry", "", permanentAccess, null).statusCode())
                     .isEqualTo(404);
+            assertThat(get(port, "/api/report-deliveries", permanentAccess).statusCode()).isEqualTo(200);
+            assertThat(get(port, "/api/notification/smtp", permanentAccess).statusCode()).isEqualTo(200);
             assertThat(get(port, "/api/admin/users", permanentAccess).statusCode()).isEqualTo(200);
             assertThat(post(port, "/api/admin/roles", mapper.writeValueAsString(Map.of(
                     "roleKey", "OPS_VIEWER",
@@ -156,6 +170,27 @@ class AuthHttpIntegrationTest {
             assertThat(post(port, "/api/chat", mapper.writeValueAsString(Map.of(
                     "sessionId", "permission-test", "message", "你好"
             )), chatAccess, null).statusCode()).isEqualTo(200);
+
+            HttpResponse<String> viewerTemporaryLogin = post(
+                    port,
+                    "/api/auth/login",
+                    mapper.writeValueAsString(Map.of(
+                            "username", "viewer.user", "password", "viewer-temporary-1"
+                    )),
+                    null,
+                    null
+            );
+            String viewerTemporaryAccess = accessToken(mapper, viewerTemporaryLogin);
+            assertThat(post(port, "/api/auth/password", mapper.writeValueAsString(Map.of(
+                    "currentPassword", "viewer-temporary-1", "newPassword", "viewer-permanent-2"
+            )), viewerTemporaryAccess, null).statusCode()).isEqualTo(200);
+            String viewerAccess = accessToken(mapper, post(port, "/api/auth/login", mapper.writeValueAsString(Map.of(
+                    "username", "viewer.user", "password", "viewer-permanent-2"
+            )), null, null));
+            assertThat(get(port, "/api/report-deliveries", viewerAccess).statusCode()).isEqualTo(200);
+            assertThat(post(port, "/api/report-deliveries/999/retry", "", viewerAccess, null).statusCode())
+                    .isEqualTo(403);
+            assertThat(get(port, "/api/notification/smtp", viewerAccess).statusCode()).isEqualTo(403);
 
             HttpResponse<String> logoutLogin = post(port, "/api/auth/login", mapper.writeValueAsString(Map.of(
                     "username", "initial.admin", "password", "permanent-password-2"

@@ -85,9 +85,27 @@ public class AuthAdministrationService {
             Set<String> roleKeys,
             String traceId
     ) {
+        return createUser(actor, username, displayName, null, temporaryPassword, roleKeys, traceId);
+    }
+
+    @Transactional
+    public UserView createUser(
+            AuthPrincipal actor,
+            String username,
+            String displayName,
+            String email,
+            String temporaryPassword,
+            Set<String> roleKeys,
+            String traceId
+    ) {
         String normalizedUsername = inputPolicy.normalizeUsername(username);
+        String normalizedEmail = inputPolicy.normalizeEmail(email);
         if (!userRepository.findByUsernameIgnoreCase(normalizedUsername).isEmpty()) {
             throw new IllegalArgumentException("Username already exists.");
+        }
+        if (normalizedEmail != null
+                && !membershipRepository.findByTenantIdAndEmailIgnoreCase(actor.tenantId(), normalizedEmail).isEmpty()) {
+            throw new IllegalArgumentException("Email already exists in this tenant.");
         }
         inputPolicy.validatePassword(temporaryPassword);
         Set<AuthRoleEntity> roles = requireRoles(roleKeys);
@@ -102,12 +120,18 @@ public class AuthAdministrationService {
                 now
         ));
         TenantEntity tenant = requireActorTenant(actor);
-        TenantMembershipEntity membership = membershipRepository.saveAndFlush(new TenantMembershipEntity(
-                tenant,
-                saved.getId(),
-                true,
-                now
-        ));
+        TenantMembershipEntity membership;
+        try {
+            membership = membershipRepository.saveAndFlush(new TenantMembershipEntity(
+                    tenant,
+                    saved.getId(),
+                    normalizedEmail,
+                    true,
+                    now
+            ));
+        } catch (org.springframework.dao.DataIntegrityViolationException exception) {
+            throw new IllegalArgumentException("Email already exists in this tenant.", exception);
+        }
         roles.stream()
                 .map(AuthRoleEntity::getId)
                 .map(roleId -> new TenantMembershipRoleEntity(membership, roleId))
@@ -115,6 +139,35 @@ public class AuthAdministrationService {
         auditService.record(actor.userId(), "USER_CREATE", "USER", String.valueOf(saved.getId()),
                 "SUCCESS", traceId, "temporary_password_assigned");
         return UserView.from(saved, membership, roleKeys(roles));
+    }
+
+    @Transactional
+    public UserView changeEmail(
+            AuthPrincipal actor,
+            Long userId,
+            String email,
+            Long expectedVersion,
+            String traceId
+    ) {
+        AuthUserEntity user = requireUser(userId);
+        TenantMembershipEntity membership = requireMembership(actor, userId);
+        requireVersion(membership.getVersion(), expectedVersion);
+        String normalizedEmail = inputPolicy.normalizeEmail(email);
+        if (normalizedEmail != null
+                && membershipRepository.findByTenantIdAndEmailIgnoreCase(actor.tenantId(), normalizedEmail).stream()
+                        .anyMatch(candidate -> !candidate.getId().equals(membership.getId()))) {
+            throw new IllegalArgumentException("Email already exists in this tenant.");
+        }
+        membership.updateEmail(normalizedEmail, Instant.now(clock));
+        TenantMembershipEntity savedMembership;
+        try {
+            savedMembership = membershipRepository.saveAndFlush(membership);
+        } catch (org.springframework.dao.DataIntegrityViolationException exception) {
+            throw new IllegalArgumentException("Email already exists in this tenant.", exception);
+        }
+        auditService.record(actor.tenantId(), actor.userId(), "USER_EMAIL_UPDATE", "USER", String.valueOf(userId),
+                "SUCCESS", traceId, normalizedEmail == null ? "email_cleared" : "email_updated");
+        return UserView.from(user, savedMembership, roleKeys(savedMembership));
     }
 
     @Transactional
@@ -418,6 +471,7 @@ public class AuthAdministrationService {
             Long id,
             String username,
             String displayName,
+            String email,
             boolean enabled,
             boolean mustChangePassword,
             Set<String> roles,
@@ -432,6 +486,7 @@ public class AuthAdministrationService {
                     user.getId(),
                     user.getUsername(),
                     user.getDisplayName(),
+                    membership.getEmail(),
                     Boolean.TRUE.equals(user.getEnabled()) && Boolean.TRUE.equals(membership.getEnabled()),
                     Boolean.TRUE.equals(user.getMustChangePassword()),
                     tenantRoles,

@@ -13,5 +13,7 @@ public interface TenantMembershipRepository extends JpaRepository<TenantMembersh
 
     List<TenantMembershipEntity> findByTenantId(Long tenantId);
 
+    List<TenantMembershipEntity> findByTenantIdAndEmailIgnoreCase(Long tenantId, String email);
+
     List<TenantMembershipEntity> findByTenantIdAndUserId(Long tenantId, Long userId);
 }

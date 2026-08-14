@@ -72,7 +72,7 @@ public class ReportSubscriptionService {
         requireActor(actor, dataScope, PermissionKey.REPORT_READ);
         return memberDirectory.listReportRecipients(actor.tenantId()).stream()
                 .map(recipient -> new RecipientView(
-                        recipient.userId(), recipient.username(), recipient.displayName()))
+                        recipient.userId(), recipient.username(), recipient.displayName(), recipient.emailConfigured()))
                 .toList();
     }
 
@@ -85,7 +85,7 @@ public class ReportSubscriptionService {
     ) {
         requireActor(actor, dataScope, PermissionKey.REPORT_GENERATE);
         requireDataAccess(dataScope);
-        ValidatedDefinition definition = validateDefinition(actor, dataScope, input);
+        ValidatedDefinition definition = validateDefinition(actor, dataScope, input, enabled);
         assertUnique(actor.tenantId(), actor.userId(), definition.configurationKey(), null);
         Instant now = clock.instant();
         ReportSubscriptionEntity entity = new ReportSubscriptionEntity(
@@ -122,7 +122,8 @@ public class ReportSubscriptionService {
         requireDataAccess(dataScope);
         ReportSubscriptionEntity entity = requireOwned(actor, subscriptionId);
         requireVersion(entity, version);
-        ValidatedDefinition definition = validateDefinition(actor, dataScope, input);
+        ValidatedDefinition definition = validateDefinition(
+                actor, dataScope, input, Boolean.TRUE.equals(entity.getEnabled()));
         assertUnique(actor.tenantId(), actor.userId(), definition.configurationKey(), entity.getId());
         Instant now = clock.instant();
         entity.updateDefinition(
@@ -153,6 +154,9 @@ public class ReportSubscriptionService {
         requireActor(actor, dataScope, PermissionKey.REPORT_GENERATE);
         ReportSubscriptionEntity entity = requireOwned(actor, subscriptionId);
         requireVersion(entity, version);
+        if (enabled) {
+            requireExecutableRecipients(entity.getTenantId(), entity.getChannelKey(), entity.getRecipientUserIds());
+        }
         Instant now = clock.instant();
         entity.changeEnabled(enabled, enabled ? entity.schedule().nextAfter(now) : null, now);
         ReportSubscriptionEntity saved = repository.saveAndFlush(entity);
@@ -195,6 +199,9 @@ public class ReportSubscriptionService {
         if (!Boolean.TRUE.equals(entity.getEnabled())) {
             return ExecutionEligibility.denied("subscription_disabled");
         }
+        if (!"email".equals(entity.getChannelKey())) {
+            return ExecutionEligibility.denied("unsupported_channel");
+        }
         AuthPrincipal creator;
         try {
             creator = memberDirectory.requireActivePrincipal(entity.getTenantId(), entity.getCreatorUserId());
@@ -216,7 +223,11 @@ public class ReportSubscriptionService {
             return ExecutionEligibility.denied("organization_scope_revoked");
         }
         try {
-            memberDirectory.requireReportRecipients(entity.getTenantId(), entity.getRecipientUserIds());
+            List<TenantRecipient> recipients = memberDirectory.requireReportRecipients(
+                    entity.getTenantId(), entity.getRecipientUserIds());
+            if (recipients.stream().anyMatch(recipient -> !recipient.emailConfigured())) {
+                return ExecutionEligibility.denied("recipient_email_missing");
+            }
             return ExecutionEligibility.allowed();
         } catch (AccessDeniedException | IllegalArgumentException exception) {
             return ExecutionEligibility.denied("membership_or_recipient_revoked");
@@ -226,7 +237,8 @@ public class ReportSubscriptionService {
     private ValidatedDefinition validateDefinition(
             AuthPrincipal actor,
             OrganizationDataScope dataScope,
-            DefinitionInput input
+            DefinitionInput input,
+            boolean requireEmailReady
     ) {
         if (input == null) {
             throw new IllegalArgumentException("Subscription definition is required.");
@@ -238,8 +250,13 @@ public class ReportSubscriptionService {
                 input.scheduleKind(), input.localTime(), input.timeZone(),
                 input.dayOfWeek(), input.dayOfMonth());
         String channelKey = normalizeChannelKey(input.channelKey());
-        Set<Long> recipients = memberDirectory.requireReportRecipients(
-                        actor.tenantId(), input.recipientUserIds()).stream()
+        List<TenantRecipient> eligibleRecipients = memberDirectory.requireReportRecipients(
+                actor.tenantId(), input.recipientUserIds());
+        if (requireEmailReady
+                && eligibleRecipients.stream().anyMatch(recipient -> !recipient.emailConfigured())) {
+            throw new IllegalArgumentException("Every enabled email recipient must have an email address.");
+        }
+        Set<Long> recipients = eligibleRecipients.stream()
                 .map(TenantRecipient::userId)
                 .collect(Collectors.toUnmodifiableSet());
         ReportScope scope = resolvedScope(dataScope);
@@ -341,10 +358,20 @@ public class ReportSubscriptionService {
 
     private String normalizeChannelKey(String value) {
         String normalized = value == null ? "" : value.trim().toLowerCase(Locale.ROOT);
-        if (!normalized.matches(CHANNEL_KEY_PATTERN)) {
-            throw new IllegalArgumentException("channelKey must use a controlled lowercase channel key.");
+        if (!normalized.matches(CHANNEL_KEY_PATTERN) || !"email".equals(normalized)) {
+            throw new IllegalArgumentException("channelKey must be email.");
         }
         return normalized;
+    }
+
+    private void requireExecutableRecipients(Long tenantId, String channelKey, Set<Long> recipientUserIds) {
+        if (!"email".equals(channelKey)) {
+            throw new IllegalArgumentException("Only the email delivery channel can be enabled.");
+        }
+        List<TenantRecipient> recipients = memberDirectory.requireReportRecipients(tenantId, recipientUserIds);
+        if (recipients.stream().anyMatch(recipient -> !recipient.emailConfigured())) {
+            throw new IllegalArgumentException("Every enabled email recipient must have an email address.");
+        }
     }
 
     private String configurationKey(
@@ -428,7 +455,10 @@ public class ReportSubscriptionService {
     ) {
     }
 
-    public record RecipientView(Long userId, String username, String displayName) {
+    public record RecipientView(Long userId, String username, String displayName, boolean emailConfigured) {
+        public RecipientView(Long userId, String username, String displayName) {
+            this(userId, username, displayName, false);
+        }
     }
 
     public record ExecutionEligibility(boolean eligible, String reason) {

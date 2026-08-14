@@ -233,6 +233,12 @@ npm run dev
 | `app.model.allowed-hosts` | `APP_MODEL_ALLOWED_HOSTS` | 空 | 可选模型 Base URL 主机允许列表，支持 `api.example.com,*.example.com` |
 | `app.model.allow-private-hosts` | `APP_MODEL_ALLOW_PRIVATE_HOSTS` | `false` | 是否允许模型 Base URL 指向 localhost 或内网地址 |
 | `app.model.secret-key` | `APP_MODEL_SECRET_KEY` | 空 | 生产必填的 Base64 32-byte AES-256-GCM 密钥；用于 tenant 模型 API key 加密，禁止写入仓库、日志或前端 |
+| `app.notification.secret-key` | `APP_NOTIFICATION_SECRET_KEY` | 空 | 生产必填的独立 Base64 32-byte AES-256-GCM 密钥；用于 tenant SMTP 密码加密 |
+| `app.notification.smtp-allowed-hosts` | `APP_NOTIFICATION_SMTP_ALLOWED_HOSTS` | 空 | 允许连接的 SMTP 主机精确列表，逗号分隔 |
+| `app.notification.smtp-connection-timeout` | `APP_NOTIFICATION_SMTP_CONNECTION_TIMEOUT` | `5s` | SMTP 建连超时 |
+| `app.notification.smtp-read-timeout` | `APP_NOTIFICATION_SMTP_READ_TIMEOUT` | `10s` | SMTP 读取超时 |
+| `app.notification.smtp-write-timeout` | `APP_NOTIFICATION_SMTP_WRITE_TIMEOUT` | `5s` | SMTP 写入超时 |
+| `app.notification.max-message-bytes` | `APP_NOTIFICATION_MAX_MESSAGE_BYTES` | `262144` | 序列化纯文本邮件的保守字节上限 |
 | `app.knowledge.vector-store` | `APP_KNOWLEDGE_VECTOR_STORE` | `memory`（`prod` 为 `pgvector`） | 知识检索 adapter；生产配置不可用时不会自动回退 |
 | `app.knowledge.schema-name` | `APP_KNOWLEDGE_SCHEMA_NAME` | `public` | PGvector 表所在 schema，仅接受 SQL 标识符 |
 | `app.knowledge.table-name` | `APP_KNOWLEDGE_TABLE_NAME` | `knowledge_vector_store` | PGvector 表名，仅接受 SQL 标识符 |
