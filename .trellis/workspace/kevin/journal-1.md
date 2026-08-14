@@ -1045,3 +1045,37 @@ Updated the root README, documentation index, and production roadmap to mark P1-
 ### Next Steps
 
 - None - task complete
+
+
+## Session 32: Complete P2-3B reliable report job execution
+
+**Date**: 2026-08-14
+**Task**: Complete P2-3B reliable report job execution
+**Branch**: `main`
+
+### Summary
+
+Implemented durable tenant-scoped report generation jobs with V9 Flyway persistence, unique window idempotency, pessimistic lease claims, five-minute lease recovery, misfire skipping, bounded retries, dynamic authorization and recipient checks, safe audit/error codes, production runner configuration, job list/manual retry APIs, OpenAPI/RBAC updates, migration and concurrency coverage, and captured database/auth/quality contracts in Trellis specs.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `f40f808` | (see git log) |
+| `1a09fb6` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
