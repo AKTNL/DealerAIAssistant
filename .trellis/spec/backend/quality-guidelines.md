@@ -1073,6 +1073,64 @@ return subscriptionRepository.saveAndFlush(subscription); // after version and d
 
 ---
 
+---
+
+## Scenario: Report Generation Job Verification
+
+### 1. Scope / Trigger
+
+- Trigger: changes to durable report job state, the polling runner, retry behavior, or job management endpoints.
+- This is a cross-layer quality contract because scheduler timing, JPA locking, authorization, migration shape, and public JSON must be verified together.
+
+### 2. Signatures
+
+- Runner: `ReportGenerationJobRunner.runOnce()` and scheduled `runScheduledCycle()`.
+- Service: `materializeDueSubscriptions`, `claimNext`, `executeClaimed`, `recoverExpiredLeases`, `cancelPendingJobsForInactiveSubscriptions`, and `manualRetry`.
+- HTTP: `GET /api/report-jobs`; `POST /api/report-jobs/{id}/retry`.
+
+### 3. Contracts
+
+- Unit tests wire services through constructors and use AssertJ; controller tests use `MockMvcBuilders.standaloneSetup()` with an explicit principal resolver.
+- Runner is disabled by default in local/demo configuration and enabled in production through `app.reporting.jobs.enabled`; a cycle is capped at 50 executed jobs.
+- Mockito sequential results should use a typed `thenAnswer` counter rather than varargs `thenReturn` when compiler warnings would be introduced.
+- Tests assert fixed error codes and audit calls, never raw exception messages or secret-bearing payloads.
+
+### 4. Validation & Error Matrix
+
+- PMD violation -> fix production/test code or make a narrowly justified ruleset change; do not suppress broadly.
+- Full test failure -> fix behavior and add a focused regression test before commit.
+- OpenAPI parse failure or line-ending diff error -> fix the artifact before commit.
+- Dynamic authorization regression -> assert report generation is not called after tenant, membership, permission, organization, or recipient revocation.
+
+### 5. Good/Base/Bad Cases
+
+- Good: the full backend suite and PMD gate pass after changing V9 or runner code.
+- Good: a focused runner test remains deterministic with a fixed `Clock` and a typed sequential claim answer.
+- Base: Mockito's JDK agent warning is toolchain noise; unchecked test stubbing warnings are removed from project code.
+- Bad: rely only on a happy-path runner test, use wall-clock sleeps, or assert implementation exception text.
+
+### 6. Tests Required
+
+- `ReportGenerationJobEntityTest`: legal/illegal transitions, lease recovery, retry limits, and error-code sanitization.
+- `ReportGenerationJobServiceTest`: materialization/idempotency, misfire, dynamic authorization, retry schedule, cancellation, and manual replay.
+- `ReportGenerationJobRunnerTest`: fixed-clock cycle counts and bounded claim loop.
+- `ReportGenerationJobControllerTest` and `AuthHttpIntegrationTest`: envelope, trace propagation, tenant/creator isolation, and 404/409/RBAC behavior.
+- Run `mvn.cmd "-Dfrontend.skip=true" pmd:check`, focused tests, then the full `mvn.cmd "-Dfrontend.skip=true" test` before commit.
+
+### 7. Wrong vs Correct
+
+Wrong:
+```java
+when(service.claimNext(worker, now)).thenReturn(Optional.of(job), Optional.empty());
+```
+
+Correct:
+```java
+AtomicBoolean first = new AtomicBoolean(true);
+when(service.claimNext(worker, now)).thenAnswer(invocation ->
+        first.getAndSet(false) ? Optional.of(job) : Optional.empty());
+```
+
 ## Code Review Checklist
 
 - [ ] Constructor injection used (no `@Autowired` on fields)

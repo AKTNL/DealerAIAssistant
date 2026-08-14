@@ -598,6 +598,70 @@ CREATE TABLE report_subscription_recipients (
 
 ---
 
+## Scenario: Durable Report Generation Jobs And Leases
+
+### 1. Scope / Trigger
+
+- Trigger: recurring report subscriptions need durable materialization, single execution across processes, retry state, and restart recovery.
+- This is a database and cross-layer contract because Flyway, JPA state transitions, scheduler transactions, and report authorization must agree.
+
+### 2. Signatures
+
+- Migration: `backend/src/main/resources/db/migration/V9__create_report_generation_jobs.sql`.
+- Table: `report_generation_jobs` with `subscription_id`, `tenant_id`, `creator_user_id`, `scheduled_at`, `idempotency_key`, report definition fields, status, attempt, lease, retry, error, trace, draft, and audit timestamps.
+- Service ports: `materializeDueSubscriptions(Instant)`, `claimNext(String, Instant)`, `executeClaimed(Long, String, Instant)`, `recoverExpiredLeases(Instant)`, `manualRetry(AuthPrincipal, OrganizationDataScope, Long, String)`.
+- APIs: `GET /api/report-jobs` requires `REPORT_READ`; `POST /api/report-jobs/{id}/retry` requires `REPORT_GENERATE`.
+
+### 3. Contracts
+
+- Unique constraints are `(subscription_id, scheduled_at)` and `idempotency_key`; duplicate scans return the existing job and never call report generation twice.
+- Status values are `READY`, `RUNNING`, `RETRY_WAIT`, `SUCCEEDED`, `PERMANENT_FAILURE`, `SKIPPED`, and `CANCELLED`.
+- A claim increments `attempt`, stores a five-minute `lease_owner`/`lease_expires_at`, and uses a pessimistic row lock. An expired lease becomes `READY` until four total attempts are exhausted.
+- Subscription materialization locks the subscription, creates one `READY` job or a `SKIPPED/MISSED_WINDOW` job after the 60-minute grace, then advances `next_run_at` in the same transaction.
+- Retry delays are fixed at 5 minutes, 30 minutes, and 2 hours. Only controlled error codes and bounded trace IDs are persisted; exception text, tokens, recipients, prompts, and report Markdown are excluded.
+- Production applies V9 through Flyway with Hibernate `ddl-auto=validate`; H2 migration tests must validate the same entity mapping.
+
+### 4. Validation & Error Matrix
+
+- Duplicate `(subscription_id, scheduled_at)` or idempotency key -> database uniqueness failure; caller must treat the existing row as authoritative.
+- `RUNNING` lease expiry -> recover to `READY`, or `PERMANENT_FAILURE/RETRY_EXHAUSTED` at the attempt limit.
+- Missed window beyond grace -> persist `SKIPPED/MISSED_WINDOW` and advance the cursor; never generate a late report.
+- Disabled tenant/subscription or revoked creator, permission, organization scope, or recipient -> `CANCELLED` or `PERMANENT_FAILURE` with a fixed code and tenant-scoped audit event.
+- Missing or drifted V9 schema in production -> Flyway/Hibernate startup failure; do not fall back to an in-memory job store.
+
+### 5. Good/Base/Bad Cases
+
+- Good: two workers racing for one window result in one unique job and one successful report draft.
+- Good: a process crash leaves a lease that the next poll recovers after five minutes.
+- Base: a terminal job can be manually replayed by its own creator, resetting its attempt counter with a fresh trace ID.
+- Bad: use an in-memory lock, create a job without the unique constraint, or advance `next_run_at` in a separate transaction.
+
+### 6. Tests Required
+
+- Migration/startup test: apply V9 on isolated H2, assert tables, indexes, foreign keys, uniqueness, and Hibernate validation.
+- Entity/service tests: assert state transitions, 5m/30m/2h backoff, fourth-attempt exhaustion, misfire skip, tenant cancellation, and safe error fields.
+- Concurrency test: two transactions insert the same subscription window and assert exactly one succeeds.
+- Runner/controller tests: assert bounded polling, dynamic authorization reload, creator/tenant isolation, exact RBAC, and terminal-only manual retry.
+- Final gates: `mvn.cmd "-Dfrontend.skip=true" pmd:check`, `mvn.cmd "-Dfrontend.skip=true" test`, UTF-8 OpenAPI JSON parsing, and `git diff --check`.
+
+### 7. Wrong vs Correct
+
+Wrong:
+```java
+if (localLock.tryLock()) {
+    subscription.advanceNextRunAt(nextRun);
+    jobStore.save(job);
+}
+```
+
+Correct:
+```java
+ReportSubscriptionEntity subscription = subscriptionRepository.findByIdForUpdate(id).orElseThrow();
+ReportGenerationJobEntity job = jobRepository.findByIdempotencyKey(key).orElseGet(() -> saveJob(key));
+subscription.advanceNextRunAt(nextRun, now);
+subscriptionRepository.saveAndFlush(subscription);
+```
+
 ## Common Mistakes
 
 ### Scenario: Lead Import With Blank CreatedDate

@@ -224,3 +224,62 @@ public record SessionView(Long id, Instant issuedAt, Instant refreshExpiresAt,
 requireVersion(user.getVersion(), request.version());
 userRepository.saveAndFlush(user);
 ```
+
+---
+
+## Scenario: Report Job API Authorization And Creator Isolation
+
+### 1. Scope / Trigger
+
+- Trigger: exposing durable report-generation job history or manual replay through HTTP.
+- This is an authentication and tenant-isolation contract because job rows contain report metadata and execution state that must not cross creator or tenant boundaries.
+
+### 2. Signatures
+
+- `GET /api/report-jobs -> ApiResult<List<ReportGenerationJob>>`.
+- `POST /api/report-jobs/{id}/retry -> ApiResult<ReportGenerationJob>`.
+- Security matchers: `GET /api/report-jobs/** -> REPORT_READ`; other `/api/report-jobs/** -> REPORT_GENERATE`.
+- Service scope: `list(AuthPrincipal, OrganizationDataScope)` and `manualRetry(AuthPrincipal, OrganizationDataScope, Long, String)`.
+
+### 3. Contracts
+
+- Every request resolves the current principal and organization tenant context from the database; client tenant headers or scope fields never widen access.
+- Listing returns only the current creator's latest 100 jobs in the active tenant.
+- Manual retry is limited to that creator's terminal job (`PERMANENT_FAILURE`, `SKIPPED`, or `CANCELLED`) and resets attempts with a bounded trace ID.
+- Job responses contain status, timing, retry, fixed error code, trace ID, and draft ID, but never recipient addresses, prompt text, report body, tokens, or raw exceptions.
+
+### 4. Validation & Error Matrix
+
+- Missing/invalid Bearer or tenant context -> uniform HTTP 401/403 through the security handlers.
+- Authenticated caller without `REPORT_READ` -> HTTP 403 for list.
+- Authenticated caller without `REPORT_GENERATE` -> HTTP 403 for retry.
+- Unknown job or a job owned by another creator/tenant -> HTTP 404; do not reveal existence.
+- Non-terminal manual retry -> HTTP 409; malformed ID/trace input -> HTTP 400.
+
+### 5. Good/Base/Bad Cases
+
+- Good: two users in one tenant see only their own job history and cannot replay each other's job IDs.
+- Good: a role or organization grant change affects the next execution request without issuing a new token.
+- Base: an empty job history returns a successful empty list.
+- Bad: authorize all `/api/report-jobs/**` with `REPORT_READ`, trust a tenant header, or return a cross-tenant 403 that leaks row existence.
+
+### 6. Tests Required
+
+- `AuthHttpIntegrationTest`: exact GET/POST authorities, tenant context, 401/403 envelopes, and nonexistent/manual-retry behavior.
+- `ReportGenerationJobControllerTest`: trace propagation, 404/409 mapping, and safe response fields.
+- Service tests: creator/tenant isolation and dynamic scope resolution before generation.
+- Parse `static/openapi.json` as UTF-8 JSON after path/security changes.
+
+### 7. Wrong vs Correct
+
+Wrong:
+```java
+return jobRepository.findTop100ByTenantIdOrderByCreatedAtDesc(tenantKey);
+```
+
+Correct:
+```java
+requireActor(actor, currentScope, PermissionKey.REPORT_READ);
+return jobRepository.findTop100ByTenantIdAndCreatorUserIdOrderByCreatedAtDescIdDesc(
+        actor.tenantId(), actor.userId());
+```
