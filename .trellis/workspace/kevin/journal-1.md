@@ -1079,3 +1079,38 @@ Implemented durable tenant-scoped report generation jobs with V9 Flyway persiste
 ### Next Steps
 
 - None - task complete
+
+
+## Session 33: P2-3C tenant email notification delivery
+
+**Date**: 2026-08-14
+**Task**: P2-3C tenant email notification delivery
+**Branch**: `main`
+
+### Summary
+
+Implemented tenant SMTP email delivery, administration UI, durable per-recipient outbox semantics, tests, delivery contracts, and responsive layout fixes.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `ce2eb05` | (see git log) |
+| `2ba4a36` | (see git log) |
+| `78530ce` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
