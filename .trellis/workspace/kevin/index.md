@@ -8,8 +8,8 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 30
-- **Last Active**: 2026-08-13
+- **Total Sessions**: 31
+- **Last Active**: 2026-08-14
 <!-- @@@/auto:current-status -->
 
 ---
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~1013 | Active |
+| `journal-1.md` | ~1047 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 31 | 2026-08-14 | 完成 P2-3A 报告订阅与调度定义 | `e76ceca`, `1407d83` | `main` |
 | 30 | 2026-08-13 | 完成 P2-2 多租户和数据隔离 | `a880f75`, `b032461`, `83114ef` | `main` |
 | 29 | 2026-08-12 | P2-1C 权限与组织管理界面 | `6dfc942`, `ee8894a` | `main` |
 | 28 | 2026-08-11 | P2-1B 组织树与数据范围 | `ff2333d`, `4329bdd` | `main` |

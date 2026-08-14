@@ -1011,3 +1011,37 @@ Updated the root README, documentation index, and production roadmap to mark P1-
 ### Next Steps
 
 - None - task complete
+
+
+## Session 31: 完成 P2-3A 报告订阅与调度定义
+
+**Date**: 2026-08-14
+**Task**: 完成 P2-3A 报告订阅与调度定义
+**Branch**: `main`
+
+### Summary
+
+完成租户级报告订阅与日/周/月调度契约、DST 计算、持久化、权限与动态执行资格校验、管理 API、OpenAPI 和前端订阅工作区；补充迁移、后端/前端测试与项目规范沉淀。全部质量门禁通过，P2-3A 已归档。
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `e76ceca` | (see git log) |
+| `1407d83` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
