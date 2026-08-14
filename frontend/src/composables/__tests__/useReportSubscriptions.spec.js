@@ -6,8 +6,11 @@ const api = vi.hoisted(() => ({
   changeEnabled: vi.fn(),
   create: vi.fn(),
   remove: vi.fn(),
+  forceReplay: vi.fn(),
+  listDeliveries: vi.fn(),
   listRecipients: vi.fn(),
   listSubscriptions: vi.fn(),
+  retryDelivery: vi.fn(),
   update: vi.fn()
 }));
 
@@ -15,8 +18,11 @@ vi.mock("../../api/reportSubscriptions", () => ({
   changeReportSubscriptionEnabled: (...args) => api.changeEnabled(...args),
   createReportSubscription: (...args) => api.create(...args),
   deleteReportSubscription: (...args) => api.remove(...args),
+  forceReplayReportDelivery: (...args) => api.forceReplay(...args),
+  listReportDeliveries: (...args) => api.listDeliveries(...args),
   listReportSubscriptionRecipients: (...args) => api.listRecipients(...args),
   listReportSubscriptions: (...args) => api.listSubscriptions(...args),
+  retryReportDelivery: (...args) => api.retryDelivery(...args),
   updateReportSubscription: (...args) => api.update(...args)
 }));
 
@@ -26,7 +32,8 @@ describe("useReportSubscriptions", () => {
   beforeEach(() => {
     Object.values(api).forEach((mockFunction) => mockFunction.mockReset());
     api.listSubscriptions.mockResolvedValue([{ id: 1, version: 0 }]);
-    api.listRecipients.mockResolvedValue([{ userId: 2, displayName: "Analyst" }]);
+    api.listRecipients.mockResolvedValue([{ userId: 2, displayName: "Analyst", emailConfigured: true }]);
+    api.listDeliveries.mockResolvedValue([]);
   });
 
   it("loads server state and replaces an enabled subscription", async () => {

@@ -3,14 +3,18 @@ import {
   changeReportSubscriptionEnabled,
   createReportSubscription,
   deleteReportSubscription,
+  forceReplayReportDelivery,
+  listReportDeliveries,
   listReportSubscriptionRecipients,
   listReportSubscriptions,
+  retryReportDelivery,
   updateReportSubscription
 } from "../api/reportSubscriptions";
 
 export function useReportSubscriptions({ currentUser, dictionary, onAuthExpired }) {
   const subscriptions = ref([]);
   const recipients = ref([]);
+  const deliveries = ref([]);
   const loading = ref(false);
   const loadError = ref("");
   const operationError = ref("");
@@ -24,12 +28,14 @@ export function useReportSubscriptions({ currentUser, dictionary, onAuthExpired 
     loading.value = true;
     loadError.value = "";
     try {
-      const [subscriptionData, recipientData] = await Promise.all([
+      const [subscriptionData, recipientData, deliveryData] = await Promise.all([
         listReportSubscriptions(),
-        listReportSubscriptionRecipients()
+        listReportSubscriptionRecipients(),
+        listReportDeliveries()
       ]);
       subscriptions.value = normalizeList(subscriptionData);
       recipients.value = normalizeList(recipientData);
+      deliveries.value = normalizeList(deliveryData);
     } catch (error) {
       loadError.value = errorMessage(error);
       handleExpiredSession(error);
@@ -79,6 +85,24 @@ export function useReportSubscriptions({ currentUser, dictionary, onAuthExpired 
     return false;
   }
 
+  async function retryDelivery(delivery) {
+    const updated = await perform(`delivery-retry-${delivery.id}`,
+      () => retryReportDelivery(delivery.id), dictionary.value.deliveryRetryScheduled);
+    if (updated) {
+      replaceDelivery(updated);
+    }
+    return updated;
+  }
+
+  async function forceReplayDelivery(delivery) {
+    const updated = await perform(`delivery-force-${delivery.id}`,
+      () => forceReplayReportDelivery(delivery.id), dictionary.value.deliveryForceReplayScheduled);
+    if (updated) {
+      replaceDelivery(updated);
+    }
+    return updated;
+  }
+
   async function perform(action, operation, message) {
     if (!canManage.value || pendingAction.value) {
       return null;
@@ -104,6 +128,10 @@ export function useReportSubscriptions({ currentUser, dictionary, onAuthExpired 
       item.id === updated.id ? updated : item);
   }
 
+  function replaceDelivery(updated) {
+    deliveries.value = deliveries.value.map((item) => item.id === updated.id ? updated : item);
+  }
+
   function handleExpiredSession(error) {
     if (error?.status === 401) {
       onAuthExpired?.();
@@ -126,6 +154,8 @@ export function useReportSubscriptions({ currentUser, dictionary, onAuthExpired 
   return {
     canManage,
     create,
+    deliveries,
+    forceReplayDelivery,
     initialize,
     loadError,
     loading,
@@ -136,6 +166,7 @@ export function useReportSubscriptions({ currentUser, dictionary, onAuthExpired 
     setEnabled,
     subscriptions,
     successMessage,
+    retryDelivery,
     update
   };
 }

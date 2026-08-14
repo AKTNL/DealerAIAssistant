@@ -4,10 +4,17 @@ export async function listUsers() {
   return readData(await requestJson("/api/admin/users"), []);
 }
 
-export async function createUser({ username, displayName, temporaryPassword, roles }) {
+export async function createUser({ username, displayName, email, temporaryPassword, roles }) {
   return readData(await requestJson("/api/admin/users", {
     method: "POST",
-    body: JSON.stringify({ username, displayName, temporaryPassword, roles })
+    body: JSON.stringify({ username, displayName, email, temporaryPassword, roles })
+  }), null);
+}
+
+export async function changeUserEmail(userId, email, version) {
+  return readData(await requestJson(`/api/admin/users/${userId}/email`, {
+    method: "PATCH",
+    body: JSON.stringify({ email, version })
   }), null);
 }
 

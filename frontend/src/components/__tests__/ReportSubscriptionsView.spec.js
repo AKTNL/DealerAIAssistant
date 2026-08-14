@@ -5,8 +5,11 @@ const api = vi.hoisted(() => ({
   changeEnabled: vi.fn(),
   create: vi.fn(),
   remove: vi.fn(),
+  forceReplay: vi.fn(),
+  listDeliveries: vi.fn(),
   listRecipients: vi.fn(),
   listSubscriptions: vi.fn(),
+  retryDelivery: vi.fn(),
   update: vi.fn()
 }));
 
@@ -14,8 +17,11 @@ vi.mock("../../api/reportSubscriptions", () => ({
   changeReportSubscriptionEnabled: (...args) => api.changeEnabled(...args),
   createReportSubscription: (...args) => api.create(...args),
   deleteReportSubscription: (...args) => api.remove(...args),
+  forceReplayReportDelivery: (...args) => api.forceReplay(...args),
+  listReportDeliveries: (...args) => api.listDeliveries(...args),
   listReportSubscriptionRecipients: (...args) => api.listRecipients(...args),
   listReportSubscriptions: (...args) => api.listSubscriptions(...args),
+  retryReportDelivery: (...args) => api.retryDelivery(...args),
   updateReportSubscription: (...args) => api.update(...args)
 }));
 
@@ -24,8 +30,11 @@ import ReportSubscriptionsView from "../reporting/ReportSubscriptionsView.vue";
 describe("ReportSubscriptionsView", () => {
   beforeEach(() => {
     Object.values(api).forEach((mockFunction) => mockFunction.mockReset());
-    api.listRecipients.mockResolvedValue([{ userId: 2, username: "analyst", displayName: "Analyst" }]);
+    api.listRecipients.mockResolvedValue([{
+      userId: 2, username: "analyst", displayName: "Analyst", emailConfigured: true
+    }]);
     api.listSubscriptions.mockResolvedValue([subscription()]);
+    api.listDeliveries.mockResolvedValue([]);
     api.create.mockResolvedValue({ ...subscription(), id: 10 });
   });
 

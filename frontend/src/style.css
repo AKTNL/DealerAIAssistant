@@ -62,7 +62,7 @@
 
 body {
   margin: 0;
-  min-width: 768px;
+  min-width: 320px;
   min-height: 100vh;
   color: var(--text-main);
   background: var(--page-bg);
@@ -1600,7 +1600,11 @@ textarea::placeholder {
   .app-shell {
     height: auto;
     min-height: 100vh;
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .app-shell.sidebar-collapsed {
+    grid-template-columns: minmax(0, 1fr);
   }
 
   .sidebar,
@@ -1681,11 +1685,22 @@ textarea::placeholder {
 
   .topbar,
   .topbar-editorial {
+    align-items: stretch;
+    flex-direction: column;
     padding: 0.9rem;
+  }
+
+  .topbar-left,
+  .topbar-brand {
+    width: 100%;
   }
 
   .topbar-brand {
     gap: 0.7rem;
+  }
+
+  .topbar-title-group {
+    flex: 1;
   }
 
   .topbar-logo-image {
@@ -1693,13 +1708,19 @@ textarea::placeholder {
   }
 
   .topbar-actions {
+    flex-wrap: wrap;
     width: 100%;
-    justify-content: flex-end;
+    justify-content: flex-start;
+  }
+
+  .tenant-selector {
+    flex: 1 1 8rem;
   }
 
   .status-pill {
-    width: 100%;
+    flex: 1 0 100%;
     justify-content: center;
+    order: 1;
   }
 
   .chat-screen {

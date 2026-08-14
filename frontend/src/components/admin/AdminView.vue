@@ -2,6 +2,7 @@
 import { computed, onMounted, ref } from "vue";
 import { useAdministration } from "../../composables/useAdministration";
 import { PERMISSION_KEYS } from "../../constants/permissionCatalog";
+import NotificationSmtpPanel from "./NotificationSmtpPanel.vue";
 
 const props = defineProps({
   currentUser: {
@@ -32,11 +33,12 @@ const selectedUserId = ref("");
 const selectedRoleId = ref("");
 const selectedNodeId = ref("");
 const userRoleDraft = ref([]);
+const userEmailDraft = ref("");
 const rolePermissionDraft = ref([]);
 const grantSubjectType = ref("user");
 const grantSubjectId = ref("");
 const grantDraft = ref({});
-const userForm = ref({ username: "", displayName: "", roles: [] });
+const userForm = ref({ username: "", displayName: "", email: "", roles: [] });
 const roleForm = ref({ roleKey: "", displayName: "", permissions: ["DASHBOARD_READ"] });
 const nodeForm = ref({
   nodeKey: "",
@@ -55,6 +57,7 @@ const dealerForm = ref({ dealerCode: "", organizationNodeId: "" });
 
 const sections = computed(() => [
   admin.canReadUsers.value ? { id: "users", label: props.dictionary.adminUsersTab, icon: "group" } : null,
+  admin.canManageUsers.value ? { id: "smtp", label: props.dictionary.smtpTab, icon: "mail" } : null,
   admin.canReadRoles.value ? { id: "roles", label: props.dictionary.adminRolesTab, icon: "shield" } : null,
   admin.canReadOrganization.value
     ? { id: "organization", label: props.dictionary.adminOrganizationTab, icon: "account_tree" }
@@ -98,10 +101,11 @@ async function handleCreateUser() {
   const created = await admin.createUser({
     username: userForm.value.username,
     displayName: userForm.value.displayName,
+    email: userForm.value.email,
     roles: [...userForm.value.roles]
   });
   if (created) {
-    userForm.value = { username: "", displayName: "", roles: [] };
+    userForm.value = { username: "", displayName: "", email: "", roles: [] };
     await selectUser(created);
   }
 }
@@ -109,9 +113,20 @@ async function handleCreateUser() {
 async function selectUser(user) {
   selectedUserId.value = user?.id ?? "";
   userRoleDraft.value = [...(user?.roles ?? [])];
+  userEmailDraft.value = user?.email ?? "";
   admin.userSessions.value = [];
   if (user?.id != null) {
     await admin.loadSessions(user.id);
+  }
+}
+
+async function handleSaveUserEmail() {
+  if (!selectedUser.value) {
+    return;
+  }
+  const updated = await admin.changeUserEmail(selectedUser.value, userEmailDraft.value);
+  if (updated) {
+    userEmailDraft.value = updated.email ?? "";
   }
 }
 
@@ -431,6 +446,10 @@ function confirmAction(message) {
             <input v-model="userForm.displayName" class="text-input" autocomplete="off" />
           </label>
           <label>
+            <span>{{ dictionary.adminEmailLabel }}</span>
+            <input v-model="userForm.email" class="text-input" type="email" autocomplete="off" />
+          </label>
+          <label>
             <span>{{ dictionary.adminRolesLabel }}</span>
             <select v-model="userForm.roles" class="text-input" multiple required>
               <option v-for="role in admin.roles.value" :key="role.id" :value="role.roleKey">
@@ -485,6 +504,16 @@ function confirmAction(message) {
               </label>
             </fieldset>
 
+            <form v-if="admin.canManageUsers.value" class="admin-inline-form" @submit.prevent="handleSaveUserEmail">
+              <label>
+                <span>{{ dictionary.adminEmailLabel }}</span>
+                <input v-model="userEmailDraft" class="text-input" type="email" autocomplete="off" />
+              </label>
+              <button class="ghost-button" type="submit" :disabled="Boolean(admin.pendingAction.value)">
+                {{ dictionary.adminSaveEmail }}
+              </button>
+            </form>
+
             <div v-if="admin.canManageUsers.value" class="admin-action-row">
               <button class="primary-button" type="button" :disabled="Boolean(admin.pendingAction.value)" @click="handleSaveUserRoles">
                 {{ dictionary.adminSaveRoles }}
@@ -537,6 +566,12 @@ function confirmAction(message) {
           </div>
         </div>
       </section>
+
+      <NotificationSmtpPanel
+        v-else-if="activeSection === 'smtp'"
+        :dictionary="dictionary"
+        @sign-out="emit('sign-out')"
+      />
 
       <section v-else-if="activeSection === 'roles'" class="admin-panel" aria-labelledby="admin-roles-heading">
         <div class="admin-panel-heading">

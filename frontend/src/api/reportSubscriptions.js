@@ -36,6 +36,23 @@ export async function deleteReportSubscription(subscriptionId, version) {
   });
 }
 
+export async function listReportDeliveries() {
+  return readData(await requestJson("/api/report-deliveries"), []);
+}
+
+export async function retryReportDelivery(deliveryId) {
+  return readData(await requestJson(`/api/report-deliveries/${deliveryId}/retry`, {
+    method: "POST"
+  }), null);
+}
+
+export async function forceReplayReportDelivery(deliveryId) {
+  return readData(await requestJson(`/api/report-deliveries/${deliveryId}/force-replay`, {
+    method: "POST",
+    body: JSON.stringify({ acknowledgeDuplicateRisk: true })
+  }), null);
+}
+
 function readData(response, fallback) {
   return response?.data ?? fallback;
 }

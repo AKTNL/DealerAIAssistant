@@ -11,11 +11,20 @@ vi.mock("../../composables/useAdministration", () => ({
   useAdministration: () => state.administration
 }));
 
+vi.mock("../admin/NotificationSmtpPanel.vue", () => ({
+  default: {
+    name: "NotificationSmtpPanel",
+    props: ["dictionary"],
+    template: '<div class="smtp-panel-stub">SMTP panel</div>'
+  }
+}));
+
 const dictionary = {
   adminAssignedRoles: "Assigned roles",
   adminAuditTab: "Audit",
   adminCreateUser: "Create user",
   adminDisplayNameLabel: "Display name",
+  adminEmailLabel: "Email",
   adminDisabled: "Disabled",
   adminEnabled: "Enabled",
   adminErrorTitle: "Error",
@@ -42,7 +51,8 @@ const dictionary = {
   adminUsersBody: "Manage users",
   adminUsersEmpty: "No users",
   adminUsersTab: "Users",
-  adminUsersTitle: "Users"
+  adminUsersTitle: "Users",
+  smtpTab: "Email notifications"
 };
 
 function administration(overrides = {}) {
@@ -55,6 +65,7 @@ function administration(overrides = {}) {
     canReadOrganization: ref(false),
     canReadRoles: ref(false),
     canReadUsers: ref(true),
+    changeUserEmail: vi.fn(),
     changeUserEnabled: vi.fn(),
     clearFeedback: vi.fn(),
     createOrganizationNode: vi.fn(),
@@ -133,5 +144,16 @@ describe("AdminView", () => {
     expect(wrapper.find(".admin-secret-value").text()).toBe("Temporary-2!");
     await wrapper.find(".admin-secret-dialog button").trigger("click");
     expect(dismissOneTimePassword).toHaveBeenCalledOnce();
+  });
+
+  it("opens tenant SMTP settings only for user managers", async () => {
+    state.administration = administration({ canManageUsers: ref(true) });
+    const wrapper = mountView();
+    await vi.waitFor(() => expect(wrapper.text()).toContain("Email notifications"));
+
+    const smtpTab = wrapper.findAll("button").find((button) => button.text().includes("Email notifications"));
+    await smtpTab.trigger("click");
+
+    expect(wrapper.find(".smtp-panel-stub").exists()).toBe(true);
   });
 });

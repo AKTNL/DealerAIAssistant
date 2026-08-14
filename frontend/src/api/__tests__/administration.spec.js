@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
+  changeUserEmail,
   changeUserEnabled,
   listAuditEvents,
   listSubjectGrants,
@@ -22,6 +23,7 @@ describe("administration api", () => {
   });
 
   it("sends optimistic versions for identity and organization mutations", async () => {
+    await changeUserEmail(7, "analyst@example.com", 2);
     await changeUserEnabled(7, false, 3);
     await resetUserPassword(7, "temporary-password", 4);
     await updateRolePermissions(9, ["DATA_READ"], 5);
@@ -33,19 +35,23 @@ describe("administration api", () => {
       version: 6
     });
 
-    expect(requestJsonMock).toHaveBeenNthCalledWith(1, "/api/admin/users/7/enabled", {
+    expect(requestJsonMock).toHaveBeenNthCalledWith(1, "/api/admin/users/7/email", {
+      method: "PATCH",
+      body: JSON.stringify({ email: "analyst@example.com", version: 2 })
+    });
+    expect(requestJsonMock).toHaveBeenNthCalledWith(2, "/api/admin/users/7/enabled", {
       method: "PATCH",
       body: JSON.stringify({ enabled: false, version: 3 })
     });
-    expect(requestJsonMock).toHaveBeenNthCalledWith(2, "/api/admin/users/7/reset-password", {
+    expect(requestJsonMock).toHaveBeenNthCalledWith(3, "/api/admin/users/7/reset-password", {
       method: "POST",
       body: JSON.stringify({ temporaryPassword: "temporary-password", version: 4 })
     });
-    expect(requestJsonMock).toHaveBeenNthCalledWith(3, "/api/admin/roles/9/permissions", {
+    expect(requestJsonMock).toHaveBeenNthCalledWith(4, "/api/admin/roles/9/permissions", {
       method: "PUT",
       body: JSON.stringify({ permissions: ["DATA_READ"], version: 5 })
     });
-    expect(requestJsonMock).toHaveBeenNthCalledWith(4, "/api/admin/organizations/nodes/11", {
+    expect(requestJsonMock).toHaveBeenNthCalledWith(5, "/api/admin/organizations/nodes/11", {
       method: "PUT",
       body: JSON.stringify({
         displayName: "North",

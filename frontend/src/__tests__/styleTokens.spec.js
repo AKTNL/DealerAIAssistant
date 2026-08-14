@@ -231,7 +231,14 @@ describe("blue gray enterprise style tokens", () => {
     expectMediaBlockContains("max-width: 720px", [
       ".topbar,",
       ".topbar-editorial {",
+      "align-items: stretch;",
+      "flex-direction: column;",
       "padding: 0.9rem;"
+    ]);
+    expectMediaBlockContains("max-width: 720px", [
+      ".topbar-actions {",
+      "flex-wrap: wrap;",
+      "justify-content: flex-start;"
     ]);
     expectMediaBlockContains("max-width: 720px", [
       ".chat-copy,",
@@ -249,11 +256,16 @@ describe("blue gray enterprise style tokens", () => {
     ]);
   });
 
-  test("keeps the global minimum width friendly to tablet-sized viewports", () => {
+  test("keeps the workspace usable on phone-sized viewports", () => {
     expectSelectorInRule("body", [
-      "min-width: 768px;"
+      "min-width: 320px;"
+    ]);
+    expectMediaBlockContains("max-width: 1040px", [
+      ".app-shell.sidebar-collapsed {",
+      "grid-template-columns: minmax(0, 1fr);"
     ]);
 
+    expect(stylesheet).not.toContain("min-width: 768px;");
     expect(stylesheet).not.toContain("min-width: 1060px;");
   });
 });

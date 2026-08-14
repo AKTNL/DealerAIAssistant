@@ -1,6 +1,7 @@
 import { computed, ref } from "vue";
 import {
   assignUserRoles as assignUserRolesRequest,
+  changeUserEmail as changeUserEmailRequest,
   changeUserEnabled as changeUserEnabledRequest,
   createOrganizationNode as createOrganizationNodeRequest,
   createRole as createRoleRequest,
@@ -97,6 +98,18 @@ export function useAdministration({ currentUser, dictionary, onAuthExpired, onId
       if (!enabled && isCurrentUser(user.id)) {
         onIdentityRevoked?.();
       }
+    }
+    return updated;
+  }
+
+  async function changeUserEmail(user, email) {
+    const updated = await perform(
+      `user-email-${user.id}`,
+      () => changeUserEmailRequest(user.id, email?.trim() || null, user.version),
+      dictionary.value.adminEmailUpdated
+    );
+    if (updated) {
+      replaceById(users, updated);
     }
     return updated;
   }
@@ -322,6 +335,7 @@ export function useAdministration({ currentUser, dictionary, onAuthExpired, onId
     canReadRoles,
     canReadUsers,
     changeUserEnabled,
+    changeUserEmail,
     clearFeedback,
     createOrganizationNode,
     createRole,

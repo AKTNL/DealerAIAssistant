@@ -10,8 +10,11 @@ import {
   changeReportSubscriptionEnabled,
   createReportSubscription,
   deleteReportSubscription,
+  forceReplayReportDelivery,
+  listReportDeliveries,
   listReportSubscriptionRecipients,
   listReportSubscriptions,
+  retryReportDelivery,
   updateReportSubscription
 } from "../reportSubscriptions";
 
@@ -30,6 +33,9 @@ describe("report subscription API", () => {
     await updateReportSubscription(9, { ...input, version: 2 });
     await changeReportSubscriptionEnabled(9, false, 3);
     await deleteReportSubscription(9, 4);
+    await listReportDeliveries();
+    await retryReportDelivery(12);
+    await forceReplayReportDelivery(13);
 
     expect(requestJsonMock).toHaveBeenNthCalledWith(1, "/api/report-subscriptions");
     expect(requestJsonMock).toHaveBeenNthCalledWith(2, "/api/report-subscriptions/recipients");
@@ -48,6 +54,14 @@ describe("report subscription API", () => {
     expect(requestJsonMock).toHaveBeenNthCalledWith(6, "/api/report-subscriptions/9", {
       method: "DELETE",
       body: JSON.stringify({ version: 4 })
+    });
+    expect(requestJsonMock).toHaveBeenNthCalledWith(7, "/api/report-deliveries");
+    expect(requestJsonMock).toHaveBeenNthCalledWith(8, "/api/report-deliveries/12/retry", {
+      method: "POST"
+    });
+    expect(requestJsonMock).toHaveBeenNthCalledWith(9, "/api/report-deliveries/13/force-replay", {
+      method: "POST",
+      body: JSON.stringify({ acknowledgeDuplicateRisk: true })
     });
   });
 });

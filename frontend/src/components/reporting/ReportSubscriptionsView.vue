@@ -13,10 +13,11 @@ const emit = defineEmits(["sign-out"]);
 const currentUser = computed(() => props.currentUser);
 const dictionary = computed(() => props.dictionary);
 const editingId = ref(null);
-const form = ref(emptyForm());
 const {
   canManage,
   create,
+  deliveries,
+  forceReplayDelivery,
   initialize,
   loadError,
   loading,
@@ -24,6 +25,7 @@ const {
   pendingAction,
   recipients,
   remove,
+  retryDelivery,
   setEnabled,
   subscriptions,
   successMessage,
@@ -33,8 +35,16 @@ const {
   dictionary,
   onAuthExpired: () => emit("sign-out")
 });
+const form = ref(emptyForm());
 
-onMounted(initialize);
+const selectedRecipientsReady = computed(() => form.value.recipientUserIds.every((userId) =>
+  recipients.value.some((recipient) => recipient.userId === userId && recipient.emailConfigured === true)
+));
+
+onMounted(async () => {
+  await initialize();
+  form.value = emptyForm();
+});
 
 async function submit() {
   const input = normalizedInput();
@@ -91,6 +101,13 @@ async function confirmDelete(subscription) {
   }
 }
 
+async function confirmForceReplay(delivery) {
+  if (typeof window !== "undefined" && !window.confirm(props.dictionary.deliveryForceReplayConfirm)) {
+    return;
+  }
+  await forceReplayDelivery(delivery);
+}
+
 function normalizedInput() {
   const weekly = form.value.scheduleKind === "WEEKLY";
   const monthly = form.value.scheduleKind === "MONTHLY";
@@ -111,6 +128,8 @@ function normalizedInput() {
 }
 
 function emptyForm() {
+  const currentRecipient = recipients.value.find((recipient) =>
+    String(recipient.userId) === String(props.currentUser?.id) && recipient.emailConfigured === true);
   return {
     reportType: "daily",
     language: props.locale || "zh",
@@ -121,10 +140,15 @@ function emptyForm() {
     dayOfWeek: 1,
     dayOfMonth: 1,
     channelKey: "email",
-    recipientUserIds: props.currentUser?.id ? [props.currentUser.id] : [],
+    recipientUserIds: currentRecipient ? [currentRecipient.userId] : [],
     enabled: true,
     version: null
   };
+}
+
+function recipientName(userId) {
+  const recipient = recipients.value.find((item) => item.userId === userId);
+  return recipient?.displayName || recipient?.username || String(userId);
 }
 
 function detectedTimeZone() {
@@ -250,7 +274,9 @@ function formatDate(value) {
           </label>
           <label>
             <span>{{ dictionary.subscriptionChannelKey }}</span>
-            <input v-model="form.channelKey" type="text" pattern="[a-z][a-z0-9_-]{0,31}" required />
+            <select v-model="form.channelKey" required>
+              <option value="email">{{ dictionary.subscriptionChannelEmail }}</option>
+            </select>
           </label>
           <label class="subscription-form-wide">
             <span>{{ dictionary.subscriptionTopic }}</span>
@@ -264,10 +290,12 @@ function formatDate(value) {
           <label v-for="recipient in recipients" :key="recipient.userId">
             <input
               type="checkbox"
+              :disabled="!recipient.emailConfigured"
               :checked="form.recipientUserIds.includes(recipient.userId)"
               @change="toggleRecipient(recipient.userId, $event.target.checked)"
             />
             <span>{{ recipient.displayName }} ({{ recipient.username }})</span>
+            <small v-if="!recipient.emailConfigured">{{ dictionary.subscriptionEmailMissing }}</small>
           </label>
         </fieldset>
 
@@ -278,7 +306,7 @@ function formatDate(value) {
         <button
           class="primary-button"
           type="submit"
-          :disabled="Boolean(pendingAction) || form.recipientUserIds.length === 0"
+          :disabled="Boolean(pendingAction) || form.recipientUserIds.length === 0 || !selectedRecipientsReady"
         >
           {{ editingId ? dictionary.subscriptionSave : dictionary.subscriptionCreate }}
         </button>
@@ -329,6 +357,50 @@ function formatDate(value) {
             </button>
             <button type="button" class="danger-button" :disabled="Boolean(pendingAction)" @click="confirmDelete(subscription)">
               {{ dictionary.subscriptionDelete }}
+            </button>
+          </div>
+        </article>
+      </div>
+
+      <div class="subscription-list-heading">
+        <h2>{{ dictionary.deliveryListTitle }}</h2>
+        <span>{{ deliveries.length }}</span>
+      </div>
+      <p v-if="!deliveries.length" class="subscription-empty">{{ dictionary.deliveryListEmpty }}</p>
+      <div v-else class="subscription-list">
+        <article v-for="delivery in deliveries" :key="delivery.id" class="subscription-card">
+          <div class="subscription-card-heading">
+            <div>
+              <span :class="['subscription-status', { inactive: delivery.status !== 'SUCCEEDED' }]">
+                {{ dictionary.deliveryStatuses?.[delivery.status] ?? delivery.status }}
+              </span>
+              <h3>{{ recipientName(delivery.recipientUserId) }}</h3>
+            </div>
+            <span>{{ delivery.attempt }} / {{ delivery.maxAttempts }}</span>
+          </div>
+          <dl>
+            <div><dt>{{ dictionary.deliveryUpdatedAt }}</dt><dd>{{ formatDate(delivery.updatedAt) }}</dd></div>
+            <div><dt>{{ dictionary.deliveryNextRetry }}</dt><dd>{{ formatDate(delivery.nextRetryAt) }}</dd></div>
+            <div><dt>{{ dictionary.deliveryErrorCode }}</dt><dd>{{ delivery.errorCode || dictionary.adminNotAvailable }}</dd></div>
+          </dl>
+          <div v-if="canManage" class="subscription-card-actions">
+            <button
+              v-if="delivery.status === 'PERMANENT_FAILURE'"
+              type="button"
+              class="text-button"
+              :disabled="Boolean(pendingAction)"
+              @click="retryDelivery(delivery)"
+            >
+              {{ dictionary.deliveryRetry }}
+            </button>
+            <button
+              v-if="delivery.status === 'UNKNOWN'"
+              type="button"
+              class="danger-button"
+              :disabled="Boolean(pendingAction)"
+              @click="confirmForceReplay(delivery)"
+            >
+              {{ dictionary.deliveryForceReplay }}
             </button>
           </div>
         </article>
