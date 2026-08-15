@@ -9,6 +9,10 @@ import com.brand.agentpoc.auth.infrastructure.persistence.AuthUserRepository;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.io.IOException;
+import java.net.URI;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -20,6 +24,7 @@ import java.util.Properties;
 import org.flywaydb.core.Flyway;
 import org.flywaydb.core.api.MigrationVersion;
 import org.junit.jupiter.api.Test;
+import org.springframework.boot.actuate.health.HealthEndpointGroups;
 import org.springframework.beans.factory.config.YamlPropertiesFactoryBean;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.WebApplicationType;
@@ -120,7 +125,53 @@ class AgentPocApplicationStartupTest {
         )) {
             assertThat(context.getBean(SecurityFilterChain.class)).isNotNull();
             assertThat(context.getBeansOfType(InMemoryUserDetailsManager.class)).isEmpty();
+
+            HealthEndpointGroups groups = context.getBean(HealthEndpointGroups.class);
+            assertThat(groups.get("liveness").isMember("livenessState")).isTrue();
+            assertThat(groups.get("liveness").isMember("db")).isFalse();
+            assertThat(groups.get("readiness").isMember("readinessState")).isTrue();
+            assertThat(groups.get("readiness").isMember("db")).isTrue();
+            assertThat(groups.get("readiness").isMember("migration")).isTrue();
+            assertThat(groups.get("readiness").isMember("knowledge")).isTrue();
+            assertThat(groups.get("readiness").isMember("operationalQueue")).isFalse();
+
+            Integer port = context.getEnvironment().getProperty("local.server.port", Integer.class);
+            assertThat(port).isNotNull();
+            assertThat(getStatus(port, "/livez")).isEqualTo(200);
+            assertThat(getStatus(port, "/readyz")).isEqualTo(200);
         }
+    }
+
+    private int getStatus(int port, String path) {
+        try (HttpClient client = HttpClient.newHttpClient()) {
+            HttpRequest request = HttpRequest.newBuilder(URI.create("http://127.0.0.1:" + port + path)).GET().build();
+            return client.send(request, HttpResponse.BodyHandlers.discarding()).statusCode();
+        } catch (IOException exception) {
+            throw new IllegalStateException("Health probe request failed.", exception);
+        } catch (InterruptedException exception) {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException("Health probe request was interrupted.", exception);
+        }
+    }
+
+    @Test
+    void applicationYamlSeparatesProbesAndEnablesMetricHistograms() {
+        YamlPropertiesFactoryBean factory = new YamlPropertiesFactoryBean();
+        factory.setResources(new ClassPathResource("application.yml"));
+
+        Properties properties = factory.getObject();
+
+        assertThat(properties).isNotNull();
+        assertThat(properties.getProperty("management.endpoint.health.group.liveness.include"))
+                .isEqualTo("livenessState");
+        assertThat(properties.getProperty("management.endpoint.health.group.readiness.include"))
+                .isEqualTo("readinessState,db,migration,knowledge");
+        assertThat(properties.getProperty(
+                "management.metrics.distribution.percentiles-histogram.http.server.requests"))
+                .isEqualTo("true");
+        assertThat(properties.getProperty(
+                "management.metrics.distribution.percentiles-histogram.agentpoc.model.call"))
+                .isEqualTo("true");
     }
 
     @Test

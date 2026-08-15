@@ -12,6 +12,10 @@ import org.springframework.data.repository.query.Param;
 
 public interface ReportGenerationJobRepository extends JpaRepository<ReportGenerationJobEntity, Long> {
 
+    long countByStatus(ReportGenerationJobStatus status);
+
+    long countByStatusIn(List<ReportGenerationJobStatus> statuses);
+
     Optional<ReportGenerationJobEntity> findByIdempotencyKey(String idempotencyKey);
 
     List<ReportGenerationJobEntity> findTop50ByStatusOrderByScheduledAtAscIdAsc(

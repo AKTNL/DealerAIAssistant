@@ -67,4 +67,24 @@ class OperationalTelemetryTest {
         assertThat(meterRegistry.get("agentpoc.data.import").tag("app.outcome", "error").timer().count())
                 .isEqualTo(1);
     }
+
+    @Test
+    void recordsExplicitAsyncDurationsWithOnlySafeTags() {
+        SimpleMeterRegistry meterRegistry = new SimpleMeterRegistry();
+        OperationalTelemetry telemetry = new OperationalTelemetry(ObservationRegistry.create(), meterRegistry);
+
+        telemetry.recordDuration(
+                OperationalEvent.MODEL_CALL,
+                com.brand.agentpoc.observability.domain.OperationalOutcome.ERROR,
+                750L,
+                java.util.concurrent.TimeUnit.MILLISECONDS
+        );
+
+        assertThat(meterRegistry.get("agentpoc.model.call").timer().count()).isEqualTo(1L);
+        assertThat(meterRegistry.get("agentpoc.model.call").timer().totalTime(java.util.concurrent.TimeUnit.MILLISECONDS))
+                .isEqualTo(750.0);
+        assertThat(meterRegistry.get("agentpoc.model.call").timer().getId().getTags())
+                .extracting(tag -> tag.getKey())
+                .containsExactlyInAnyOrder("app.component", "app.outcome");
+    }
 }

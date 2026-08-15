@@ -1,5 +1,6 @@
 package com.brand.agentpoc.modelusage.infrastructure;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
@@ -19,6 +20,8 @@ import com.brand.agentpoc.modelusage.domain.ModelUsageScenario;
 import com.brand.agentpoc.modelusage.domain.ModelUsageSnapshot;
 import com.brand.agentpoc.modelusage.domain.ModelUsageStatus;
 import com.brand.agentpoc.observability.infrastructure.OperationalTelemetry;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import io.micrometer.observation.ObservationRegistry;
 import java.util.List;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -73,16 +76,24 @@ class ModelUsageTrackerTest {
 
     @Test
     void keepsMaximumCumulativeStreamUsageAndSettlesExactlyOnce() {
+        SimpleMeterRegistry meterRegistry = new SimpleMeterRegistry();
         when(delegate.stream(prompt)).thenReturn(Flux.just(
                 response(10, 2, 12),
                 response(10, 7, 17),
                 response(null, 4, null)
         ));
+        ChatModel measured = new ModelUsageTracker(
+                budgetService,
+                recordingService,
+                new OperationalTelemetry(ObservationRegistry.create(), meterRegistry)
+        ).track(delegate, context);
 
-        tracked.stream(prompt).collectList().block();
+        measured.stream(prompt).collectList().block();
 
         verify(recordingService, times(1)).record(anyString(), eq(context), eq(ModelUsageStatus.SUCCESS),
                 eq(new ModelUsageSnapshot(10L, 7L, 17L)), anyLong(), isNull());
+        assertThat(meterRegistry.get("agentpoc.model.call")
+                .tag("app.outcome", "success").timer().count()).isEqualTo(1L);
     }
 
     @Test
@@ -107,6 +118,23 @@ class ModelUsageTrackerTest {
         verify(delegate, times(0)).call(prompt);
         verify(recordingService).record(anyString(), eq(context), eq(ModelUsageStatus.REJECTED),
                 eq(ModelUsageSnapshot.unknown()), eq(0L), isNull());
+    }
+
+    @Test
+    void emitsOneProviderDurationMetricPerLogicalCall() {
+        SimpleMeterRegistry meterRegistry = new SimpleMeterRegistry();
+        ChatResponse response = response(10, 4, 14);
+        when(delegate.call(prompt)).thenReturn(response);
+        ChatModel measured = new ModelUsageTracker(
+                budgetService,
+                recordingService,
+                new OperationalTelemetry(ObservationRegistry.create(), meterRegistry)
+        ).track(delegate, context);
+
+        measured.call(prompt);
+
+        assertThat(meterRegistry.get("agentpoc.model.call")
+                .tag("app.outcome", "success").timer().count()).isEqualTo(1L);
     }
 
     private ChatResponse response(Integer input, Integer output, Integer total) {

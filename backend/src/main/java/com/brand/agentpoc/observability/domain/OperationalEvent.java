@@ -10,6 +10,7 @@ public enum OperationalEvent {
             "report.collaboration.notification",
             "reporting"
     ),
+    MODEL_CALL("agentpoc.model.call", "model.call", "model"),
     MODEL_USAGE_RECORD("agentpoc.model.usage.record", "model.usage.record", "modelusage");
 
     private final String observationName;

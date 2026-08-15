@@ -12,6 +12,10 @@ import org.springframework.data.repository.query.Param;
 
 public interface ReportDeliveryRepository extends JpaRepository<ReportDeliveryEntity, Long> {
 
+    long countByStatus(ReportDeliveryStatus status);
+
+    long countByStatusIn(List<ReportDeliveryStatus> statuses);
+
     Optional<ReportDeliveryEntity> findByDeliveryKey(String deliveryKey);
 
     List<ReportDeliveryEntity> findTop50ByStatusOrderByCreatedAtAscIdAsc(ReportDeliveryStatus status);

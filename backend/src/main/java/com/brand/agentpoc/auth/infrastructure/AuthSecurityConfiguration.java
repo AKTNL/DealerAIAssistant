@@ -56,7 +56,7 @@ public class AuthSecurityConfiguration {
                         .requestMatchers(
                                 "/", "/index.html", "/assets/**", "/favicon.ico", "/logo.png",
                                 "/openapi.json", "/swagger-ui.html", "/swagger-ui/**", "/v3/api-docs/**",
-                                "/h2-console/**", "/actuator/health",
+                                "/h2-console/**", "/actuator/health", "/actuator/health/**", "/livez", "/readyz",
                                 "/api/auth/login", "/api/auth/refresh", "/api/auth/logout"
                         ).permitAll()
                         .requestMatchers("/api/auth/me", "/api/auth/password", "/api/auth/logout-all").authenticated()

@@ -134,12 +134,10 @@ public class ModelUsageTracker {
             StartedCall call = begin(context);
             try {
                 ChatResponse response = delegate.call(prompt);
-                persist(call.callKey(), context, ModelUsageStatus.SUCCESS, ModelUsageSnapshot.from(response),
-                        elapsedMillis(call.startedAt()), call.reservationId());
+                settle(call, ModelUsageSnapshot.from(response), ModelUsageStatus.SUCCESS);
                 return response;
             } catch (RuntimeException | Error exception) {
-                persist(call.callKey(), context, ModelUsageStatus.ERROR, ModelUsageSnapshot.unknown(),
-                        elapsedMillis(call.startedAt()), call.reservationId());
+                settle(call, ModelUsageSnapshot.unknown(), ModelUsageStatus.ERROR);
                 throw exception;
             }
         }
@@ -171,8 +169,19 @@ public class ModelUsageTracker {
                 AtomicBoolean settled
         ) {
             if (settled.compareAndSet(false, true)) {
-                persist(call.callKey(), context, status, usage, elapsedMillis(call.startedAt()), call.reservationId());
+                settle(call, usage, status);
             }
+        }
+
+        private void settle(StartedCall call, ModelUsageSnapshot usage, ModelUsageStatus status) {
+            long durationMs = elapsedMillis(call.startedAt());
+            operationalTelemetry.recordDuration(
+                    OperationalEvent.MODEL_CALL,
+                    outcome(status),
+                    durationMs,
+                    TimeUnit.MILLISECONDS
+            );
+            persist(call.callKey(), context, status, usage, durationMs, call.reservationId());
         }
     }
 

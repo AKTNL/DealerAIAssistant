@@ -13,6 +13,7 @@ public class AppProperties {
     private final Model model = new Model();
     private final Knowledge knowledge = new Knowledge();
     private final Notification notification = new Notification();
+    private final Observability observability = new Observability();
 
     public Auth getAuth() {
         return auth;
@@ -36,6 +37,10 @@ public class AppProperties {
 
     public Notification getNotification() {
         return notification;
+    }
+
+    public Observability getObservability() {
+        return observability;
     }
 
     public static class Auth {
@@ -334,6 +339,45 @@ public class AppProperties {
 
         public void setMaxMessageBytes(int maxMessageBytes) {
             this.maxMessageBytes = maxMessageBytes;
+        }
+    }
+
+    public static class Observability {
+        private Duration slowQueryThreshold = Duration.ofMillis(500);
+        private int jobBacklogDegradedThreshold = 100;
+        private int deliveryBacklogDegradedThreshold = 100;
+        private int permanentFailureDegradedThreshold = 1;
+
+        public Duration getSlowQueryThreshold() {
+            return slowQueryThreshold;
+        }
+
+        public void setSlowQueryThreshold(Duration slowQueryThreshold) {
+            this.slowQueryThreshold = slowQueryThreshold;
+        }
+
+        public int getJobBacklogDegradedThreshold() {
+            return jobBacklogDegradedThreshold;
+        }
+
+        public void setJobBacklogDegradedThreshold(int jobBacklogDegradedThreshold) {
+            this.jobBacklogDegradedThreshold = jobBacklogDegradedThreshold;
+        }
+
+        public int getDeliveryBacklogDegradedThreshold() {
+            return deliveryBacklogDegradedThreshold;
+        }
+
+        public void setDeliveryBacklogDegradedThreshold(int deliveryBacklogDegradedThreshold) {
+            this.deliveryBacklogDegradedThreshold = deliveryBacklogDegradedThreshold;
+        }
+
+        public int getPermanentFailureDegradedThreshold() {
+            return permanentFailureDegradedThreshold;
+        }
+
+        public void setPermanentFailureDegradedThreshold(int permanentFailureDegradedThreshold) {
+            this.permanentFailureDegradedThreshold = permanentFailureDegradedThreshold;
         }
     }
 }

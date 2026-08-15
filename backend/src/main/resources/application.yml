@@ -66,8 +66,31 @@ app:
     smtp-read-timeout: ${APP_NOTIFICATION_SMTP_READ_TIMEOUT:10s}
     smtp-write-timeout: ${APP_NOTIFICATION_SMTP_WRITE_TIMEOUT:5s}
     max-message-bytes: ${APP_NOTIFICATION_MAX_MESSAGE_BYTES:262144}
+  observability:
+    slow-query-threshold: ${APP_OBSERVABILITY_SLOW_QUERY_THRESHOLD:500ms}
+    queue-refresh-interval: ${APP_OBSERVABILITY_QUEUE_REFRESH_INTERVAL:30s}
+    queue-refresh-initial-delay: ${APP_OBSERVABILITY_QUEUE_REFRESH_INITIAL_DELAY:0s}
+    job-backlog-degraded-threshold: ${APP_OBSERVABILITY_JOB_BACKLOG_DEGRADED_THRESHOLD:100}
+    delivery-backlog-degraded-threshold: ${APP_OBSERVABILITY_DELIVERY_BACKLOG_DEGRADED_THRESHOLD:100}
+    permanent-failure-degraded-threshold: ${APP_OBSERVABILITY_PERMANENT_FAILURE_DEGRADED_THRESHOLD:1}
 
 management:
+  endpoint:
+    health:
+      probes:
+        enabled: true
+        add-additional-paths: true
+      group:
+        liveness:
+          include: livenessState
+        readiness:
+          include: readinessState,db,migration,knowledge
+      status:
+        order: down,out-of-service,degraded,unknown,up
+        http-mapping:
+          down: 503
+          out-of-service: 503
+          degraded: 200
   endpoints:
     web:
       exposure:
@@ -88,6 +111,25 @@ management:
   observations:
     key-values:
       service: ${spring.application.name}
+  health:
+    livenessstate:
+      enabled: true
+    readinessstate:
+      enabled: true
+  metrics:
+    distribution:
+      percentiles-histogram:
+        http.server.requests: true
+        agentpoc.model.call: true
+        agentpoc.database.query: true
+        agentpoc.data.import: true
+        agentpoc.report.generate: true
+        agentpoc.report.job.execute: true
+        agentpoc.report.delivery: true
+      slo:
+        http.server.requests: 250ms,1s,5s,30s,120s
+        agentpoc.model.call: 1s,5s,15s,30s,60s
+        agentpoc.database.query: 100ms,250ms,500ms,1s,5s
 
 springdoc:
   swagger-ui:
