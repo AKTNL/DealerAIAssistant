@@ -23,6 +23,7 @@ This directory contains guidelines for frontend development. Each file documents
 | [Authentication Session](./authentication-session.md) | Login, refresh recovery, forced password change, and permission UI | Filled |
 | [Email Notification Delivery](./notification-delivery.md) | Membership email readiness, SMTP administration, delivery state, and mobile layout | Filled |
 | [Report Collaboration Workflow](./report-collaboration.md) | Scoped report queue, read-only workflow, optimistic conflicts, and immutable timeline | Filled |
+| [Model Usage and Cost Governance](./model-usage-cost-governance.md) | Permission-scoped usage dashboard, price history, budget policy, and error states | Filled |
 
 ---
 

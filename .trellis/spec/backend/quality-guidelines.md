@@ -101,6 +101,26 @@ public RuleBasedAnalyticsService(
 ) {
 ```
 
+A Spring component with more than one declared constructor must mark exactly one production constructor with
+`@Autowired`, even when the other constructor is private and exists only for a static no-op/test factory. A component
+with one constructor does not need the annotation. This keeps constructor injection explicit without making Spring
+guess between the production dependency graph and compatibility construction paths.
+
+```java
+@Autowired
+public ModelUsageTracker(
+        ModelBudgetAdmissionService admissionService,
+        ModelUsageRecordingService recordingService,
+        OperationalTelemetry telemetry
+) {
+    this(admissionService, recordingService, telemetry, true);
+}
+
+private ModelUsageTracker(..., boolean enabled) {
+    // Used only by noop().
+}
+```
+
 ### Java Records for DTOs
 
 All DTOs are Java records (immutable, transparent data carriers):

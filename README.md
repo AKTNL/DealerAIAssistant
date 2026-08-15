@@ -4,7 +4,7 @@
 
 ## 当前交付状态
 
-截至 2026-08-11，P0 MVP、P1 首版与 P2-1A/P2-1B 权限及组织范围基础已完成：
+截至 2026-08-15，P0 MVP、P1 首版与 P2 产品化基础能力已完成：
 
 | 阶段 | 状态 | 已交付范围 |
 | --- | --- | --- |
@@ -15,6 +15,8 @@
 | P1-5 自动报告 | 已完成 | 确定性 Markdown 报告草稿、HTTP/Agent 入口、内存与 JDBC 记录 |
 | P2-1A 身份、RBAC 与会话 | 已完成 | 数据库用户、可配置角色、opaque access/refresh、管理 API、安全审计、统一业务授权 |
 | P2-1B 组织树与数据范围 | 已完成 | 集团/区域/城市/经销商树、用户/角色 grant、服务端 dealer 范围、HTTP/SSE/Agent/报告一致过滤 |
+| P2-4A 可观测性与追踪 | 已完成 | HTTP/SSE/后台任务关联、Micrometer Observation、OTLP/Prometheus 安全基线 |
+| P2-4B 模型使用与成本治理 | 已完成 | tenant 用量事件、token/成本聚合、追加式价格、软预算与可选并发硬限制 |
 
 这里的“已完成”指相应代码、回归和文档范围。真实 PostgreSQL 凭据环境仍需部署时手工验收；权限/组织管理图形界面、多租户、报告 PDF/Word 导出、任意文档上传与知识隔离属于后续增强。
 
@@ -49,6 +51,7 @@
 - 分析元数据：分析类回答正文前推送 `analysis_metadata`，用于展示分析范围、指标口径、数据来源、关键限制和高/中/低置信度
 - 结构化数据 API：原始数据查询、指标聚合、分页详情查询
 - 受控 RAG：本地/test 使用确定性内存检索，`prod` 使用 PGvector 语义检索；无命中时明确返回 no-match，不从常识补写制度内容
+- 模型成本治理：按 tenant、用户、场景和模型记录安全用量元数据，缺失 token/价格时明确标记未知；价格版本和事件成本快照不可变，默认仅观测与软预算
 
 ## 分析场景
 
@@ -88,6 +91,7 @@
 │       │   │   ├── dto/              # request、response、metrics、detail DTO
 │       │   │   ├── entity/           # Dealer、Opportunity、Campaign、Task、Target、Lead
 │       │   │   ├── knowledge/        # 文档/切片合同、检索应用服务、内存与 PGvector adapters
+│       │   │   ├── modelusage/       # 模型用量、价格版本、预算预留、tenant/平台治理 API
 │       │   │   ├── reporting/        # 报告类型、确定性 Markdown 草稿、记录与导出
 │       │   │   ├── repository/       # Spring Data JPA Repository
 │       │   │   └── service/          # 聊天、规则分析、数据查询、Excel 导入、会话记忆
@@ -155,7 +159,7 @@ mvn "-Dfrontend.skip=true" spring-boot:run
 
 ### 持久化数据库模式
 
-生产形态使用 PostgreSQL + Flyway。Flyway 会在启动时执行 `backend/src/main/resources/db/migration/` 和 `backend/src/main/resources/db/postgresql/` 下尚未应用的迁移，生产环境的 Hibernate 只校验 schema，不自动修改表结构。`V5__create_organization_scope_schema.sql` 增加组织节点、经销商映射、用户/角色 grant，并把已有全局数据的归属入口显式固定为 `GLOBAL_ROOT`；它不会自动给普通存量用户扩大范围，只有预置 `ADMIN` 角色由启动初始化获得根节点后代 grant。
+生产形态使用 PostgreSQL + Flyway。Flyway 会在启动时执行 `backend/src/main/resources/db/migration/` 和 `backend/src/main/resources/db/postgresql/` 下尚未应用的迁移，生产环境的 Hibernate 只校验 schema，不自动修改表结构。`V5__create_organization_scope_schema.sql` 增加组织节点、经销商映射、用户/角色 grant；`V12__create_model_usage_cost_governance.sql` 增加用量事件、追加式价格、预算策略和短期预留。迁移不会自动给普通存量用户扩大范围，模型治理权限默认只加入预置 `ADMIN`。
 
 PowerShell 示例：
 
@@ -255,6 +259,8 @@ npm run dev
 - 可通过 `APP_MODEL_BASE_URL`、`APP_MODEL_API_KEY`、`APP_MODEL_NAME` 提供服务端默认模型连接；tenant 专属配置通过 `/api/model-config` 管理。浏览器不保存模型 API key，也不会把密钥放入聊天请求。
 - 多 tenant 用户登录后必须在 `X-Tenant-Key` 中选择已加入的 tenant；该 header 只是选择意图，角色、权限、数据范围和资源归属仍由服务端实时校验。`/api/auth/me` 返回 `tenants` 和 `currentTenant`。
 - 模型 `Base URL` 会拒绝 localhost、内网地址和未进入允许列表的主机，允许列表可通过 `APP_MODEL_ALLOWED_HOSTS` 配置。
+- 模型用量治理没有额外环境开关：默认记录安全元数据，但不会保存 prompt、completion、API key、Base URL、工具参数或 provider-native payload。价格与预算通过 tenant 管理 API 持久化。
+- `MODEL_USAGE_READ` 查看当前 tenant；`MODEL_USAGE_MANAGE` 追加价格并维护预算；`MODEL_USAGE_PLATFORM_READ` 还必须在默认平台 tenant 中使用，跨 tenant 汇总会写入安全审计。
 
 ## API 概览
 
@@ -277,7 +283,14 @@ npm run dev
 | `/api/chat/{sessionId}` | DELETE | 清空指定会话记忆 |
 | `/api/model-config` | GET/PUT/DELETE | 读取、保存、删除当前 tenant 的模型配置；响应永不包含 API key 明文或密文 |
 | `/api/model-config/test` | POST | 测试当前 tenant 的模型连接，可复用服务端已保存密钥 |
+| `/api/admin/model-usage/summary` | GET | 按时间范围汇总当前 tenant 的调用、token、估算成本、异常与预算状态 |
+| `/api/admin/model-usage/events` | GET | 列出当前 tenant 最近的安全治理事件，最多 500 条 |
+| `/api/admin/model-usage/prices` | GET/POST | 查看或追加当前 tenant 的模型价格版本；历史版本不覆盖 |
+| `/api/admin/model-usage/budget` | GET/PUT | 查看或保存月度软预算及可选硬限制策略 |
+| `/api/platform/model-usage/summary` | GET | 默认平台 tenant 的跨 tenant 汇总，需独立权限并写审计 |
 | `/api/data-status` | GET | 查看当前导入来源、样例回退状态和质量汇总 |
+
+模型成本是按调用时 token 元数据和当时有效价格版本计算的目录估算，不等同于 provider 财务账单。token 或价格缺失时成本保持未知，不以文本长度猜测。硬限制默认关闭；启用前应先用真实用量校准 `reservationAmount`。上线、对账、故障处理与回滚步骤见 [`docs/13-P2-4B-模型用量与成本治理运行手册.md`](docs/13-P2-4B-模型用量与成本治理运行手册.md)。
 
 ### 报告草稿 API
 
