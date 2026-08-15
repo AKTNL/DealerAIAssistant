@@ -114,3 +114,82 @@ operationalTelemetry.observeVoid(OperationalEvent.REPORT_JOB_EXECUTION, context 
 });
 ```
 
+## Scenario: Health, Alerting, and Performance Baseline
+
+### 1. Scope / Trigger
+
+- Trigger: any change to Actuator health groups, orchestration probes, dependency degradation, repository/model latency, queue gauges, Prometheus rules, Alertmanager routing, or performance baselines.
+- This is a runtime and cross-layer contract because Spring health contributors, security paths, persistence state, metrics, alert routing, and deployment restart behavior must agree.
+
+### 2. Signatures
+
+- Liveness: `/actuator/health/liveness` and `/livez`; member list is exactly `livenessState`.
+- Readiness: `/actuator/health/readiness` and `/readyz`; member list is exactly `readinessState,db,migration,knowledge`.
+- Diagnostic-only contributor: `operationalQueue`; it is included in aggregate `/actuator/health` but excluded from both probe groups.
+- Repository metrics: `agentpoc.database.query` timer and `agentpoc.database.slow.query` counter.
+- Provider metric: `agentpoc.model.call` timer.
+- Queue gauges: `agentpoc.report.job.{backlog,retry,failure}`, `agentpoc.report.delivery.{backlog,retry,failure}`, and `agentpoc.operational.queue.refresh.available`.
+- Runtime keys: `APP_OBSERVABILITY_SLOW_QUERY_THRESHOLD`, `APP_OBSERVABILITY_QUEUE_REFRESH_INTERVAL`, `APP_OBSERVABILITY_QUEUE_REFRESH_INITIAL_DELAY`, `APP_OBSERVABILITY_JOB_BACKLOG_DEGRADED_THRESHOLD`, `APP_OBSERVABILITY_DELIVERY_BACKLOG_DEGRADED_THRESHOLD`, and `APP_OBSERVABILITY_PERMANENT_FAILURE_DEGRADED_THRESHOLD`.
+- Operational assets: `ops/prometheus/agentpoc-alerts.yml`, `ops/alertmanager/alertmanager.example.yml`, and `ops/performance/baseline.mjs`.
+
+### 3. Contracts
+
+- Liveness represents only whether the process should be restarted. Database, migration, knowledge, model, import, job, and delivery state must never become liveness members.
+- Readiness removes traffic when the database is unavailable, Flyway has pending migrations, or the configured knowledge index has not initialized. A readiness failure must not cause a liveness restart.
+- Model provider, import, report job, and delivery failures are operational degradation signals. They emit metrics/alerts and may set aggregate health to `DEGRADED` with HTTP 200, but they never enter readiness.
+- `MigrationHealthIndicator` is `UP` when Flyway is disabled, `OUT_OF_SERVICE` when migrations are pending, and `DOWN` when inspection fails. `KnowledgeHealthIndicator` is `OUT_OF_SERVICE` until `KnowledgeIndex.isAvailable()` succeeds.
+- Repository timing measures the complete Spring Data repository call through `RepositoryQueryMetricsAspect`; it is not raw-SQL instrumentation. Do not attach repository name, method name, SQL, parameters, tenant, user, or correlation IDs.
+- Queue snapshots refresh on a bounded schedule and retain the last numeric values with `refresh.available=0` if refresh fails. Backlog/retry/failure gauges use only `app.component` and `app.outcome` tags.
+- Each logical provider sync call or stream subscription records exactly one `agentpoc.model.call` terminal duration. Budget rejection before provider invocation is not a provider call.
+- Every alert has a non-empty `for`, impact, threshold, diagnostic URL, and runbook URL. Alertmanager groups duplicate events, limits repeats, sends resolved notifications, and inhibits matching warnings under a critical alert.
+- The Node performance baseline requires an explicit write acknowledgement for report generation, discards response bodies, and persists only aggregate timing/status data. A local H2 result is a regression baseline, not production capacity evidence.
+
+### 4. Validation & Error Matrix
+
+| Condition | Required behavior |
+| --- | --- |
+| Process is alive but database is unavailable | `/livez` remains 200; `/readyz` returns 503 and traffic is removed |
+| Flyway reports pending migrations | `migration=OUT_OF_SERVICE`; readiness returns 503 |
+| Knowledge index is not initialized | `knowledge=OUT_OF_SERVICE`; readiness returns 503 |
+| Model error ratio rises | Model degradation alert fires after debounce; readiness and liveness remain unchanged |
+| Queue refresh throws | Preserve last counts, set refresh availability to 0, and set aggregate health to `DEGRADED` |
+| Slow calls split across success/error series | Alert expression sums both series before applying the threshold |
+| Alert clears | Alertmanager sends one resolved notification according to grouping/routing |
+| Performance response or transport fails | Count the status/error, retain duration, and fail the baseline when the configured error-rate threshold is exceeded |
+
+### 5. Good/Base/Bad Cases
+
+- Good: a PostgreSQL outage stops new traffic through readiness while the orchestrator leaves the live process available for diagnosis.
+- Good: three successful and two failed slow repository calls within the window satisfy a five-call slow-query alert.
+- Good: an SMTP `UNKNOWN` delivery degrades aggregate health and alerts an operator without automatic replay or process restart.
+- Base: Flyway disabled in local H2 reports migration state `disabled`; an initialized in-memory knowledge index remains ready.
+- Bad: add the model provider or `operationalQueue` to readiness, causing fallback-capable requests to be drained or restarted.
+- Bad: label a metric with SQL, repository method, tenant, user, prompt, token, request, job, or delivery identifiers.
+- Bad: use a local H2 p95 to size production instances or run report load against a tenant that contains business data.
+
+### 6. Tests Required
+
+- `AgentPocApplicationStartupTest`: start a real random-port server, assert exact liveness/readiness group membership, and request `/livez` and `/readyz` successfully.
+- Health indicator tests: disabled/current/pending/error migration states and unavailable/available/error knowledge states.
+- `RepositoryQueryMetricsAspectTest`: success/error timing, slow threshold, rethrow behavior, and exactly the two safe tag keys.
+- `OperationalQueueMetricsTest`: backlog/retry/failure values, refresh availability, degraded aggregate health, and safe tag keys.
+- `ModelUsageTrackerTest`: one provider timer per logical sync/stream terminal outcome.
+- `OperationalAssetsTest`: YAML structure, unique alert names, debounce/action annotations, summed slow-query expression, grouping/repeat/inhibition, secret-file webhook, and resolved notifications.
+- Final gates: `mvn.cmd "-Dfrontend.skip=true" pmd:check`, full backend tests, frontend lint/test/build when bundled assets are affected, `node --check ops/performance/baseline.mjs`, an actual `/actuator/prometheus` scrape, and `git diff --check`.
+
+### 7. Wrong vs Correct
+
+Wrong:
+
+```yaml
+management.endpoint.health.group.liveness.include: livenessState,db,model
+expr: increase(agentpoc_database_slow_query_total[10m]) >= 5
+```
+
+Correct:
+
+```yaml
+management.endpoint.health.group.liveness.include: livenessState
+management.endpoint.health.group.readiness.include: readinessState,db,migration,knowledge
+expr: sum(increase(agentpoc_database_slow_query_total[10m])) >= 5
+```
