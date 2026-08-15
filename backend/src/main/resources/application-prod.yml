@@ -35,3 +35,14 @@ app:
     smtp-read-timeout: ${APP_NOTIFICATION_SMTP_READ_TIMEOUT:10s}
     smtp-write-timeout: ${APP_NOTIFICATION_SMTP_WRITE_TIMEOUT:5s}
     max-message-bytes: ${APP_NOTIFICATION_MAX_MESSAGE_BYTES:262144}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: ${MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE:health,info}
+
+logging:
+  structured:
+    format:
+      console: ${LOGGING_STRUCTURED_FORMAT_CONSOLE:logstash}

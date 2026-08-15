@@ -4,6 +4,12 @@ server:
 spring:
   application:
     name: agent-poc-backend
+  ai:
+    chat:
+      observations:
+        include-error-logging: false
+        log-prompt: false
+        log-completion: false
   datasource:
     url: jdbc:h2:mem:agentpoc;MODE=MySQL;DB_CLOSE_DELAY=-1;DB_CLOSE_ON_EXIT=FALSE
     driver-class-name: org.h2.Driver
@@ -65,7 +71,23 @@ management:
   endpoints:
     web:
       exposure:
-        include: health,info
+        include: ${MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE:health,info,metrics,prometheus}
+  tracing:
+    sampling:
+      probability: ${MANAGEMENT_TRACING_SAMPLING_PROBABILITY:0.1}
+    propagation:
+      produce: W3C
+      consume: W3C,B3,B3_MULTI
+  otlp:
+    tracing:
+      export:
+        enabled: ${MANAGEMENT_OTLP_TRACING_EXPORT_ENABLED:false}
+      endpoint: ${MANAGEMENT_OTLP_TRACING_ENDPOINT:http://localhost:4318/v1/traces}
+      connect-timeout: ${MANAGEMENT_OTLP_TRACING_CONNECT_TIMEOUT:5s}
+      timeout: ${MANAGEMENT_OTLP_TRACING_TIMEOUT:10s}
+  observations:
+    key-values:
+      service: ${spring.application.name}
 
 springdoc:
   swagger-ui:
@@ -75,3 +97,6 @@ springdoc:
 logging:
   level:
     com.brand.agentpoc: INFO
+  pattern:
+    correlation: "[${spring.application.name:},%X{traceId:-},%X{spanId:-},%X{requestId:-}] "
+  include-application-name: false

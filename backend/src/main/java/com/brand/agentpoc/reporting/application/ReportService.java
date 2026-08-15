@@ -2,6 +2,9 @@ package com.brand.agentpoc.reporting.application;
 
 import com.brand.agentpoc.config.AppProperties;
 import com.brand.agentpoc.dto.response.DashboardSummary;
+import com.brand.agentpoc.observability.domain.CorrelationField;
+import com.brand.agentpoc.observability.domain.OperationalEvent;
+import com.brand.agentpoc.observability.infrastructure.OperationalTelemetry;
 import com.brand.agentpoc.organization.domain.OrganizationDataScope;
 import com.brand.agentpoc.reporting.domain.ReportDraft;
 import com.brand.agentpoc.reporting.domain.ReportScope;
@@ -34,6 +37,7 @@ public class ReportService {
     private final AppProperties appProperties;
     private final ReportMarkdownRenderer renderer;
     private final ReportCollaborationInitializer collaborationInitializer;
+    private final OperationalTelemetry operationalTelemetry;
 
     public ReportService(
             DashboardService dashboardService,
@@ -42,10 +46,9 @@ public class ReportService {
             AppProperties appProperties
     ) {
         this(dashboardService, importBatchService, draftStore, Clock.systemUTC(), appProperties,
-                new ReportMarkdownRenderer(), NOOP_COLLABORATION_INITIALIZER);
+                new ReportMarkdownRenderer(), NOOP_COLLABORATION_INITIALIZER, OperationalTelemetry.noop());
     }
 
-    @Autowired
     public ReportService(
             DashboardService dashboardService,
             ImportBatchService importBatchService,
@@ -54,7 +57,20 @@ public class ReportService {
             ReportCollaborationInitializer collaborationInitializer
     ) {
         this(dashboardService, importBatchService, draftStore, Clock.systemUTC(), appProperties,
-                new ReportMarkdownRenderer(), collaborationInitializer);
+                new ReportMarkdownRenderer(), collaborationInitializer, OperationalTelemetry.noop());
+    }
+
+    @Autowired
+    public ReportService(
+            DashboardService dashboardService,
+            ImportBatchService importBatchService,
+            ReportDraftStore draftStore,
+            AppProperties appProperties,
+            ReportCollaborationInitializer collaborationInitializer,
+            OperationalTelemetry operationalTelemetry
+    ) {
+        this(dashboardService, importBatchService, draftStore, Clock.systemUTC(), appProperties,
+                new ReportMarkdownRenderer(), collaborationInitializer, operationalTelemetry);
     }
 
     public ReportService(
@@ -66,7 +82,7 @@ public class ReportService {
             ReportMarkdownRenderer renderer
     ) {
         this(dashboardService, importBatchService, draftStore, clock, appProperties, renderer,
-                NOOP_COLLABORATION_INITIALIZER);
+                NOOP_COLLABORATION_INITIALIZER, OperationalTelemetry.noop());
     }
 
     public ReportService(
@@ -78,6 +94,20 @@ public class ReportService {
             ReportMarkdownRenderer renderer,
             ReportCollaborationInitializer collaborationInitializer
     ) {
+        this(dashboardService, importBatchService, draftStore, clock, appProperties, renderer,
+                collaborationInitializer, OperationalTelemetry.noop());
+    }
+
+    public ReportService(
+            DashboardService dashboardService,
+            ImportBatchService importBatchService,
+            ReportDraftStore draftStore,
+            Clock clock,
+            AppProperties appProperties,
+            ReportMarkdownRenderer renderer,
+            ReportCollaborationInitializer collaborationInitializer,
+            OperationalTelemetry operationalTelemetry
+    ) {
         this.dashboardService = dashboardService;
         this.importBatchService = importBatchService;
         this.draftStore = draftStore;
@@ -86,6 +116,8 @@ public class ReportService {
         this.renderer = renderer == null ? new ReportMarkdownRenderer() : renderer;
         this.collaborationInitializer = collaborationInitializer == null
                 ? NOOP_COLLABORATION_INITIALIZER : collaborationInitializer;
+        this.operationalTelemetry = operationalTelemetry == null
+                ? OperationalTelemetry.noop() : operationalTelemetry;
     }
 
     public ReportDraft generate(ReportGenerationRequest request) {
@@ -93,10 +125,20 @@ public class ReportService {
     }
 
     public ReportDraft generate(ReportGenerationRequest request, OrganizationDataScope dataScope) {
+        return operationalTelemetry.observe(OperationalEvent.REPORT_GENERATION,
+                context -> generateObserved(request, dataScope, context));
+    }
+
+    private ReportDraft generateObserved(
+            ReportGenerationRequest request,
+            OrganizationDataScope dataScope,
+            OperationalTelemetry.EventContext context
+    ) {
         if (request == null) {
             throw new IllegalArgumentException("report request is required.");
         }
         OrganizationDataScope requiredScope = dataScope == null ? OrganizationDataScope.empty() : dataScope;
+        context.correlate(CorrelationField.TENANT_ID, requiredScope.tenantId());
         requiredScope.requireDataAccess();
         ReportType reportType = ReportType.parse(request.reportType());
         String language = validateLanguage(request.language());
@@ -111,6 +153,7 @@ public class ReportService {
         String batchId = summary.dataStatus() != null && summary.dataStatus().batch() != null
                 ? summary.dataStatus().batch().id()
                 : importBatchService.activeBatchId();
+        context.correlate(CorrelationField.BATCH_ID, batchId);
         String model = appProperties.getModel().getName();
         if (model == null || model.isBlank()) {
             model = "deterministic";
@@ -130,6 +173,7 @@ public class ReportService {
                 requiredScope.tenantId()
         );
         ReportDraft saved = draftStore.save(draft);
+        context.correlate(CorrelationField.REPORT_ID, saved.id());
         collaborationInitializer.initialize(saved);
         return saved;
     }

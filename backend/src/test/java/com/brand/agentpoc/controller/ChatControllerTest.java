@@ -1,6 +1,7 @@
 package com.brand.agentpoc.controller;
 
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.mock;
@@ -61,16 +62,17 @@ class ChatControllerTest {
     @Test
     void claimsSessionUsingTheStableUserIdentity() throws Exception {
         when(sessionOwnershipService.claimOrVerify("session-1", "42")).thenReturn(true);
-        when(chatService.chat(any(ChatRequest.class), any(AgentRequestScope.class))).thenReturn("hello");
+        when(chatService.chat(any(ChatRequest.class), any(AgentRequestScope.class), anyString())).thenReturn("hello");
 
         mockMvc.perform(post("/api/chat")
                         .principal(authentication(42L))
+                        .header("X-Request-ID", "request-sync")
                         .contentType(APPLICATION_JSON)
                         .content("{\"sessionId\":\"session-1\",\"message\":\"hi\"}"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.reply").value("hello"));
 
-        verify(chatService).chat(any(ChatRequest.class), eq(scope("session-1", 42L)));
+        verify(chatService).chat(any(ChatRequest.class), eq(scope("session-1", 42L)), eq("request-sync"));
     }
 
     @Test
@@ -83,16 +85,18 @@ class ChatControllerTest {
                         .content("{\"sessionId\":\"session-1\",\"message\":\"hi\"}"))
                 .andExpect(status().isForbidden());
 
-        verify(chatService, never()).chat(any(), any());
+        verify(chatService, never()).chat(any(), any(), anyString());
     }
 
     @Test
     void createsTheSseResponseWithTheSameUserScope() throws Exception {
         when(sessionOwnershipService.claimOrVerify("session-1", "42")).thenReturn(true);
-        doAnswer(invocation -> null).when(chatService).streamChat(any(), any(OutputStream.class), any());
+        doAnswer(invocation -> null).when(chatService)
+                .streamChat(any(), any(OutputStream.class), any(), anyString());
 
         MvcResult result = mockMvc.perform(post("/api/chat/stream")
                         .principal(authentication(42L))
+                        .header("X-Request-ID", "request-sse")
                         .contentType(APPLICATION_JSON)
                         .content("{\"sessionId\":\"session-1\",\"message\":\"hi\"}"))
                 .andExpect(request().asyncStarted())
@@ -101,7 +105,8 @@ class ChatControllerTest {
         mockMvc.perform(asyncDispatch(result))
                 .andExpect(status().isOk())
                 .andExpect(content().contentTypeCompatibleWith(MediaType.TEXT_EVENT_STREAM));
-        verify(chatService).streamChat(any(), any(OutputStream.class), eq(scope("session-1", 42L)));
+        verify(chatService).streamChat(
+                any(), any(OutputStream.class), eq(scope("session-1", 42L)), eq("request-sse"));
     }
 
     @Test
@@ -112,8 +117,9 @@ class ChatControllerTest {
         when(authorizationService.resolve(any(AuthPrincipal.class)))
                 .thenReturn(new OrganizationAuthorizationContext(principal(42L), dataScope));
         when(sessionOwnershipService.claimOrVerify("session-1", "42")).thenReturn(true);
-        when(chatService.chat(any(ChatRequest.class), any(AgentRequestScope.class))).thenReturn("hello");
-        doAnswer(invocation -> null).when(chatService).streamChat(any(), any(OutputStream.class), any());
+        when(chatService.chat(any(ChatRequest.class), any(AgentRequestScope.class), anyString())).thenReturn("hello");
+        doAnswer(invocation -> null).when(chatService)
+                .streamChat(any(), any(OutputStream.class), any(), anyString());
         MockMvc scopedMockMvc = MockMvcBuilders.standaloneSetup(new ChatController(
                         chatService,
                         sessionMemoryService,
@@ -138,8 +144,8 @@ class ChatControllerTest {
                 .andReturn();
         scopedMockMvc.perform(asyncDispatch(streamResult)).andExpect(status().isOk());
 
-        verify(chatService).chat(any(ChatRequest.class), eq(expectedScope));
-        verify(chatService).streamChat(any(), any(OutputStream.class), eq(expectedScope));
+        verify(chatService).chat(any(ChatRequest.class), eq(expectedScope), anyString());
+        verify(chatService).streamChat(any(), any(OutputStream.class), eq(expectedScope), anyString());
     }
 
     @Test

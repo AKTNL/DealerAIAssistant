@@ -4,6 +4,8 @@ import com.brand.agentpoc.agent.domain.AgentRequestScope;
 import com.brand.agentpoc.auth.domain.AuthPrincipal;
 import com.brand.agentpoc.organization.application.OrganizationAuthorizationService;
 import com.brand.agentpoc.organization.domain.OrganizationDataScope;
+import com.brand.agentpoc.observability.infrastructure.web.AsyncTraceContext;
+import com.brand.agentpoc.observability.infrastructure.web.RequestCorrelation;
 import com.brand.agentpoc.dto.request.ChatRequest;
 import com.brand.agentpoc.dto.response.ChatResponse;
 import com.brand.agentpoc.dto.response.SimpleSuccessResponse;
@@ -11,6 +13,7 @@ import com.brand.agentpoc.service.ChatService;
 import com.brand.agentpoc.service.SessionMemoryService;
 import com.brand.agentpoc.service.SessionOwnershipService;
 import jakarta.validation.Valid;
+import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
@@ -57,7 +60,8 @@ public class ChatController {
     @PostMapping
     public ResponseEntity<ChatResponse> chat(
             @Valid @RequestBody ChatRequest request,
-            Authentication authentication
+            Authentication authentication,
+            HttpServletRequest servletRequest
     ) {
         AuthPrincipal principal = principal(authentication);
         String tokenSubject = principal.stableSubject();
@@ -68,13 +72,15 @@ public class ChatController {
         AgentRequestScope agentScope = AgentRequestScope.authenticated(
                 request.sessionId(), tokenSubject, principal.permissions(), dataScope(principal));
         chatService.authorizeRequest(request, agentScope);
-        return ResponseEntity.ok(new ChatResponse(chatService.chat(request, agentScope)));
+        return ResponseEntity.ok(new ChatResponse(
+                chatService.chat(request, agentScope, RequestCorrelation.traceId(servletRequest))));
     }
 
     @PostMapping(path = "/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     public ResponseEntity<StreamingResponseBody> stream(
             @Valid @RequestBody ChatRequest request,
-            Authentication authentication
+            Authentication authentication,
+            HttpServletRequest servletRequest
     ) {
         AuthPrincipal principal = principal(authentication);
         String tokenSubject = principal.stableSubject();
@@ -85,7 +91,11 @@ public class ChatController {
         AgentRequestScope agentScope = AgentRequestScope.authenticated(
                 request.sessionId(), tokenSubject, principal.permissions(), dataScope(principal));
         chatService.authorizeRequest(request, agentScope);
-        StreamingResponseBody responseBody = outputStream -> chatService.streamChat(request, outputStream, agentScope);
+        String requestId = RequestCorrelation.requestId(servletRequest);
+        String traceId = RequestCorrelation.traceId(servletRequest);
+        AsyncTraceContext asyncTraceContext = AsyncTraceContext.capture(requestId);
+        StreamingResponseBody responseBody = outputStream -> asyncTraceContext.run(
+                () -> chatService.streamChat(request, outputStream, agentScope, traceId));
         return ResponseEntity.ok()
                 .contentType(MediaType.TEXT_EVENT_STREAM)
                 .body(responseBody);

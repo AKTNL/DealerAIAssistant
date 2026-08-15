@@ -11,10 +11,14 @@ import com.brand.agentpoc.config.AppProperties;
 import com.brand.agentpoc.dto.response.DashboardSummary;
 import com.brand.agentpoc.dto.response.ImportDataStatus;
 import com.brand.agentpoc.organization.domain.OrganizationDataScope;
+import com.brand.agentpoc.observability.infrastructure.OperationalTelemetry;
 import com.brand.agentpoc.reporting.domain.ReportDraft;
 import com.brand.agentpoc.reporting.infrastructure.InMemoryReportDraftStore;
 import com.brand.agentpoc.service.DashboardService;
 import com.brand.agentpoc.service.ImportBatchService;
+import io.micrometer.core.instrument.observation.DefaultMeterObservationHandler;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import io.micrometer.observation.ObservationRegistry;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
@@ -65,6 +69,35 @@ class ReportServiceTest {
         assertThat(draft.markdown()).contains("# Dealer Operations Weekly Report");
         assertThat(draft.markdown()).contains("- Target achievement: 75.0%");
         assertThat(reportService.require(draft.id())).isEqualTo(draft);
+    }
+
+    @Test
+    void recordsGenerationTelemetryWithoutIdentifierMetricTags() {
+        SimpleMeterRegistry meterRegistry = new SimpleMeterRegistry();
+        ObservationRegistry observationRegistry = ObservationRegistry.create();
+        observationRegistry.observationConfig()
+                .observationHandler(new DefaultMeterObservationHandler(meterRegistry));
+        AppProperties properties = new AppProperties();
+        properties.getModel().setName("test-model");
+        ReportService observedService = new ReportService(
+                dashboardService,
+                importBatchService,
+                draftStore,
+                Clock.fixed(Instant.parse("2026-08-10T05:00:00Z"), ZoneOffset.UTC),
+                properties,
+                new ReportMarkdownRenderer(),
+                draft -> { },
+                new OperationalTelemetry(observationRegistry)
+        );
+        when(dashboardService.getSummary()).thenReturn(summary());
+
+        observedService.generate(new ReportGenerationRequest("weekly", "en", null, null, null));
+
+        assertThat(meterRegistry.get("agentpoc.report.generate")
+                .tag("app.outcome", "success").timer().count()).isEqualTo(1);
+        assertThat(meterRegistry.get("agentpoc.report.generate").timer().getId().getTags())
+                .extracting(tag -> tag.getKey())
+                .doesNotContain("app.tenant.id", "app.batch.id", "app.report.id");
     }
 
     @Test

@@ -16,11 +16,11 @@ class AuthRequestTraceTest {
     }
 
     @Test
-    void capsUntrustedTraceIdsToTheAuditColumnLimit() {
+    void replacesUntrustedTraceIdsInsteadOfTruncatingThem() {
         MockHttpServletRequest request = new MockHttpServletRequest();
         request.addHeader("X-Request-ID", "x".repeat(200));
 
-        assertThat(AuthRequestTrace.resolve(request)).hasSize(128);
+        assertThat(AuthRequestTrace.resolve(request)).matches("[0-9a-f-]{36}");
     }
 
     @Test

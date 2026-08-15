@@ -12,6 +12,7 @@ import com.brand.agentpoc.entity.Dealer;
 import com.brand.agentpoc.entity.Lead;
 import com.brand.agentpoc.entity.Opportunity;
 import com.brand.agentpoc.entity.Target;
+import com.brand.agentpoc.observability.infrastructure.OperationalTelemetry;
 import com.brand.agentpoc.repository.CampaignRepository;
 import com.brand.agentpoc.repository.DealerRepository;
 import com.brand.agentpoc.repository.LeadRepository;
@@ -19,6 +20,9 @@ import com.brand.agentpoc.repository.OpportunityRepository;
 import com.brand.agentpoc.repository.TargetRepository;
 import com.brand.agentpoc.repository.TaskRepository;
 import com.brand.agentpoc.test.LogCapture;
+import io.micrometer.core.instrument.observation.DefaultMeterObservationHandler;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import io.micrometer.observation.ObservationRegistry;
 import java.io.OutputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -234,12 +238,22 @@ class ExcelImportServiceTest {
         AppProperties properties = new AppProperties();
         properties.getExcel().setPath(tempDir.resolve("missing.xlsx").toString());
         ImportQualityService qualityService = new ImportQualityService();
-        ExcelImportService service = importService(properties, qualityService);
+        SimpleMeterRegistry meterRegistry = new SimpleMeterRegistry();
+        ObservationRegistry observationRegistry = ObservationRegistry.create();
+        observationRegistry.observationConfig()
+                .observationHandler(new DefaultMeterObservationHandler(meterRegistry));
+        ExcelImportService service = importService(
+                properties, qualityService, new OperationalTelemetry(observationRegistry));
 
         service.run(mock(ApplicationArguments.class));
 
         assertThat(qualityService.getLatest().source()).isEqualTo("built-in-sample");
         assertThat(qualityService.getLatest().fallbackActive()).isTrue();
+        assertThat(meterRegistry.get("agentpoc.data.import")
+                .tag("app.outcome", "fallback").timer().count()).isEqualTo(1);
+        assertThat(meterRegistry.get("agentpoc.data.import").timer().getId().getTags())
+                .extracting(tag -> tag.getKey())
+                .doesNotContain("app.tenant.id", "app.batch.id");
     }
 
     private ExcelImportService importService(TargetRepository targetRepository, Path workbookPath) {
@@ -306,6 +320,26 @@ class ExcelImportServiceTest {
                 mock(CampaignRepository.class),
                 mock(LeadRepository.class),
                 mock(OpportunityRepository.class)
+        );
+    }
+
+    private ExcelImportService importService(
+            AppProperties properties,
+            ImportQualityService qualityService,
+            OperationalTelemetry operationalTelemetry
+    ) {
+        return new ExcelImportService(
+                properties,
+                new DefaultResourceLoader(),
+                mock(DealerRepository.class),
+                mock(OpportunityRepository.class),
+                mock(CampaignRepository.class),
+                mock(TaskRepository.class),
+                mock(TargetRepository.class),
+                mock(LeadRepository.class),
+                qualityService,
+                new ImportBatchService(),
+                operationalTelemetry
         );
     }
 

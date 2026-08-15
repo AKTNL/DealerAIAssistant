@@ -2,6 +2,7 @@ package com.brand.agentpoc.reporting.controller;
 
 import com.brand.agentpoc.auth.domain.AuthPrincipal;
 import com.brand.agentpoc.dto.response.ApiResult;
+import com.brand.agentpoc.observability.infrastructure.web.RequestCorrelation;
 import com.brand.agentpoc.organization.application.OrganizationAuthorizationService;
 import com.brand.agentpoc.organization.domain.OrganizationDataScope;
 import com.brand.agentpoc.reporting.application.ReportSubscriptionService;
@@ -18,7 +19,6 @@ import jakarta.validation.constraints.PositiveOrZero;
 import java.util.List;
 import java.util.NoSuchElementException;
 import java.util.Set;
-import java.util.UUID;
 import org.springframework.dao.OptimisticLockingFailureException;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
@@ -35,8 +35,6 @@ import org.springframework.web.bind.annotation.RestController;
 @RestController
 @RequestMapping("/api/report-subscriptions")
 public class ReportSubscriptionController {
-
-    private static final int MAX_TRACE_ID_LENGTH = 128;
 
     private final ReportSubscriptionService subscriptionService;
     private final OrganizationAuthorizationService authorizationService;
@@ -140,14 +138,7 @@ public class ReportSubscriptionController {
     }
 
     private String traceId(HttpServletRequest request) {
-        String provided = request.getHeader("X-Request-ID");
-        if (provided == null || provided.isBlank()) {
-            return UUID.randomUUID().toString();
-        }
-        String normalized = provided.trim();
-        return normalized.length() <= MAX_TRACE_ID_LENGTH
-                ? normalized
-                : normalized.substring(0, MAX_TRACE_ID_LENGTH);
+        return RequestCorrelation.traceId(request);
     }
 
     private ResponseEntity<ApiResult<ReportSubscriptionView>> execute(SubscriptionOperation operation) {

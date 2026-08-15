@@ -3,6 +3,7 @@ package com.brand.agentpoc.auth.infrastructure;
 import com.brand.agentpoc.auth.application.AuthSessionService;
 import com.brand.agentpoc.auth.application.AuthAuditService;
 import com.brand.agentpoc.auth.domain.AuthPrincipal;
+import com.brand.agentpoc.observability.infrastructure.web.RequestCorrelation;
 import com.brand.agentpoc.tenant.application.TenantAuthorizationService;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
@@ -107,12 +108,7 @@ public class OpaqueTokenAuthenticationFilter extends OncePerRequestFilter {
     }
 
     private String traceId(HttpServletRequest request) {
-        String provided = request.getHeader("X-Request-ID");
-        if (provided == null || provided.isBlank()) {
-            return java.util.UUID.randomUUID().toString();
-        }
-        String normalized = provided.trim();
-        return normalized.substring(0, Math.min(normalized.length(), 128));
+        return RequestCorrelation.traceId(request);
     }
 
     private boolean requiresTenant(HttpServletRequest request) {

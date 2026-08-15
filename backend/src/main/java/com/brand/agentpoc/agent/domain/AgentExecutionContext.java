@@ -3,8 +3,12 @@ package com.brand.agentpoc.agent.domain;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
+import java.util.regex.Pattern;
 
 public final class AgentExecutionContext {
+
+    private static final Pattern SAFE_CORRELATION_ID =
+            Pattern.compile("[A-Za-z0-9][A-Za-z0-9._:-]{0,127}");
 
     private final AgentRequestScope scope;
     private final AgentExecutionPolicy policy;
@@ -53,10 +57,10 @@ public final class AgentExecutionContext {
     }
 
     private String normalizeTraceId(String value) {
-        if (value != null && value.matches("[A-Za-z0-9_-]{1,64}")) {
+        if (value != null && SAFE_CORRELATION_ID.matcher(value).matches()) {
             return value;
         }
-        return UUID.randomUUID().toString().replace("-", "").substring(0, 12);
+        return UUID.randomUUID().toString().replace("-", "");
     }
 
     private String safeReason(String reason) {

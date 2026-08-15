@@ -65,4 +65,13 @@ class AgentExecutionPolicyTest {
                 .extracting(AgentExecutionContext.TraceEntry::reason)
                 .containsExactly("completed", "unspecified");
     }
+
+    @Test
+    void executionContextPreservesSafeRequestCorrelationAndReplacesInvalidValues() {
+        AgentExecutionContext correlated = new AgentExecutionContext(null, null, "ops.check:001");
+        AgentExecutionContext replaced = new AgentExecutionContext(null, null, "unsafe value");
+
+        assertThat(correlated.traceId()).isEqualTo("ops.check:001");
+        assertThat(replaced.traceId()).matches("[0-9a-f]{32}");
+    }
 }

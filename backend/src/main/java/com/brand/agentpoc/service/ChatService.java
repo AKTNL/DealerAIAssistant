@@ -171,7 +171,14 @@ public class ChatService {
     }
 
     public String chat(ChatRequest request, AgentRequestScope agentScope) {
-        GeneratedReply generatedReply = generateReply(request, agentScope);
+        return completeChat(request, generateReply(request, agentScope, null));
+    }
+
+    public String chat(ChatRequest request, AgentRequestScope agentScope, String traceId) {
+        return completeChat(request, generateReply(request, agentScope, safeTraceId(traceId)));
+    }
+
+    private String completeChat(ChatRequest request, GeneratedReply generatedReply) {
         sessionMemoryService.addUserMessage(request.sessionId(), request.message());
         sessionMemoryService.addAssistantMessage(request.sessionId(), generatedReply.reply());
         return generatedReply.reply();
@@ -192,6 +199,16 @@ public class ChatService {
             OutputStream outputStream,
             AgentRequestScope agentScope
     ) throws IOException {
+        streamChat(request, outputStream, agentScope, newTraceId());
+    }
+
+    public void streamChat(
+            ChatRequest request,
+            OutputStream outputStream,
+            AgentRequestScope agentScope,
+            String traceId
+    ) throws IOException {
+        traceId = safeTraceId(traceId);
         String language = languageDetector.detectLanguage(request.message());
         boolean reportRequested = looksLikeReportRequest(request.message());
         boolean knowledgeRequested = looksLikeKnowledgeRequest(request.message());
@@ -208,7 +225,6 @@ public class ChatService {
                 directReply = buildOutOfScopeReply(language);
             }
         }
-        String traceId = newTraceId();
         sessionMemoryService.addUserMessage(request.sessionId(), request.message());
 
         try (BufferedWriter writer = new BufferedWriter(new OutputStreamWriter(outputStream, StandardCharsets.UTF_8))) {
@@ -633,13 +649,18 @@ public class ChatService {
         return "\n\n";
     }
 
-    private GeneratedReply generateReply(ChatRequest request, AgentRequestScope agentScope) {
+    private GeneratedReply generateReply(
+            ChatRequest request,
+            AgentRequestScope agentScope,
+            String traceId
+    ) {
         String language = languageDetector.detectLanguage(request.message());
         boolean reportRequested = looksLikeReportRequest(request.message());
         boolean knowledgeRequested = looksLikeKnowledgeRequest(request.message());
         boolean analyticsRequested = isAnalyticsRoute(request.message(), knowledgeRequested);
         requireGroundedRoutePermissions(agentScope, analyticsRequested, knowledgeRequested, reportRequested);
-        return generateReply(request, language, analyticsRequested, knowledgeRequested, reportRequested, agentScope);
+        return generateReply(
+                request, language, analyticsRequested, knowledgeRequested, reportRequested, agentScope, traceId);
     }
 
     private GeneratedReply generateReply(
@@ -648,7 +669,8 @@ public class ChatService {
             boolean analyticsRequested,
             boolean knowledgeRequested,
             boolean reportRequested,
-            AgentRequestScope agentScope
+            AgentRequestScope agentScope,
+            String traceId
     ) {
         boolean groundedRequested = analyticsRequested || knowledgeRequested;
         String directReply = buildDirectCasualReply(request.message(), language, groundedRequested);
@@ -676,7 +698,7 @@ public class ChatService {
 
         if (!hasConfiguredModelSettings(request, agentScope)) {
             if (analyticsRequested) {
-                AnalyticsPlan plan = planAnalytics(request.message(), language, agentScope);
+                AnalyticsPlan plan = planAnalyticsForRequest(request.message(), language, traceId, agentScope);
                 return new GeneratedReply(
                         plan.fallbackReply().trim(),
                         plan.progressMessages(),
@@ -695,10 +717,10 @@ public class ChatService {
         }
 
         if (analyticsRequested) {
-            return generateAnalyticsReply(request, language, agentScope);
+            return generateAnalyticsReply(request, language, agentScope, traceId);
         }
         if (knowledgeRequested) {
-            return generateKnowledgeReply(request, language, agentScope);
+            return generateKnowledgeReply(request, language, agentScope, traceId);
         }
         return generateGeneralReply(request, language, agentScope);
     }
@@ -706,11 +728,12 @@ public class ChatService {
     private GeneratedReply generateKnowledgeReply(
             ChatRequest request,
             String language,
-            AgentRequestScope agentScope
+            AgentRequestScope agentScope,
+            String traceId
     ) {
         try {
             ChatModel chatModel = createChatModel(request, agentScope);
-            ControlledAgentToolSession agentSession = openAgentSession(agentScope, newTraceId());
+            ControlledAgentToolSession agentSession = openAgentSession(agentScope, safeTraceId(traceId));
             String reply = callConfiguredKnowledgeModel(
                     chatModel,
                     buildKnowledgePrompt(request, language),
@@ -753,9 +776,10 @@ public class ChatService {
     private GeneratedReply generateAnalyticsReply(
             ChatRequest request,
             String language,
-            AgentRequestScope agentScope
+            AgentRequestScope agentScope,
+            String traceId
     ) {
-        AnalyticsPlan plan = planAnalytics(request.message(), language, agentScope);
+        AnalyticsPlan plan = planAnalyticsForRequest(request.message(), language, traceId, agentScope);
 
         try {
             ChatModel chatModel = createChatModel(request, agentScope);
@@ -765,7 +789,8 @@ public class ChatService {
                     request.message(),
                     language,
                     plan,
-                    agentScope
+                    agentScope,
+                    traceId
             );
             String normalizedReply = replyGuard.ensureFollowUpQuestions(polishedReply, language, true);
             if (!replyGuard.isValidAnalyticsReply(normalizedReply, plan.fallbackReply())) {
@@ -828,7 +853,8 @@ public class ChatService {
             String message,
             String language,
             AnalyticsPlan plan,
-            AgentRequestScope agentScope
+            AgentRequestScope agentScope,
+            String traceId
     ) {
         String sessionHistory = formatSessionHistory(sessionId, language);
         String userPrompt = promptFactory.buildGroundedModelPrompt(
@@ -842,7 +868,7 @@ public class ChatService {
                 .prompt()
                 .system(promptFactory.buildSystemPrompt(language))
                 .user(userPrompt);
-        ControlledAgentToolSession agentSession = openAgentSession(agentScope, newTraceId());
+        ControlledAgentToolSession agentSession = openAgentSession(agentScope, safeTraceId(traceId));
         if (!agentSession.callbacks().isEmpty()) {
             requestSpec = requestSpec.toolCallbacks(agentSession.callbacks());
         }
@@ -915,7 +941,15 @@ public class ChatService {
     }
 
     private String newTraceId() {
-        return java.util.UUID.randomUUID().toString().replace("-", "").substring(0, 8);
+        return java.util.UUID.randomUUID().toString().replace("-", "");
+    }
+
+    private String safeTraceId(String traceId) {
+        if (traceId == null || traceId.isBlank()) {
+            return newTraceId();
+        }
+        String normalized = traceId.trim();
+        return normalized.length() <= 128 ? normalized : newTraceId();
     }
 
     private List<String> resolveStreamProgressMessages(
@@ -1520,6 +1554,18 @@ public class ChatService {
         return dataScope.unrestricted()
                 ? analyticsService.plan(message, language)
                 : analyticsService.plan(message, language, dataScope);
+    }
+
+    private AnalyticsPlan planAnalyticsForRequest(
+            String message,
+            String language,
+            String traceId,
+            AgentRequestScope agentScope
+    ) {
+        if (traceId == null || traceId.isBlank()) {
+            return planAnalytics(message, language, agentScope);
+        }
+        return planAnalytics(message, language, traceId, null, agentScope);
     }
 
     private AnalyticsPlan planAnalytics(

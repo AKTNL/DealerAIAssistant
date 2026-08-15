@@ -2,6 +2,7 @@ package com.brand.agentpoc.organization.controller;
 
 import com.brand.agentpoc.auth.domain.AuthPrincipal;
 import com.brand.agentpoc.dto.response.ApiResult;
+import com.brand.agentpoc.observability.infrastructure.web.RequestCorrelation;
 import com.brand.agentpoc.organization.application.OrganizationAdministrationService;
 import com.brand.agentpoc.organization.application.OrganizationAdministrationService.DealerMappingView;
 import com.brand.agentpoc.organization.application.OrganizationAdministrationService.GrantInput;
@@ -14,7 +15,6 @@ import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import java.util.List;
 import java.util.Set;
-import java.util.UUID;
 import org.springframework.http.ResponseEntity;
 import org.springframework.dao.OptimisticLockingFailureException;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
@@ -29,8 +29,6 @@ import org.springframework.web.bind.annotation.RestController;
 @RestController
 @RequestMapping("/api/admin/organizations")
 public class OrganizationAdminController {
-
-    private static final int MAX_TRACE_ID_LENGTH = 128;
 
     private final OrganizationAdministrationService administrationService;
 
@@ -146,14 +144,7 @@ public class OrganizationAdminController {
     }
 
     private String traceId(HttpServletRequest request) {
-        String provided = request.getHeader("X-Request-ID");
-        if (provided == null || provided.isBlank()) {
-            return UUID.randomUUID().toString();
-        }
-        String normalized = provided.trim();
-        return normalized.length() <= MAX_TRACE_ID_LENGTH
-                ? normalized
-                : normalized.substring(0, MAX_TRACE_ID_LENGTH);
+        return RequestCorrelation.traceId(request);
     }
 
     private Set<GrantInput> grantInputs(Set<GrantRequest> grants) {

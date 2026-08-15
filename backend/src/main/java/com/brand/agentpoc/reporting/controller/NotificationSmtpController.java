@@ -2,6 +2,7 @@ package com.brand.agentpoc.reporting.controller;
 
 import com.brand.agentpoc.auth.domain.AuthPrincipal;
 import com.brand.agentpoc.dto.response.ApiResult;
+import com.brand.agentpoc.observability.infrastructure.web.RequestCorrelation;
 import com.brand.agentpoc.reporting.application.TenantSmtpConfigRegistry;
 import com.brand.agentpoc.reporting.application.SmtpConfigurationTestService;
 import com.brand.agentpoc.reporting.application.SmtpConfigurationTestService.SmtpTestView;
@@ -11,7 +12,6 @@ import jakarta.validation.Valid;
 import jakarta.servlet.http.HttpServletRequest;
 import java.util.NoSuchElementException;
 import java.util.Optional;
-import java.util.UUID;
 import org.springframework.dao.OptimisticLockingFailureException;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
@@ -104,12 +104,7 @@ public class NotificationSmtpController {
     }
 
     private String traceId(HttpServletRequest request) {
-        String provided = request.getHeader("X-Request-ID");
-        if (provided == null || provided.isBlank()) {
-            return UUID.randomUUID().toString();
-        }
-        String normalized = provided.trim();
-        return normalized.length() <= 128 ? normalized : normalized.substring(0, 128);
+        return RequestCorrelation.traceId(request);
     }
 
     public record SaveSmtpRequest(

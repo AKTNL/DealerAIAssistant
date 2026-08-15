@@ -7,6 +7,10 @@ import com.brand.agentpoc.entity.Lead;
 import com.brand.agentpoc.entity.Opportunity;
 import com.brand.agentpoc.entity.Target;
 import com.brand.agentpoc.entity.Task;
+import com.brand.agentpoc.observability.domain.CorrelationField;
+import com.brand.agentpoc.observability.domain.OperationalEvent;
+import com.brand.agentpoc.observability.domain.OperationalOutcome;
+import com.brand.agentpoc.observability.infrastructure.OperationalTelemetry;
 import com.brand.agentpoc.repository.CampaignRepository;
 import com.brand.agentpoc.repository.DealerRepository;
 import com.brand.agentpoc.repository.LeadRepository;
@@ -81,6 +85,7 @@ public class ExcelImportService implements ApplicationRunner {
     private final LeadRepository leadRepository;
     private final ImportQualityService importQualityService;
     private final ImportBatchService importBatchService;
+    private final OperationalTelemetry operationalTelemetry;
     private final DataFormatter dataFormatter = new DataFormatter();
 
     @Autowired
@@ -94,7 +99,8 @@ public class ExcelImportService implements ApplicationRunner {
             TargetRepository targetRepository,
             LeadRepository leadRepository,
             ImportQualityService importQualityService,
-            ImportBatchService importBatchService
+            ImportBatchService importBatchService,
+            OperationalTelemetry operationalTelemetry
     ) {
         this.appProperties = appProperties;
         this.resourceLoader = resourceLoader;
@@ -106,6 +112,34 @@ public class ExcelImportService implements ApplicationRunner {
         this.leadRepository = leadRepository;
         this.importQualityService = importQualityService;
         this.importBatchService = importBatchService;
+        this.operationalTelemetry = operationalTelemetry;
+    }
+
+    public ExcelImportService(
+            AppProperties appProperties,
+            ResourceLoader resourceLoader,
+            DealerRepository dealerRepository,
+            OpportunityRepository opportunityRepository,
+            CampaignRepository campaignRepository,
+            TaskRepository taskRepository,
+            TargetRepository targetRepository,
+            LeadRepository leadRepository,
+            ImportQualityService importQualityService,
+            ImportBatchService importBatchService
+    ) {
+        this(
+                appProperties,
+                resourceLoader,
+                dealerRepository,
+                opportunityRepository,
+                campaignRepository,
+                taskRepository,
+                targetRepository,
+                leadRepository,
+                importQualityService,
+                importBatchService,
+                OperationalTelemetry.noop()
+        );
     }
 
     ExcelImportService(
@@ -166,7 +200,16 @@ public class ExcelImportService implements ApplicationRunner {
     @Transactional
     public void importConfiguredWorkbook(Long tenantId) {
         requireTenantId(tenantId);
+        operationalTelemetry.observeVoid(OperationalEvent.DATA_IMPORT, context -> {
+            context.correlate(CorrelationField.TENANT_ID, tenantId);
+            importConfiguredWorkbookObserved(tenantId, context);
+        });
+    }
+
+    private void importConfiguredWorkbookObserved(Long tenantId, OperationalTelemetry.EventContext context) {
         if (hasExistingData(tenantId)) {
+            context.correlate(CorrelationField.BATCH_ID, importBatchService.activeBatchId(tenantId));
+            context.outcome(OperationalOutcome.SKIPPED);
             log.info("Sample data already initialized, skipping startup import.");
             publishRepositoryStatus(tenantId, "existing-database", false, "Existing database data is active.");
             return;
@@ -195,9 +238,10 @@ public class ExcelImportService implements ApplicationRunner {
                     "Configured workbook imported successfully.",
                     importBatchService.activeStatusBatch(tenantId)
             ));
+            context.correlate(CorrelationField.BATCH_ID, batchId);
             logImportCompletion(tenantId, "configured-workbook");
         } catch (Exception exception) {
-            handleImportFailure(tenantId, tracker, exception);
+            handleImportFailure(tenantId, tracker, batchId, exception, context);
         }
     }
 
@@ -298,9 +342,16 @@ public class ExcelImportService implements ApplicationRunner {
         }
     }
 
-    private void handleImportFailure(Long tenantId, ImportQualityTracker tracker, Exception exception) {
+    private void handleImportFailure(
+            Long tenantId,
+            ImportQualityTracker tracker,
+            String configuredBatchId,
+            Exception exception,
+            OperationalTelemetry.EventContext context
+    ) {
         tracker.issue("Workbook", "import_failed");
         if (!appProperties.getExcel().isFallbackEnabled()) {
+            context.correlate(CorrelationField.BATCH_ID, configuredBatchId);
             importQualityService.publish(tenantId, tracker.build(
                     "import-failed",
                     false,
@@ -312,6 +363,8 @@ public class ExcelImportService implements ApplicationRunner {
 
         log.error("Workbook import failed. Seeding built-in sample data because fallback is enabled.", exception);
         String batchId = importBatchService.newBatchId("fallback");
+        context.correlate(CorrelationField.BATCH_ID, batchId);
+        context.outcome(OperationalOutcome.FALLBACK);
         seedFallbackData(batchId, tenantId);
         importBatchService.activateTenantBatch(
                 tenantId,
