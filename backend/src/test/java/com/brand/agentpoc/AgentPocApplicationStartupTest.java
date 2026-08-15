@@ -662,6 +662,82 @@ class AgentPocApplicationStartupTest {
     }
 
     @Test
+    void openApiDocumentsModelUsageGovernanceWithoutSensitivePayloadFields() throws Exception {
+        JsonNode openApi = new ObjectMapper().readTree(
+                new ClassPathResource("static/openapi.json").getInputStream());
+
+        assertThat(openApi.at("/paths/~1api~1admin~1model-usage~1summary/get/operationId").asText())
+                .isEqualTo("getTenantModelUsageSummary");
+        assertThat(openApi.at("/paths/~1api~1admin~1model-usage~1budget/put/operationId").asText())
+                .isEqualTo("saveTenantModelBudget");
+        assertThat(openApi.at("/paths/~1api~1platform~1model-usage~1summary/get/operationId").asText())
+                .isEqualTo("getPlatformModelUsageSummary");
+        JsonNode eventProperties = openApi.at("/components/schemas/ModelUsageEvent/properties");
+        assertThat(eventProperties.has("traceId")).isTrue();
+        assertThat(eventProperties.has("prompt")).isFalse();
+        assertThat(eventProperties.has("completion")).isFalse();
+        assertThat(eventProperties.has("apiKey")).isFalse();
+        assertThat(eventProperties.has("baseUrl")).isFalse();
+        assertThat(openApi.at("/components/schemas/ModelUsageBudgetRequest/properties/hardLimitEnabled/default")
+                .asBoolean()).isFalse();
+    }
+
+    @Test
+    void modelUsageMigrationCreatesGovernanceTablesAndAdministratorPermissions() throws Exception {
+        String url = "jdbc:h2:mem:model-usage-migration-test;MODE=PostgreSQL;DB_CLOSE_DELAY=-1";
+        Flyway.configure()
+                .dataSource(url, "sa", "")
+                .locations("classpath:db/migration")
+                .target(MigrationVersion.fromVersion("11"))
+                .load()
+                .migrate();
+
+        try (Connection connection = DriverManager.getConnection(url, "sa", "");
+                Statement statement = connection.createStatement()) {
+            statement.executeUpdate("""
+                    INSERT INTO auth_roles (
+                        id, role_key, display_name, built_in, created_at, updated_at, version
+                    ) VALUES (
+                        71, 'ADMIN', 'Administrator', TRUE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, 0
+                    )
+                    """);
+        }
+
+        Flyway.configure()
+                .dataSource(url, "sa", "")
+                .locations("classpath:db/migration")
+                .load()
+                .migrate();
+
+        try (Connection connection = DriverManager.getConnection(url, "sa", "");
+                Statement statement = connection.createStatement()) {
+            try (ResultSet tables = statement.executeQuery("""
+                    SELECT COUNT(*)
+                    FROM INFORMATION_SCHEMA.TABLES
+                    WHERE TABLE_NAME IN (
+                        'MODEL_USAGE_EVENTS', 'MODEL_PRICE_VERSIONS',
+                        'MODEL_BUDGET_POLICIES', 'MODEL_BUDGET_RESERVATIONS'
+                    )
+                    """)) {
+                assertThat(tables.next()).isTrue();
+                assertThat(tables.getInt(1)).isEqualTo(4);
+            }
+            try (ResultSet permissions = statement.executeQuery("""
+                    SELECT COUNT(*)
+                    FROM auth_role_permissions permission
+                    JOIN auth_roles role ON role.id = permission.role_id
+                    WHERE role.role_key = 'ADMIN'
+                      AND permission.permission_key IN (
+                          'MODEL_USAGE_READ', 'MODEL_USAGE_MANAGE', 'MODEL_USAGE_PLATFORM_READ'
+                      )
+                    """)) {
+                assertThat(permissions.next()).isTrue();
+                assertThat(permissions.getInt(1)).isEqualTo(3);
+            }
+        }
+    }
+
+    @Test
     void flywaySchemaPassesHibernateValidation() {
         SpringApplication application = new SpringApplication(AgentPocApplication.class);
         application.setWebApplicationType(WebApplicationType.NONE);

@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "经销商分析助手全域业务 API",
-    "version": "4.0.0",
+    "version": "4.1.0",
     "description": "提供大模型分析经销商业务的核心API。包含【汇总指标】与【全字段明细】。\n\n除公开认证入口外，API 使用短期 Bearer token。业务与管理请求可通过 `X-Tenant-Key` 选择当前 tenant；该 header 只是选择意图，服务端仍会校验启用的 membership。用户有多个 tenant membership 时必须显式选择。\n\n**大模型（AI）调度规则（必须遵守）：**\n1. **首选汇总**：遇到分析趋势、达成率、对比、宏观统计时，优先调用 `_metrics` 接口获取已计算好的数据。\n2. **按需抓取明细**：只有用户明确要求查看具体流水记录时，才调用 `_details` 接口。\n3. **分页与归纳法则**：当 `_details` 返回大量数据时，AI必须使用 `page` 和 `pageSize` (默认50) 进行分批抓取。"
   },
   "servers": [
@@ -1076,6 +1076,143 @@
           "success": { "type": "boolean" },
           "message": { "type": "string" }
         }
+      },
+      "ModelUsageCurrencyCost": {
+        "type": "object",
+        "required": ["currency", "amount"],
+        "properties": {
+          "currency": { "type": "string", "pattern": "^[A-Z]{3}$" },
+          "amount": { "type": "number" }
+        }
+      },
+      "ModelUsageAggregate": {
+        "type": "object",
+        "required": ["key", "calls", "errorCalls", "rejectedCalls", "unknownTokenCalls", "inputTokens", "outputTokens", "durationMs", "costs"],
+        "properties": {
+          "key": { "type": "string" },
+          "calls": { "type": "integer", "format": "int64" },
+          "errorCalls": { "type": "integer", "format": "int64" },
+          "rejectedCalls": { "type": "integer", "format": "int64" },
+          "unknownTokenCalls": { "type": "integer", "format": "int64" },
+          "inputTokens": { "type": "integer", "format": "int64" },
+          "outputTokens": { "type": "integer", "format": "int64" },
+          "durationMs": { "type": "integer", "format": "int64" },
+          "costs": { "type": "array", "items": { "$ref": "#/components/schemas/ModelUsageCurrencyCost" } }
+        }
+      },
+      "ModelUsageEvent": {
+        "type": "object",
+        "description": "治理白名单元数据；不包含 prompt、completion、API key、Base URL、工具参数或 provider-native payload。",
+        "required": ["id", "callKey", "tenantId", "provider", "model", "scenario", "status", "tokenState", "durationMs", "traceId", "cacheHit", "costSource", "occurredAt"],
+        "properties": {
+          "id": { "type": "integer", "format": "int64" },
+          "callKey": { "type": "string" },
+          "tenantId": { "type": "integer", "format": "int64" },
+          "userId": { "type": ["integer", "null"], "format": "int64" },
+          "provider": { "type": "string" },
+          "model": { "type": "string" },
+          "scenario": { "type": "string", "enum": ["CHAT", "AGENT", "KNOWLEDGE", "KNOWLEDGE_EMBEDDING", "KNOWLEDGE_RETRIEVAL", "REPORT", "BACKGROUND_SUBSCRIPTION", "MODEL_CONFIG_TEST"] },
+          "status": { "type": "string", "enum": ["SUCCESS", "ERROR", "CANCELLED", "REJECTED"] },
+          "tokenState": { "type": "string", "enum": ["KNOWN", "PARTIAL", "UNKNOWN"] },
+          "inputTokens": { "type": ["integer", "null"], "format": "int64" },
+          "outputTokens": { "type": ["integer", "null"], "format": "int64" },
+          "totalTokens": { "type": ["integer", "null"], "format": "int64" },
+          "durationMs": { "type": "integer", "format": "int64" },
+          "traceId": { "type": "string" },
+          "cacheHit": { "type": "boolean" },
+          "priceVersionKey": { "type": ["string", "null"] },
+          "estimatedCost": { "type": ["number", "null"] },
+          "currency": { "type": ["string", "null"] },
+          "costSource": { "type": "string", "enum": ["CATALOG_ESTIMATE", "UNKNOWN"] },
+          "occurredAt": { "type": "string", "format": "date-time" }
+        }
+      },
+      "ModelUsageBudget": {
+        "type": ["object", "null"],
+        "properties": {
+          "monthlyLimit": { "type": "number" },
+          "softThresholdPercent": { "type": "integer", "minimum": 1, "maximum": 100 },
+          "hardLimitEnabled": { "type": "boolean" },
+          "failOpen": { "type": "boolean" },
+          "reservationAmount": { "type": "number" },
+          "currency": { "type": "string", "pattern": "^[A-Z]{3}$" },
+          "monthToDateCost": { "type": "number" },
+          "usagePercent": { "type": "number" },
+          "unknownCostCalls": { "type": "integer", "format": "int64" },
+          "state": { "type": "string", "enum": ["OK", "COST_INCOMPLETE", "SOFT_THRESHOLD", "LIMIT_REACHED"] },
+          "version": { "type": "integer", "format": "int64" },
+          "updatedAt": { "type": "string", "format": "date-time" }
+        }
+      },
+      "ModelUsageBudgetRequest": {
+        "type": "object",
+        "required": ["monthlyLimit", "softThresholdPercent", "hardLimitEnabled", "failOpen", "reservationAmount", "currency"],
+        "properties": {
+          "monthlyLimit": { "type": "number", "exclusiveMinimum": 0 },
+          "softThresholdPercent": { "type": "integer", "minimum": 1, "maximum": 100 },
+          "hardLimitEnabled": { "type": "boolean", "default": false },
+          "failOpen": { "type": "boolean", "default": true },
+          "reservationAmount": { "type": "number", "minimum": 0 },
+          "currency": { "type": "string", "pattern": "^[A-Z]{3}$" },
+          "version": { "type": ["integer", "null"], "format": "int64" }
+        }
+      },
+      "ModelPriceVersion": {
+        "type": "object",
+        "required": ["id", "provider", "model", "versionKey", "inputPricePerMillion", "outputPricePerMillion", "currency", "source", "effectiveFrom", "createdBy", "createdAt"],
+        "properties": {
+          "id": { "type": "integer", "format": "int64" },
+          "provider": { "type": "string" },
+          "model": { "type": "string" },
+          "versionKey": { "type": "string" },
+          "inputPricePerMillion": { "type": "number", "minimum": 0 },
+          "outputPricePerMillion": { "type": "number", "minimum": 0 },
+          "currency": { "type": "string", "pattern": "^[A-Z]{3}$" },
+          "source": { "type": "string" },
+          "effectiveFrom": { "type": "string", "format": "date-time" },
+          "createdBy": { "type": "integer", "format": "int64" },
+          "createdAt": { "type": "string", "format": "date-time" }
+        }
+      },
+      "ModelPriceVersionRequest": {
+        "type": "object",
+        "required": ["provider", "model", "inputPricePerMillion", "outputPricePerMillion", "currency", "source"],
+        "properties": {
+          "provider": { "type": "string", "maxLength": 64 },
+          "model": { "type": "string", "maxLength": 128 },
+          "versionKey": { "type": ["string", "null"], "maxLength": 128 },
+          "inputPricePerMillion": { "type": "number", "minimum": 0 },
+          "outputPricePerMillion": { "type": "number", "minimum": 0 },
+          "currency": { "type": "string", "pattern": "^[A-Z]{3}$" },
+          "source": { "type": "string", "maxLength": 64 },
+          "effectiveFrom": { "type": ["string", "null"], "format": "date-time" }
+        }
+      },
+      "ModelUsageSummary": {
+        "type": "object",
+        "required": ["from", "to", "total", "byScenario", "byModel", "byUser", "daily", "anomalies", "recentEvents"],
+        "properties": {
+          "from": { "type": "string", "format": "date-time" },
+          "to": { "type": "string", "format": "date-time" },
+          "total": { "$ref": "#/components/schemas/ModelUsageAggregate" },
+          "byScenario": { "type": "array", "items": { "$ref": "#/components/schemas/ModelUsageAggregate" } },
+          "byModel": { "type": "array", "items": { "$ref": "#/components/schemas/ModelUsageAggregate" } },
+          "byUser": { "type": "array", "items": { "$ref": "#/components/schemas/ModelUsageAggregate" } },
+          "daily": { "type": "array", "items": { "$ref": "#/components/schemas/ModelUsageAggregate" } },
+          "anomalies": { "type": "array", "items": { "type": "object", "required": ["reason", "event"], "properties": { "reason": { "type": "string", "enum": ["BUDGET_REJECTED", "CALL_FAILED", "TOKEN_UNKNOWN", "HIGH_COST"] }, "event": { "$ref": "#/components/schemas/ModelUsageEvent" } } } },
+          "recentEvents": { "type": "array", "items": { "$ref": "#/components/schemas/ModelUsageEvent" } },
+          "budget": { "$ref": "#/components/schemas/ModelUsageBudget" }
+        }
+      },
+      "PlatformModelUsageSummary": {
+        "type": "object",
+        "required": ["from", "to", "total", "tenants"],
+        "properties": {
+          "from": { "type": "string", "format": "date-time" },
+          "to": { "type": "string", "format": "date-time" },
+          "total": { "$ref": "#/components/schemas/ModelUsageAggregate" },
+          "tenants": { "type": "array", "items": { "$ref": "#/components/schemas/ModelUsageAggregate" } }
+        }
       }
     }
   },
@@ -1270,6 +1407,76 @@
         "responses": {
           "200": { "description": "连接测试结果，不回显密钥", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ModelConfigTestResponse" } } } },
           "400": { "description": "配置或 host allowlist 无效" }
+        }
+      }
+    },
+    "/api/admin/model-usage/summary": {
+      "get": {
+        "operationId": "getTenantModelUsageSummary",
+        "summary": "汇总当前 tenant 的模型用量与估算成本（MODEL_USAGE_READ）",
+        "parameters": [
+          { "$ref": "#/components/parameters/TenantKey" },
+          { "name": "from", "in": "query", "schema": { "type": "string", "format": "date-time" } },
+          { "name": "to", "in": "query", "schema": { "type": "string", "format": "date-time" } }
+        ],
+        "responses": {
+          "200": { "description": "tenant 用量汇总", "content": { "application/json": { "schema": { "type": "object", "properties": { "code": { "type": "integer" }, "data": { "$ref": "#/components/schemas/ModelUsageSummary" }, "message": { "type": "string" } } } } } },
+          "403": { "description": "缺少 MODEL_USAGE_READ" }
+        }
+      }
+    },
+    "/api/admin/model-usage/events": {
+      "get": {
+        "operationId": "listTenantModelUsageEvents",
+        "summary": "列出当前 tenant 的模型调用治理元数据（MODEL_USAGE_READ）",
+        "parameters": [
+          { "$ref": "#/components/parameters/TenantKey" },
+          { "name": "from", "in": "query", "schema": { "type": "string", "format": "date-time" } },
+          { "name": "to", "in": "query", "schema": { "type": "string", "format": "date-time" } }
+        ],
+        "responses": { "200": { "description": "最多 500 条治理事件", "content": { "application/json": { "schema": { "type": "object", "properties": { "code": { "type": "integer" }, "data": { "type": "array", "items": { "$ref": "#/components/schemas/ModelUsageEvent" } }, "message": { "type": "string" } } } } } } }
+      }
+    },
+    "/api/admin/model-usage/prices": {
+      "parameters": [{ "$ref": "#/components/parameters/TenantKey" }],
+      "get": {
+        "operationId": "listTenantModelPriceVersions",
+        "summary": "列出当前 tenant 的追加式价格版本（MODEL_USAGE_READ）",
+        "responses": { "200": { "description": "价格版本历史" }, "403": { "description": "缺少 MODEL_USAGE_READ" } }
+      },
+      "post": {
+        "operationId": "addTenantModelPriceVersion",
+        "summary": "新增当前 tenant 的价格版本（MODEL_USAGE_MANAGE）",
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ModelPriceVersionRequest" } } } },
+        "responses": { "200": { "description": "价格版本已追加", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ModelPriceVersion" } } } }, "400": { "description": "价格字段无效" }, "403": { "description": "缺少 MODEL_USAGE_MANAGE" } }
+      }
+    },
+    "/api/admin/model-usage/budget": {
+      "parameters": [{ "$ref": "#/components/parameters/TenantKey" }],
+      "get": {
+        "operationId": "getTenantModelBudget",
+        "summary": "读取当前 tenant 的月度模型预算（MODEL_USAGE_READ）",
+        "responses": { "200": { "description": "未配置时 data 为 null" }, "403": { "description": "缺少 MODEL_USAGE_READ" } }
+      },
+      "put": {
+        "operationId": "saveTenantModelBudget",
+        "summary": "保存当前 tenant 的软预算与可选硬限制（MODEL_USAGE_MANAGE）",
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ModelUsageBudgetRequest" } } } },
+        "responses": { "200": { "description": "预算已保存" }, "400": { "description": "预算或预留字段无效" }, "409": { "description": "version 已过期" } }
+      }
+    },
+    "/api/platform/model-usage/summary": {
+      "get": {
+        "operationId": "getPlatformModelUsageSummary",
+        "summary": "汇总所有 tenant 的模型用量（MODEL_USAGE_PLATFORM_READ + 默认平台 tenant）",
+        "parameters": [
+          { "$ref": "#/components/parameters/TenantKey" },
+          { "name": "from", "in": "query", "schema": { "type": "string", "format": "date-time" } },
+          { "name": "to", "in": "query", "schema": { "type": "string", "format": "date-time" } }
+        ],
+        "responses": {
+          "200": { "description": "跨 tenant 汇总并写入安全审计", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/PlatformModelUsageSummary" } } } },
+          "403": { "description": "缺少平台权限或当前 tenant 不是默认平台 tenant" }
         }
       }
     },

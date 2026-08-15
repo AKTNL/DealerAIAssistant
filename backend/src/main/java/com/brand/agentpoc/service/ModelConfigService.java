@@ -7,6 +7,10 @@ import com.brand.agentpoc.dto.response.ModelConfigTestResponse;
 import com.brand.agentpoc.modelconfig.application.TenantModelConfigRegistry;
 import com.brand.agentpoc.modelconfig.application.TenantModelConfigRegistry.ModelConfigView;
 import com.brand.agentpoc.modelconfig.application.TenantModelConfigRegistry.ResolvedModelConfig;
+import com.brand.agentpoc.modelusage.domain.ModelUsageContext;
+import com.brand.agentpoc.modelusage.domain.ModelUsageScenario;
+import com.brand.agentpoc.modelusage.infrastructure.ModelUsageTracker;
+import com.brand.agentpoc.tenant.domain.TenantScoped;
 import io.micrometer.observation.ObservationRegistry;
 import java.net.InetAddress;
 import java.net.URI;
@@ -33,6 +37,7 @@ public class ModelConfigService {
     private final ObservationRegistry observationRegistry;
     private final AppProperties appProperties;
     private final TenantModelConfigRegistry tenantConfigRegistry;
+    private final ModelUsageTracker modelUsageTracker;
 
     @Autowired
     public ModelConfigService(
@@ -40,13 +45,26 @@ public class ModelConfigService {
             RetryTemplate retryTemplate,
             ObservationRegistry observationRegistry,
             AppProperties appProperties,
-            TenantModelConfigRegistry tenantConfigRegistry
+            TenantModelConfigRegistry tenantConfigRegistry,
+            ModelUsageTracker modelUsageTracker
     ) {
         this.toolCallingManager = toolCallingManager;
         this.retryTemplate = retryTemplate;
         this.observationRegistry = observationRegistry;
         this.appProperties = appProperties;
         this.tenantConfigRegistry = tenantConfigRegistry;
+        this.modelUsageTracker = modelUsageTracker;
+    }
+
+    public ModelConfigService(
+            ToolCallingManager toolCallingManager,
+            RetryTemplate retryTemplate,
+            ObservationRegistry observationRegistry,
+            AppProperties appProperties,
+            TenantModelConfigRegistry tenantConfigRegistry
+    ) {
+        this(toolCallingManager, retryTemplate, observationRegistry, appProperties,
+                tenantConfigRegistry, ModelUsageTracker.noop());
     }
 
     public ModelConfigService(
@@ -55,7 +73,7 @@ public class ModelConfigService {
             ObservationRegistry observationRegistry,
             AppProperties appProperties
     ) {
-        this(toolCallingManager, retryTemplate, observationRegistry, appProperties, null);
+        this(toolCallingManager, retryTemplate, observationRegistry, appProperties, null, ModelUsageTracker.noop());
     }
 
     public ChatModel createChatModel(ChatRequest request) {
@@ -109,6 +127,16 @@ public class ModelConfigService {
 
     public boolean hasConfiguredModelSettings(ChatRequest request, Long tenantId) {
         return resolveTenantConfig(tenantId) != null || hasConfiguredModelSettings(request);
+    }
+
+    public String resolveModelName(ChatRequest request, Long tenantId) {
+        if (tenantId != null && tenantConfigRegistry != null) {
+            java.util.Optional<ModelConfigView> tenantConfig = tenantConfigRegistry.view(tenantId);
+            if (tenantConfig.isPresent()) {
+                return tenantConfig.get().model();
+            }
+        }
+        return resolveModelConfig(request).model();
     }
 
     public ModelConfigView saveTenantConfig(
@@ -171,12 +199,33 @@ public class ModelConfigService {
             Long tenantId,
             List<String> allowedHosts
     ) {
+        return testConnection(request, tenantId, allowedHosts, null, "unavailable");
+    }
+
+    public ModelConfigTestResponse testConnection(
+            ModelConfigRequest request,
+            Long tenantId,
+            List<String> allowedHosts,
+            Long userId,
+            String traceId
+    ) {
         if (tenantId == null) {
             throw new org.springframework.security.access.AccessDeniedException("Tenant context is required.");
         }
         try {
             ModelConfigRequest resolved = resolveTestConfig(request, tenantId);
-            ChatModel chatModel = createChatModel(resolved, allowedHosts);
+            ChatModel chatModel = modelUsageTracker.track(
+                    createChatModel(resolved, allowedHosts),
+                    new ModelUsageContext(
+                            tenantId == null ? TenantScoped.DEFAULT_TENANT_ID : tenantId,
+                            userId,
+                            ModelUsageScenario.MODEL_CONFIG_TEST,
+                            "openai-compatible",
+                            resolved.model(),
+                            traceId,
+                            false
+                    )
+            );
             String reply = chatModel.call("Reply with OK.");
 
             if (reply == null || reply.isBlank()) {

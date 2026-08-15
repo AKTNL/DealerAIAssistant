@@ -113,6 +113,29 @@ class AuthHttpIntegrationTest {
             assertThat(get(port, "/api/report-deliveries", permanentAccess).statusCode()).isEqualTo(200);
             assertThat(get(port, "/api/notification/smtp", permanentAccess).statusCode()).isEqualTo(200);
             assertThat(get(port, "/api/admin/users", permanentAccess).statusCode()).isEqualTo(200);
+            assertThat(get(port, "/api/admin/model-usage/summary", permanentAccess).statusCode()).isEqualTo(200);
+            assertThat(put(
+                    port,
+                    "/api/admin/model-usage/budget",
+                    mapper.writeValueAsString(Map.of(
+                            "monthlyLimit", 100,
+                            "softThresholdPercent", 80,
+                            "hardLimitEnabled", false,
+                            "failOpen", true,
+                            "reservationAmount", 0,
+                            "currency", "USD"
+                    )),
+                    permanentAccess
+            ).statusCode()).isEqualTo(200);
+            assertThat(post(port, "/api/admin/model-usage/prices", mapper.writeValueAsString(Map.of(
+                    "provider", "openai-compatible",
+                    "model", "gpt-test",
+                    "inputPricePerMillion", 1.25,
+                    "outputPricePerMillion", 5,
+                    "currency", "USD",
+                    "source", "INTEGRATION_TEST"
+            )), permanentAccess, null).statusCode()).isEqualTo(200);
+            assertThat(get(port, "/api/platform/model-usage/summary", permanentAccess).statusCode()).isEqualTo(200);
             assertThat(post(port, "/api/admin/roles", mapper.writeValueAsString(Map.of(
                     "roleKey", "OPS_VIEWER",
                     "displayName", "Operations Viewer",
@@ -191,6 +214,10 @@ class AuthHttpIntegrationTest {
             assertThat(post(port, "/api/report-deliveries/999/retry", "", viewerAccess, null).statusCode())
                     .isEqualTo(403);
             assertThat(get(port, "/api/notification/smtp", viewerAccess).statusCode()).isEqualTo(403);
+            assertThat(get(port, "/api/admin/model-usage/summary", viewerAccess).statusCode()).isEqualTo(403);
+            assertThat(put(port, "/api/admin/model-usage/budget", "{}", viewerAccess).statusCode())
+                    .isEqualTo(403);
+            assertThat(get(port, "/api/platform/model-usage/summary", viewerAccess).statusCode()).isEqualTo(403);
 
             HttpResponse<String> logoutLogin = post(port, "/api/auth/login", mapper.writeValueAsString(Map.of(
                     "username", "initial.admin", "password", "permanent-password-2"
@@ -304,6 +331,15 @@ class AuthHttpIntegrationTest {
                 .header("Content-Type", "application/json")
                 .header("Authorization", "Bearer " + accessToken)
                 .method("PATCH", HttpRequest.BodyPublishers.ofString(json))
+                .build();
+        return httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+    }
+
+    private HttpResponse<String> put(int port, String path, String json, String accessToken) throws Exception {
+        HttpRequest request = HttpRequest.newBuilder(uri(port, path))
+                .header("Content-Type", "application/json")
+                .header("Authorization", "Bearer " + accessToken)
+                .PUT(HttpRequest.BodyPublishers.ofString(json))
                 .build();
         return httpClient.send(request, HttpResponse.BodyHandlers.ofString());
     }

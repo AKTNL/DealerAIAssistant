@@ -60,6 +60,11 @@ public class AuthSecurityConfiguration {
                                 "/api/auth/login", "/api/auth/refresh", "/api/auth/logout"
                         ).permitAll()
                         .requestMatchers("/api/auth/me", "/api/auth/password", "/api/auth/logout-all").authenticated()
+                        .requestMatchers(HttpMethod.GET, "/api/platform/model-usage/**")
+                                .hasAuthority("MODEL_USAGE_PLATFORM_READ")
+                        .requestMatchers(HttpMethod.GET, "/api/admin/model-usage/**")
+                                .hasAuthority("MODEL_USAGE_READ")
+                        .requestMatchers("/api/admin/model-usage/**").hasAuthority("MODEL_USAGE_MANAGE")
                         .requestMatchers(HttpMethod.GET, "/api/admin/audit-events/**").hasAuthority("USER_READ")
                         .requestMatchers("/api/admin/audit-events/**").hasAuthority("USER_MANAGE")
                         .requestMatchers(HttpMethod.GET, "/api/admin/users/**").hasAuthority("USER_READ")

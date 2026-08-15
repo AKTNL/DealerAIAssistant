@@ -9,11 +9,15 @@ import com.brand.agentpoc.ai.LanguageDetector;
 import com.brand.agentpoc.ai.PromptFactory;
 import com.brand.agentpoc.dto.request.ChatRequest;
 import com.brand.agentpoc.knowledge.application.KnowledgeAnswerComposer;
+import com.brand.agentpoc.modelusage.domain.ModelUsageContext;
+import com.brand.agentpoc.modelusage.domain.ModelUsageScenario;
+import com.brand.agentpoc.modelusage.infrastructure.ModelUsageTracker;
 import com.brand.agentpoc.reporting.application.ReportGenerationRequest;
 import com.brand.agentpoc.reporting.application.ReportService;
 import com.brand.agentpoc.reporting.domain.ReportDraft;
 import com.brand.agentpoc.organization.domain.OrganizationDataScope;
 import com.brand.agentpoc.repository.DealerRepository;
+import com.brand.agentpoc.tenant.domain.TenantScoped;
 import java.io.BufferedWriter;
 import java.io.IOException;
 import java.io.OutputStream;
@@ -95,6 +99,7 @@ public class ChatService {
     private final ControlledAgentToolCallbacks agentToolCallbacks;
     private final KnowledgeAnswerComposer knowledgeAnswerComposer;
     private final ReportService reportService;
+    private final ModelUsageTracker modelUsageTracker;
 
     @Autowired
     public ChatService(
@@ -107,7 +112,8 @@ public class ChatService {
             ImportBatchService importBatchService,
             ControlledAgentToolCallbacks agentToolCallbacks,
             KnowledgeAnswerComposer knowledgeAnswerComposer,
-            ReportService reportService
+            ReportService reportService,
+            ModelUsageTracker modelUsageTracker
     ) {
         this.sessionMemoryService = sessionMemoryService;
         this.languageDetector = languageDetector;
@@ -121,6 +127,24 @@ public class ChatService {
         this.agentToolCallbacks = agentToolCallbacks;
         this.knowledgeAnswerComposer = knowledgeAnswerComposer;
         this.reportService = reportService;
+        this.modelUsageTracker = modelUsageTracker;
+    }
+
+    ChatService(
+            SessionMemoryService sessionMemoryService,
+            LanguageDetector languageDetector,
+            RuleBasedAnalyticsService analyticsService,
+            PromptFactory promptFactory,
+            ModelConfigService modelConfigService,
+            DealerRepository dealerRepository,
+            ImportBatchService importBatchService,
+            ControlledAgentToolCallbacks agentToolCallbacks,
+            KnowledgeAnswerComposer knowledgeAnswerComposer,
+            ReportService reportService
+    ) {
+        this(sessionMemoryService, languageDetector, analyticsService, promptFactory, modelConfigService,
+                dealerRepository, importBatchService, agentToolCallbacks, knowledgeAnswerComposer, reportService,
+                ModelUsageTracker.noop());
     }
 
     ChatService(
@@ -141,7 +165,8 @@ public class ChatService {
                 new ImportBatchService(),
                 null,
                 null,
-                null
+                null,
+                ModelUsageTracker.noop()
         );
     }
 
@@ -166,7 +191,8 @@ public class ChatService {
                 importBatchService,
                 agentToolCallbacks,
                 knowledgeAnswerComposer,
-                null
+                null,
+                ModelUsageTracker.noop()
         );
     }
 
@@ -331,7 +357,8 @@ public class ChatService {
                     analyticsPlan,
                     prompt,
                     agentSession,
-                    agentScope
+                    agentScope,
+                    traceId
             );
             return;
         }
@@ -340,11 +367,11 @@ public class ChatService {
             Prompt prompt = buildKnowledgePrompt(request, language);
             ControlledAgentToolSession agentSession = openAgentSession(agentScope, traceId);
             streamConfiguredKnowledgeReply(
-                    writer, request, language, prompt, agentSession, agentScope);
+                    writer, request, language, prompt, agentSession, agentScope, traceId);
             return;
         }
 
-        ChatModel chatModel = createChatModel(request, agentScope);
+        ChatModel chatModel = createChatModel(request, agentScope, ModelUsageScenario.CHAT, traceId);
         Prompt prompt = buildStreamingPrompt(request, language, false, null);
         streamConfiguredGeneralReply(writer, request, language, chatModel, prompt);
     }
@@ -398,7 +425,8 @@ public class ChatService {
             AnalyticsPlan analyticsPlan,
             Prompt prompt,
             ControlledAgentToolSession agentSession,
-            AgentRequestScope agentScope
+            AgentRequestScope agentScope,
+            String traceId
     ) throws IOException {
         StringBuilder streamedReply = new StringBuilder();
         String finalReply;
@@ -409,7 +437,7 @@ public class ChatService {
                     "正在调用外部模型生成经营分析报告",
                     "Calling the external model to generate the business analysis report"
             ));
-            ChatModel chatModel = createChatModel(request, agentScope);
+            ChatModel chatModel = createChatModel(request, agentScope, ModelUsageScenario.AGENT, traceId);
             streamWithControlledTools(chatModel, prompt, agentSession)
                     .doOnNext(chunkResponse -> {
                         String reasoning = extractReasoningContent(chunkResponse);
@@ -482,7 +510,8 @@ public class ChatService {
             String language,
             Prompt prompt,
             ControlledAgentToolSession agentSession,
-            AgentRequestScope agentScope
+            AgentRequestScope agentScope,
+            String traceId
     ) throws IOException {
         String finalReply;
         try {
@@ -491,7 +520,7 @@ public class ChatService {
                     "正在检索业务知识并生成带引用的回答",
                     "Retrieving business knowledge and preparing a cited answer"
             ));
-            ChatModel chatModel = createChatModel(request, agentScope);
+            ChatModel chatModel = createChatModel(request, agentScope, ModelUsageScenario.KNOWLEDGE, traceId);
             finalReply = callConfiguredKnowledgeModel(chatModel, prompt, agentSession);
             finalReply = replyGuard.ensureFollowUpQuestions(finalReply, language, false);
         } catch (Exception exception) {
@@ -722,7 +751,7 @@ public class ChatService {
         if (knowledgeRequested) {
             return generateKnowledgeReply(request, language, agentScope, traceId);
         }
-        return generateGeneralReply(request, language, agentScope);
+        return generateGeneralReply(request, language, agentScope, traceId);
     }
 
     private GeneratedReply generateKnowledgeReply(
@@ -732,7 +761,7 @@ public class ChatService {
             String traceId
     ) {
         try {
-            ChatModel chatModel = createChatModel(request, agentScope);
+            ChatModel chatModel = createChatModel(request, agentScope, ModelUsageScenario.KNOWLEDGE, traceId);
             ControlledAgentToolSession agentSession = openAgentSession(agentScope, safeTraceId(traceId));
             String reply = callConfiguredKnowledgeModel(
                     chatModel,
@@ -752,9 +781,10 @@ public class ChatService {
     private GeneratedReply generateGeneralReply(
             ChatRequest request,
             String language,
-            AgentRequestScope agentScope
+            AgentRequestScope agentScope,
+            String traceId
     ) {
-        ChatModel chatModel = createChatModel(request, agentScope);
+        ChatModel chatModel = createChatModel(request, agentScope, ModelUsageScenario.CHAT, traceId);
 
         try {
             String reply = callConfiguredModel(
@@ -782,7 +812,7 @@ public class ChatService {
         AnalyticsPlan plan = planAnalyticsForRequest(request.message(), language, traceId, agentScope);
 
         try {
-            ChatModel chatModel = createChatModel(request, agentScope);
+            ChatModel chatModel = createChatModel(request, agentScope, ModelUsageScenario.AGENT, traceId);
             String polishedReply = callGroundedAnalyticsModel(
                     chatModel,
                     request.sessionId(),
@@ -1175,10 +1205,39 @@ public class ChatService {
                 : modelConfigService.hasConfiguredModelSettings(request, agentScope.tenantId());
     }
 
-    private ChatModel createChatModel(ChatRequest request, AgentRequestScope agentScope) {
-        return legacyUnrestricted(agentScope)
+    private ChatModel createChatModel(
+            ChatRequest request,
+            AgentRequestScope agentScope,
+            ModelUsageScenario scenario,
+            String traceId
+    ) {
+        ChatModel chatModel = legacyUnrestricted(agentScope)
                 ? modelConfigService.createChatModel(request)
                 : modelConfigService.createChatModel(request, agentScope.tenantId());
+        Long tenantId = legacyUnrestricted(agentScope) ? TenantScoped.DEFAULT_TENANT_ID : agentScope.tenantId();
+        return modelUsageTracker.track(chatModel, new ModelUsageContext(
+                tenantId,
+                usageUserId(agentScope),
+                scenario,
+                "openai-compatible",
+                modelConfigService.resolveModelName(request, tenantId),
+                safeTraceId(traceId),
+                false
+        ));
+    }
+
+    private Long usageUserId(AgentRequestScope agentScope) {
+        if (agentScope == null || agentScope.subject() == null) {
+            return null;
+        }
+        String subject = agentScope.subject();
+        int tenantSeparator = subject.indexOf(":tenant:");
+        String userId = tenantSeparator < 0 ? subject : subject.substring(0, tenantSeparator);
+        try {
+            return Long.valueOf(userId);
+        } catch (NumberFormatException ignored) {
+            return null;
+        }
     }
 
     private boolean legacyUnrestricted(AgentRequestScope agentScope) {

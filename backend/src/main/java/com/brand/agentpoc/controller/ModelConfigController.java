@@ -4,6 +4,9 @@ import com.brand.agentpoc.dto.request.ModelConfigRequest;
 import com.brand.agentpoc.dto.response.ModelConfigTestResponse;
 import com.brand.agentpoc.service.ModelConfigService;
 import com.brand.agentpoc.organization.application.OrganizationAuthorizationService;
+import com.brand.agentpoc.organization.domain.OrganizationAuthorizationContext;
+import com.brand.agentpoc.observability.infrastructure.web.RequestCorrelation;
+import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.DeleteMapping;
@@ -37,15 +40,22 @@ public class ModelConfigController {
     }
 
     @PostMapping("/test")
-    public ModelConfigTestResponse test(@Valid @RequestBody TestModelConfigRequest request) {
+    public ModelConfigTestResponse test(
+            @Valid @RequestBody TestModelConfigRequest request,
+            HttpServletRequest servletRequest
+    ) {
         ModelConfigRequest settings = new ModelConfigRequest(request.baseUrl(), request.apiKey(), request.model());
-        return authorizationService == null
-                ? modelConfigService.testConnection(settings)
-                : modelConfigService.testConnection(
-                        settings,
-                        authorizationService.resolveCurrent().tenantId(),
-                        request.allowedHosts()
-                );
+        if (authorizationService == null) {
+            return modelConfigService.testConnection(settings);
+        }
+        OrganizationAuthorizationContext context = authorizationService.resolveCurrent();
+        return modelConfigService.testConnection(
+                settings,
+                context.tenantId(),
+                request.allowedHosts(),
+                context.principal().userId(),
+                RequestCorrelation.traceId(servletRequest)
+        );
     }
 
     @GetMapping
