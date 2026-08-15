@@ -1181,3 +1181,38 @@ Implemented tenant-scoped report collaboration with status, assignees, immutable
 ### Next Steps
 
 - None - task complete
+
+
+## Session 36: Complete P2-4B model usage cost governance
+
+**Date**: 2026-08-16
+**Task**: Complete P2-4B model usage cost governance
+**Branch**: `main`
+
+### Summary
+
+Implemented tenant-scoped model usage tracking, immutable price snapshots, soft and hard budget governance, platform auditing, administration UI, tests, OpenAPI, runbook, and executable Trellis specs.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `e5845c4` | (see git log) |
+| `26a5409` | (see git log) |
+| `c8cb65f` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
