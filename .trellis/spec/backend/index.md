@@ -19,6 +19,7 @@ This directory contains guidelines for backend development. Fill in each file wi
 | [Error Handling](./error-handling.md) | Error types, handling strategies | To fill |
 | [Quality Guidelines](./quality-guidelines.md) | Code standards, forbidden patterns | Active |
 | [Logging Guidelines](./logging-guidelines.md) | Structured logging, log levels | To fill |
+| [Observability and Correlation](./observability-correlation.md) | Micrometer observations, trace propagation, safe fields, and OTLP configuration | Active |
 | [Authentication and Authorization](./authentication-authorization.md) | Database identity, opaque sessions, RBAC, and Agent authorization | Active |
 | [Email Notification Delivery](./notification-delivery.md) | Tenant email, SMTP security, durable report outbox, and retry semantics | Active |
 | [Report Collaboration Workflow](./report-collaboration.md) | Report status, assignee, immutable timeline, optimistic concurrency, and assignee notifications | Active |
