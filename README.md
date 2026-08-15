@@ -4,7 +4,7 @@
 
 ## 当前交付状态
 
-截至 2026-08-15，P0 MVP、P1 首版与 P2 产品化基础能力已完成：
+截至 2026-08-16，P0 MVP、P1 首版与 P2 产品化基础能力已完成：
 
 | 阶段 | 状态 | 已交付范围 |
 | --- | --- | --- |
@@ -17,6 +17,7 @@
 | P2-1B 组织树与数据范围 | 已完成 | 集团/区域/城市/经销商树、用户/角色 grant、服务端 dealer 范围、HTTP/SSE/Agent/报告一致过滤 |
 | P2-4A 可观测性与追踪 | 已完成 | HTTP/SSE/后台任务关联、Micrometer Observation、OTLP/Prometheus 安全基线 |
 | P2-4B 模型使用与成本治理 | 已完成 | tenant 用量事件、token/成本聚合、追加式价格、软预算与可选并发硬限制 |
+| P2-4C 健康检查、告警与性能 | 已完成 | liveness/readiness、依赖降级、慢查询/队列指标、告警去重恢复与性能基线 |
 
 这里的“已完成”指相应代码、回归和文档范围。真实 PostgreSQL 凭据环境仍需部署时手工验收；权限/组织管理图形界面、多租户、报告 PDF/Word 导出、任意文档上传与知识隔离属于后续增强。
 
@@ -248,6 +249,11 @@ npm run dev
 | `app.knowledge.table-name` | `APP_KNOWLEDGE_TABLE_NAME` | `knowledge_vector_store` | PGvector 表名，仅接受 SQL 标识符 |
 | `app.knowledge.dimensions` | `APP_KNOWLEDGE_EMBEDDING_DIMENSIONS` | `1536` | embedding 维度，必须与模型和迁移表结构一致 |
 | `app.knowledge.similarity-threshold` | `APP_KNOWLEDGE_SIMILARITY_THRESHOLD` | `0.45` | PGvector 余弦相似度阈值，范围 `0..1` |
+| `app.observability.slow-query-threshold` | `APP_OBSERVABILITY_SLOW_QUERY_THRESHOLD` | `500ms` | repository 调用慢查询计数阈值，不记录 SQL 或参数 |
+| `app.observability.queue-refresh-interval` | `APP_OBSERVABILITY_QUEUE_REFRESH_INTERVAL` | `30s` | job/投递 backlog、retry、failure gauge 刷新间隔 |
+| `app.observability.job-backlog-degraded-threshold` | `APP_OBSERVABILITY_JOB_BACKLOG_DEGRADED_THRESHOLD` | `100` | 综合健康进入 `DEGRADED` 的报告 job backlog 阈值，不影响 readiness |
+| `app.observability.delivery-backlog-degraded-threshold` | `APP_OBSERVABILITY_DELIVERY_BACKLOG_DEGRADED_THRESHOLD` | `100` | 综合健康进入 `DEGRADED` 的投递 backlog 阈值，不影响 readiness |
+| `app.observability.permanent-failure-degraded-threshold` | `APP_OBSERVABILITY_PERMANENT_FAILURE_DEGRADED_THRESHOLD` | `1` | job/delivery 永久或 UNKNOWN 失败的综合健康阈值 |
 
 安全边界说明：
 
@@ -261,6 +267,7 @@ npm run dev
 - 模型 `Base URL` 会拒绝 localhost、内网地址和未进入允许列表的主机，允许列表可通过 `APP_MODEL_ALLOWED_HOSTS` 配置。
 - 模型用量治理没有额外环境开关：默认记录安全元数据，但不会保存 prompt、completion、API key、Base URL、工具参数或 provider-native payload。价格与预算通过 tenant 管理 API 持久化。
 - `MODEL_USAGE_READ` 查看当前 tenant；`MODEL_USAGE_MANAGE` 追加价格并维护预算；`MODEL_USAGE_PLATFORM_READ` 还必须在默认平台 tenant 中使用，跨 tenant 汇总会写入安全审计。
+- `/livez` 只表示进程存活；`/readyz` 检查数据库、Flyway 和知识索引。模型、导入、job 与投递失败只产生降级告警，不能引发重启风暴。告警、性能基线和处置边界见 [`docs/14-P2-4C-健康告警与性能运行手册.md`](docs/14-P2-4C-健康告警与性能运行手册.md)。
 
 ## API 概览
 

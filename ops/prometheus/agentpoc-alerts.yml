@@ -1,0 +1,203 @@
+groups:
+  - name: agentpoc-health
+    interval: 30s
+    rules:
+      - alert: AgentPocReadinessFailed
+        expr: probe_success{job="blackbox",probe="agentpoc-readiness"} == 0
+        for: 2m
+        labels:
+          severity: critical
+          service: agentpoc
+        annotations:
+          summary: AgentPoc instance is not ready for traffic
+          impact: Requests may fail because the database, migration state, or knowledge index is unavailable.
+          threshold: The readiness probe has failed continuously for 2 minutes.
+          diagnostic_url: https://grafana.example.invalid/d/agentpoc-operations?viewPanel=readiness
+          runbook_url: https://runbooks.example.invalid/agentpoc/health#readiness
+
+      - alert: AgentPocOperationalMetricsUnavailable
+        expr: agentpoc_operational_queue_refresh_available < 1
+        for: 5m
+        labels:
+          severity: warning
+          service: agentpoc
+        annotations:
+          summary: AgentPoc queue metrics cannot refresh
+          impact: Job and delivery backlog alerts may be stale while database-backed queue diagnostics are unavailable.
+          threshold: Queue metric refresh has failed continuously for 5 minutes.
+          diagnostic_url: https://grafana.example.invalid/d/agentpoc-operations?viewPanel=queue-refresh
+          runbook_url: https://runbooks.example.invalid/agentpoc/health#queue-metrics
+
+  - name: agentpoc-request-performance
+    interval: 30s
+    rules:
+      - alert: AgentPocHttpErrorRateHigh
+        expr: |
+          sum(rate(http_server_requests_seconds_count{service="agent-poc-backend",uri!~"/actuator.*",status=~"5.."}[10m]))
+          /
+          clamp_min(sum(rate(http_server_requests_seconds_count{service="agent-poc-backend",uri!~"/actuator.*"}[10m])), 0.001)
+          > 0.05
+        for: 10m
+        labels:
+          severity: warning
+          service: agentpoc
+        annotations:
+          summary: AgentPoc HTTP error rate is elevated
+          impact: More than 5 percent of business requests are returning server errors.
+          threshold: The 10-minute HTTP 5xx ratio is above 5 percent for 10 minutes.
+          diagnostic_url: https://grafana.example.invalid/d/agentpoc-operations?viewPanel=http-errors
+          runbook_url: https://runbooks.example.invalid/agentpoc/performance#http-errors
+
+      - alert: AgentPocHttpLatencyHigh
+        expr: |
+          histogram_quantile(0.95,
+            sum by (le) (rate(http_server_requests_seconds_bucket{service="agent-poc-backend",uri!~"/actuator.*|/api/chat/stream"}[10m]))
+          ) > 2
+        for: 10m
+        labels:
+          severity: warning
+          service: agentpoc
+        annotations:
+          summary: AgentPoc HTTP p95 latency is elevated
+          impact: Dashboard, detail, Agent, or report interactions are slower than the operating baseline.
+          threshold: Non-SSE HTTP p95 latency is above 2 seconds for 10 minutes.
+          diagnostic_url: https://grafana.example.invalid/d/agentpoc-operations?viewPanel=http-latency
+          runbook_url: https://runbooks.example.invalid/agentpoc/performance#http-latency
+
+      - alert: AgentPocSseLatencyHigh
+        expr: |
+          histogram_quantile(0.95,
+            sum by (le) (rate(http_server_requests_seconds_bucket{service="agent-poc-backend",uri="/api/chat/stream"}[15m]))
+          ) > 30
+        for: 15m
+        labels:
+          severity: warning
+          service: agentpoc
+        annotations:
+          summary: AgentPoc SSE completion latency is elevated
+          impact: Streaming Agent responses take too long to complete or remain open unexpectedly.
+          threshold: SSE p95 completion latency is above 30 seconds for 15 minutes.
+          diagnostic_url: https://grafana.example.invalid/d/agentpoc-operations?viewPanel=sse-latency
+          runbook_url: https://runbooks.example.invalid/agentpoc/performance#sse-latency
+
+      - alert: AgentPocSlowQueriesDetected
+        expr: sum(increase(agentpoc_database_slow_query_total[10m])) >= 5
+        for: 5m
+        labels:
+          severity: warning
+          service: agentpoc
+        annotations:
+          summary: AgentPoc is repeatedly observing slow repository queries
+          impact: Database latency may cascade into Dashboard, detail, Agent, and report timeouts.
+          threshold: At least 5 repository calls exceed the configured slow-query threshold within 10 minutes.
+          diagnostic_url: https://grafana.example.invalid/d/agentpoc-operations?viewPanel=database-query
+          runbook_url: https://runbooks.example.invalid/agentpoc/performance#slow-query
+
+  - name: agentpoc-dependencies-and-jobs
+    interval: 30s
+    rules:
+      - alert: AgentPocModelProviderDegraded
+        expr: |
+          sum(rate(agentpoc_model_call_seconds_count{app_outcome="error"}[10m]))
+          /
+          clamp_min(sum(rate(agentpoc_model_call_seconds_count[10m])), 0.001)
+          > 0.20
+        for: 10m
+        labels:
+          severity: warning
+          service: agentpoc
+        annotations:
+          summary: AgentPoc model provider is degraded
+          impact: Agent requests may fall back to deterministic analysis, but traffic must continue to be served.
+          threshold: The model-call error ratio is above 20 percent for 10 minutes.
+          diagnostic_url: https://grafana.example.invalid/d/agentpoc-operations?viewPanel=model-calls
+          runbook_url: https://runbooks.example.invalid/agentpoc/dependencies#model-provider
+
+      - alert: AgentPocImportFailures
+        expr: |
+          sum(increase(agentpoc_data_import_seconds_count{app_outcome=~"error|fallback"}[30m])) >= 2
+        for: 5m
+        labels:
+          severity: warning
+          service: agentpoc
+        annotations:
+          summary: AgentPoc imports repeatedly fail or use fallback data
+          impact: Analytics may be stale, simulated, or unavailable for one or more tenants.
+          threshold: At least 2 import error or fallback outcomes occur within 30 minutes.
+          diagnostic_url: https://grafana.example.invalid/d/agentpoc-operations?viewPanel=imports
+          runbook_url: https://runbooks.example.invalid/agentpoc/dependencies#import
+
+      - alert: AgentPocReportJobBacklog
+        expr: agentpoc_report_job_backlog >= 50
+        for: 10m
+        labels:
+          severity: warning
+          service: agentpoc
+        annotations:
+          summary: AgentPoc report job backlog is growing
+          impact: Scheduled reports may miss their expected generation window.
+          threshold: At least 50 ready or retry-wait jobs remain queued for 10 minutes.
+          diagnostic_url: https://grafana.example.invalid/d/agentpoc-operations?viewPanel=report-jobs
+          runbook_url: https://runbooks.example.invalid/agentpoc/jobs#report-backlog
+
+      - alert: AgentPocReportJobRetries
+        expr: agentpoc_report_job_retry >= 10
+        for: 10m
+        labels:
+          severity: warning
+          service: agentpoc
+        annotations:
+          summary: AgentPoc report jobs are repeatedly retrying
+          impact: Report generation is failing transiently and may progress to permanent failure.
+          threshold: At least 10 report jobs remain in retry-wait for 10 minutes.
+          diagnostic_url: https://grafana.example.invalid/d/agentpoc-operations?viewPanel=report-job-retries
+          runbook_url: https://runbooks.example.invalid/agentpoc/jobs#report-retry
+
+      - alert: AgentPocReportDeliveryFailures
+        expr: agentpoc_report_delivery_failure >= 1
+        for: 10m
+        labels:
+          severity: critical
+          service: agentpoc
+        annotations:
+          summary: AgentPoc report delivery has unresolved failures
+          impact: At least one report recipient may not receive a report; UNKNOWN deliveries require manual reconciliation.
+          threshold: At least 1 permanent or unknown delivery remains for 10 minutes.
+          diagnostic_url: https://grafana.example.invalid/d/agentpoc-operations?viewPanel=report-delivery
+          runbook_url: https://runbooks.example.invalid/agentpoc/jobs#delivery-failure
+
+  - name: agentpoc-capacity
+    interval: 30s
+    rules:
+      - alert: AgentPocConnectionPoolSaturated
+        expr: |
+          hikaricp_connections_pending > 0
+          and
+          hikaricp_connections_active / clamp_min(hikaricp_connections_max, 1) > 0.85
+        for: 5m
+        labels:
+          severity: warning
+          service: agentpoc
+        annotations:
+          summary: AgentPoc database connection pool is saturated
+          impact: Requests and background jobs are waiting for database connections.
+          threshold: Pool utilization is above 85 percent with pending callers for 5 minutes.
+          diagnostic_url: https://grafana.example.invalid/d/agentpoc-operations?viewPanel=hikari
+          runbook_url: https://runbooks.example.invalid/agentpoc/capacity#connection-pool
+
+      - alert: AgentPocJvmHeapPressure
+        expr: |
+          sum(jvm_memory_used_bytes{area="heap"})
+          /
+          clamp_min(sum(jvm_memory_max_bytes{area="heap"}), 1)
+          > 0.90
+        for: 10m
+        labels:
+          severity: warning
+          service: agentpoc
+        annotations:
+          summary: AgentPoc JVM heap pressure is high
+          impact: Sustained heap pressure can increase pause time and terminate the process.
+          threshold: Heap utilization is above 90 percent for 10 minutes.
+          diagnostic_url: https://grafana.example.invalid/d/agentpoc-operations?viewPanel=jvm-memory
+          runbook_url: https://runbooks.example.invalid/agentpoc/capacity#heap

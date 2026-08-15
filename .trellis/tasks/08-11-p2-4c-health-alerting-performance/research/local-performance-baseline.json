@@ -1,0 +1,85 @@
+{
+  "generatedAt": "2026-08-15T23:15:03.675Z",
+  "profile": {
+    "durationSeconds": 20,
+    "concurrency": 2,
+    "requestTimeoutMs": 60000
+  },
+  "dataPolicy": "Response bodies, credentials, tenant identifiers, prompts, and report content are not persisted.",
+  "slowestPath": "reportGeneration",
+  "operations": {
+    "dashboard": {
+      "count": 47,
+      "errorRate": 0,
+      "latencyMs": {
+        "p50": 219.578,
+        "p95": 230.264,
+        "p99": 249.499,
+        "max": 249.499
+      },
+      "statuses": {
+        "200": 47
+      },
+      "threshold": {
+        "p95Ms": 750,
+        "maxErrorRate": 0.01
+      },
+      "passed": true
+    },
+    "dataDetails": {
+      "count": 48,
+      "errorRate": 0,
+      "latencyMs": {
+        "p50": 39.312,
+        "p95": 46.185,
+        "p99": 63.504,
+        "max": 63.504
+      },
+      "statuses": {
+        "200": 48
+      },
+      "threshold": {
+        "p95Ms": 1000,
+        "maxErrorRate": 0.01
+      },
+      "passed": true
+    },
+    "agentQuery": {
+      "count": 48,
+      "errorRate": 0,
+      "latencyMs": {
+        "p50": 49.831,
+        "p95": 54.603,
+        "p99": 55.667,
+        "max": 55.667
+      },
+      "statuses": {
+        "200": 48
+      },
+      "threshold": {
+        "p95Ms": 5000,
+        "maxErrorRate": 0.01
+      },
+      "passed": true
+    },
+    "reportGeneration": {
+      "count": 48,
+      "errorRate": 0,
+      "latencyMs": {
+        "p50": 504.494,
+        "p95": 533.076,
+        "p99": 545.557,
+        "max": 545.557
+      },
+      "statuses": {
+        "200": 48
+      },
+      "threshold": {
+        "p95Ms": 1500,
+        "maxErrorRate": 0.01
+      },
+      "passed": true
+    }
+  },
+  "passed": true
+}
