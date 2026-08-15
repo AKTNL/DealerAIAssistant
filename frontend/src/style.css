@@ -4673,6 +4673,113 @@ textarea::placeholder {
   font-weight: 700;
 }
 
+.model-usage-heading {
+  align-items: flex-end;
+}
+
+.model-usage-range {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 0.55rem;
+}
+
+.model-usage-range label {
+  display: grid;
+  gap: 0.3rem;
+  color: var(--text-muted);
+  font-size: 0.72rem;
+  font-weight: 700;
+}
+
+.model-usage-range .text-input {
+  min-width: 150px;
+}
+
+.model-usage-metrics {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(145px, 1fr));
+  gap: 0.65rem;
+  margin: 1rem 0;
+}
+
+.model-usage-metrics > div {
+  display: grid;
+  gap: 0.3rem;
+  min-width: 0;
+  min-height: 78px;
+  padding: 0.75rem;
+  border: 1px solid var(--border-soft);
+  border-radius: 8px;
+  background: var(--surface-strong);
+}
+
+.model-usage-metrics span,
+.model-usage-budget-status span {
+  color: var(--text-muted);
+  font-size: 0.7rem;
+  font-weight: 700;
+}
+
+.model-usage-metrics strong,
+.model-usage-budget-status strong {
+  min-width: 0;
+  color: var(--text-strong);
+  font-size: 0.94rem;
+  overflow-wrap: anywhere;
+}
+
+.model-usage-budget-status {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(140px, 1fr));
+  gap: 0.8rem;
+  padding: 0.8rem;
+  border-block: 1px solid var(--border-soft);
+  background: var(--surface-soft);
+}
+
+.model-usage-budget-status > div {
+  display: grid;
+  gap: 0.25rem;
+}
+
+.model-usage-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1rem;
+}
+
+.model-usage-section {
+  min-width: 0;
+  margin-top: 1rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--border-soft);
+}
+
+.model-usage-section h4 {
+  margin: 0 0 0.7rem;
+  color: var(--text-strong);
+  font-size: 0.88rem;
+}
+
+.model-usage-section .admin-empty-card {
+  min-height: 100px;
+  margin-top: 0;
+}
+
+.model-usage-management .admin-inline-form {
+  grid-template-columns: repeat(2, minmax(140px, 1fr));
+  margin-bottom: 0;
+}
+
+.model-usage-management .primary-button {
+  justify-self: start;
+}
+
+.model-usage-events-table {
+  min-width: 980px;
+}
+
 @media (max-width: 1100px) {
   .admin-master-detail {
     grid-template-columns: 1fr;
@@ -4697,6 +4804,25 @@ textarea::placeholder {
   }
 
   .admin-grant-row {
+    grid-template-columns: 1fr;
+  }
+
+  .model-usage-heading {
+    align-items: stretch;
+  }
+
+  .model-usage-grid,
+  .model-usage-budget-status {
+    grid-template-columns: 1fr;
+  }
+
+  .model-usage-range > label,
+  .model-usage-range .text-input,
+  .model-usage-range .ghost-button {
+    width: 100%;
+  }
+
+  .model-usage-management .admin-inline-form {
     grid-template-columns: 1fr;
   }
 }

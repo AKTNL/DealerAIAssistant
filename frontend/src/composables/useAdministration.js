@@ -45,6 +45,7 @@ export function useAdministration({ currentUser, dictionary, onAuthExpired, onId
   const canReadOrganization = computed(() => permissions.value.has("ORGANIZATION_READ"));
   const canManageOrganization = computed(() => permissions.value.has("ORGANIZATION_MANAGE"));
   const canManageGrants = computed(() => permissions.value.has("ORGANIZATION_GRANT_MANAGE"));
+  const canReadModelUsage = computed(() => permissions.value.has("MODEL_USAGE_READ"));
 
   async function initialize() {
     loading.value = true;
@@ -332,6 +333,7 @@ export function useAdministration({ currentUser, dictionary, onAuthExpired, onId
     canManageRoles,
     canManageUsers,
     canReadOrganization,
+    canReadModelUsage,
     canReadRoles,
     canReadUsers,
     changeUserEnabled,

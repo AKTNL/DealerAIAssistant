@@ -66,7 +66,8 @@ const dictionary = {
   dashboardTab: "Dashboard",
   chatTab: "AI analysis",
   subscriptionTab: "Report subscriptions",
-  collaborationTab: "Report collaboration"
+  collaborationTab: "Report collaboration",
+  adminTab: "Administration"
 };
 
 const authorizedUser = {
@@ -327,6 +328,16 @@ describe("ChatView", () => {
     expect(wrapper.find(".admin-view-stub").exists()).toBe(true);
     expect(wrapper.find(".chat-screen").exists()).toBe(false);
     expect(wrapper.find(".dashboard-view-stub").exists()).toBe(false);
+  });
+
+  it("opens the administration workspace for a model-usage-only reader", () => {
+    const wrapper = mountChatView({
+      authVerified: true,
+      currentUser: { id: 6, permissions: ["MODEL_USAGE_READ"] }
+    });
+
+    expect(wrapper.find(".admin-view-stub").exists()).toBe(true);
+    expect(wrapper.text()).toContain("Administration");
   });
 
   it("opens the collaboration workspace for a report-read-only user", () => {

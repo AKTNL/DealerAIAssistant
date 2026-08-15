@@ -2,6 +2,7 @@
 import { computed, onMounted, ref } from "vue";
 import { useAdministration } from "../../composables/useAdministration";
 import { PERMISSION_KEYS } from "../../constants/permissionCatalog";
+import ModelUsagePanel from "./ModelUsagePanel.vue";
 import NotificationSmtpPanel from "./NotificationSmtpPanel.vue";
 
 const props = defineProps({
@@ -64,6 +65,9 @@ const sections = computed(() => [
     : null,
   admin.canReadOrganization.value && admin.canManageGrants.value
     ? { id: "grants", label: props.dictionary.adminGrantsTab, icon: "policy" }
+    : null,
+  admin.canReadModelUsage.value
+    ? { id: "model-usage", label: props.dictionary.modelUsageTab, icon: "monitoring" }
     : null,
   admin.canReadUsers.value ? { id: "audit", label: props.dictionary.adminAuditTab, icon: "history" } : null
 ].filter(Boolean));
@@ -570,6 +574,14 @@ function confirmAction(message) {
       <NotificationSmtpPanel
         v-else-if="activeSection === 'smtp'"
         :dictionary="dictionary"
+        @sign-out="emit('sign-out')"
+      />
+
+      <ModelUsagePanel
+        v-else-if="activeSection === 'model-usage'"
+        :current-user="currentUser"
+        :dictionary="dictionary"
+        :locale="locale"
         @sign-out="emit('sign-out')"
       />
 

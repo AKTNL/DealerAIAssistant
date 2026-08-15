@@ -19,6 +19,14 @@ vi.mock("../admin/NotificationSmtpPanel.vue", () => ({
   }
 }));
 
+vi.mock("../admin/ModelUsagePanel.vue", () => ({
+  default: {
+    name: "ModelUsagePanel",
+    props: ["currentUser", "dictionary", "locale"],
+    template: '<div class="model-usage-panel-stub">Model usage panel</div>'
+  }
+}));
+
 const dictionary = {
   adminAssignedRoles: "Assigned roles",
   adminAuditTab: "Audit",
@@ -32,6 +40,7 @@ const dictionary = {
   adminForbiddenTitle: "Forbidden",
   adminLoadingBody: "Loading",
   adminLoadingTitle: "Loading administration",
+  modelUsageTab: "Model usage",
   adminRefresh: "Refresh",
   adminRetry: "Retry",
   adminRolesLabel: "Roles",
@@ -63,6 +72,7 @@ function administration(overrides = {}) {
     canManageRoles: ref(false),
     canManageUsers: ref(false),
     canReadOrganization: ref(false),
+    canReadModelUsage: ref(false),
     canReadRoles: ref(false),
     canReadUsers: ref(true),
     changeUserEmail: vi.fn(),
@@ -155,5 +165,16 @@ describe("AdminView", () => {
     await smtpTab.trigger("click");
 
     expect(wrapper.find(".smtp-panel-stub").exists()).toBe(true);
+  });
+
+  it("opens model usage for a usage reader", async () => {
+    state.administration = administration({ canReadModelUsage: ref(true) });
+    const wrapper = mountView();
+    await vi.waitFor(() => expect(wrapper.text()).toContain("Model usage"));
+
+    const usageTab = wrapper.findAll("button").find((button) => button.text().includes("Model usage"));
+    await usageTab.trigger("click");
+
+    expect(wrapper.find(".model-usage-panel-stub").exists()).toBe(true);
   });
 });
