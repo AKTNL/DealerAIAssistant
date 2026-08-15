@@ -4015,6 +4015,513 @@ textarea::placeholder {
   }
 }
 
+.collaboration-view {
+  width: min(1440px, calc(100% - 2rem));
+  margin: 0 auto;
+  padding: 1rem 0 2rem;
+  overflow-y: auto;
+}
+
+.collaboration-header,
+.collaboration-queue-heading,
+.collaboration-detail-header,
+.collaboration-detail-badges,
+.collaboration-feedback,
+.collaboration-timeline-heading,
+.collaboration-comment-form > div {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.8rem;
+}
+
+.collaboration-header h1,
+.collaboration-queue h2,
+.collaboration-detail h2,
+.collaboration-detail h3 {
+  margin: 0;
+  color: var(--text-strong);
+  letter-spacing: 0;
+}
+
+.collaboration-header h1 {
+  margin-top: 0.2rem;
+  font-size: 1.4rem;
+}
+
+.collaboration-header p,
+.collaboration-detail-header p {
+  margin: 0.25rem 0 0;
+  color: var(--text-muted);
+  font-size: 0.82rem;
+}
+
+.collaboration-refresh {
+  display: inline-flex;
+  align-items: center;
+  flex: 0 0 auto;
+  gap: 0.35rem;
+}
+
+.collaboration-refresh .material-icons {
+  font-size: 1rem;
+}
+
+.collaboration-filters {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(135px, 1fr)) auto;
+  gap: 0.65rem;
+  margin: 0.85rem 0;
+  padding: 0.75rem;
+  border: 1px solid var(--border-soft);
+  border-radius: 8px;
+  background: var(--surface);
+}
+
+.collaboration-filters label,
+.collaboration-controls label,
+.collaboration-comment-form > label {
+  display: grid;
+  gap: 0.3rem;
+  color: var(--text-muted);
+  font-size: 0.72rem;
+  font-weight: 800;
+}
+
+.collaboration-filters input,
+.collaboration-filters select,
+.collaboration-controls select,
+.collaboration-comment-form textarea {
+  width: 100%;
+  min-height: 38px;
+  padding: 0.45rem 0.55rem;
+  border: 1px solid var(--border-soft);
+  border-radius: 7px;
+  background: var(--surface);
+  color: var(--text-main);
+}
+
+.collaboration-filter-actions {
+  display: flex;
+  align-items: flex-end;
+  gap: 0.4rem;
+}
+
+.collaboration-filter-actions button {
+  min-height: 38px;
+  white-space: nowrap;
+}
+
+.collaboration-state,
+.collaboration-feedback,
+.collaboration-notice {
+  border: 1px solid var(--border-soft);
+  border-radius: 8px;
+  background: var(--surface);
+}
+
+.collaboration-state {
+  display: grid;
+  gap: 0.25rem;
+  padding: 1rem;
+  color: var(--text-muted);
+}
+
+.collaboration-state-error,
+.collaboration-feedback-error {
+  border-color: var(--danger-border-soft);
+  background: var(--danger-surface-soft);
+  color: var(--danger);
+}
+
+.collaboration-workspace {
+  display: grid;
+  grid-template-columns: minmax(280px, 0.32fr) minmax(0, 1fr);
+  min-height: 600px;
+  border: 1px solid var(--border-soft);
+  border-radius: 8px;
+  overflow: hidden;
+  background: var(--surface);
+  box-shadow: var(--shadow-sm);
+}
+
+.collaboration-queue {
+  min-width: 0;
+  border-right: 1px solid var(--border-soft);
+  background: var(--surface-strong);
+}
+
+.collaboration-queue-heading {
+  padding: 0.85rem;
+  border-bottom: 1px solid var(--border-soft);
+}
+
+.collaboration-queue-heading h2,
+.collaboration-detail h3 {
+  font-size: 0.9rem;
+}
+
+.collaboration-queue-heading > span,
+.collaboration-timeline-heading > span {
+  min-width: 1.7rem;
+  padding: 0.12rem 0.42rem;
+  border-radius: 999px;
+  background: var(--surface-muted);
+  color: var(--text-muted);
+  text-align: center;
+  font-size: 0.7rem;
+  font-weight: 800;
+}
+
+.collaboration-report-list {
+  display: grid;
+  max-height: 740px;
+  overflow-y: auto;
+}
+
+.collaboration-report-item {
+  display: grid;
+  gap: 0.4rem;
+  width: 100%;
+  padding: 0.8rem 0.85rem;
+  border: 0;
+  border-bottom: 1px solid var(--border-soft);
+  background: transparent;
+  color: var(--text-main);
+  text-align: left;
+}
+
+.collaboration-report-item:hover,
+.collaboration-report-item.active {
+  background: var(--surface-accent);
+}
+
+.collaboration-report-item.active {
+  box-shadow: inset 3px 0 0 var(--brand-primary);
+}
+
+.collaboration-report-item-heading {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 0.45rem;
+}
+
+.collaboration-report-item-heading strong {
+  overflow-wrap: anywhere;
+  font-size: 0.82rem;
+}
+
+.collaboration-report-item-meta,
+.collaboration-report-assignee {
+  color: var(--text-helper);
+  font-size: 0.7rem;
+}
+
+.collaboration-report-assignee {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.collaboration-report-assignee .material-icons {
+  font-size: 0.9rem;
+}
+
+.collaboration-status,
+.collaboration-read-only,
+.collaboration-detail-badges > span {
+  display: inline-flex;
+  align-items: center;
+  width: fit-content;
+  padding: 0.2rem 0.48rem;
+  border-radius: 999px;
+  background: var(--surface-muted);
+  color: var(--text-muted);
+  font-size: 0.68rem;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.collaboration-status.status-open {
+  background: var(--brand-primary-soft);
+  color: var(--brand-primary);
+}
+
+.collaboration-status.status-in_progress {
+  background: #fff5d9;
+  color: #76520a;
+}
+
+.collaboration-status.status-resolved {
+  background: #e1f3e9;
+  color: #226845;
+}
+
+.collaboration-status.status-closed {
+  background: #e7eaee;
+  color: #485565;
+}
+
+.collaboration-detail {
+  min-width: 0;
+  padding: 1rem 1.1rem 1.25rem;
+}
+
+.collaboration-detail.collaboration-state {
+  align-content: start;
+  border: 0;
+  border-radius: 0;
+}
+
+.collaboration-detail-header {
+  align-items: flex-start;
+}
+
+.collaboration-detail-header h2 {
+  margin-top: 0.45rem;
+  overflow-wrap: anywhere;
+  font-size: 1.15rem;
+}
+
+.collaboration-detail-badges {
+  justify-content: flex-start;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
+.collaboration-read-only {
+  gap: 0.25rem;
+}
+
+.collaboration-read-only .material-icons {
+  font-size: 0.82rem;
+}
+
+.collaboration-controls {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(180px, 280px));
+  gap: 0.75rem;
+  margin-top: 0.9rem;
+  padding: 0.75rem;
+  border-block: 1px solid var(--border-soft);
+  background: var(--surface-strong);
+}
+
+.collaboration-notice {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  margin-top: 0.85rem;
+  padding: 0.65rem 0.75rem;
+  background: #eaf5ee;
+  color: #2a6848;
+  font-size: 0.78rem;
+}
+
+.collaboration-notice .material-icons {
+  font-size: 1rem;
+}
+
+.collaboration-feedback {
+  margin-top: 0.75rem;
+  padding: 0.6rem 0.7rem;
+  color: var(--brand-primary);
+  font-size: 0.78rem;
+}
+
+.collaboration-report-content,
+.collaboration-timeline {
+  margin-top: 1rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--border-soft);
+}
+
+.collaboration-report-content > .markdown-body {
+  margin-top: 0.75rem;
+  padding: 0.85rem;
+  border: 1px solid var(--border-soft);
+  border-radius: 8px;
+  background: var(--surface-strong);
+  overflow-x: auto;
+}
+
+.collaboration-timeline ol {
+  display: grid;
+  gap: 0;
+  margin: 0.8rem 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.collaboration-timeline li {
+  position: relative;
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr);
+  gap: 0.55rem;
+  min-height: 58px;
+}
+
+.collaboration-timeline li:not(:last-child)::before {
+  content: "";
+  position: absolute;
+  top: 13px;
+  bottom: -1px;
+  left: 5px;
+  width: 1px;
+  background: var(--border-strong);
+}
+
+.collaboration-timeline-marker {
+  position: relative;
+  z-index: 1;
+  width: 11px;
+  height: 11px;
+  margin-top: 0.3rem;
+  border: 2px solid var(--surface);
+  border-radius: 50%;
+  background: var(--accent-info);
+  box-shadow: 0 0 0 1px var(--border-strong);
+}
+
+.event-comment_added .collaboration-timeline-marker {
+  background: #2f7a52;
+}
+
+.collaboration-timeline-entry {
+  min-width: 0;
+  padding-bottom: 0.8rem;
+}
+
+.collaboration-timeline-entry > div {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.7rem;
+}
+
+.collaboration-timeline-entry strong {
+  font-size: 0.78rem;
+}
+
+.collaboration-timeline-entry time {
+  color: var(--text-helper);
+  font-size: 0.68rem;
+  white-space: nowrap;
+}
+
+.collaboration-timeline-entry p {
+  margin: 0.18rem 0 0;
+  color: var(--text-muted);
+  font-size: 0.76rem;
+}
+
+.collaboration-timeline-entry .collaboration-comment {
+  padding: 0.55rem 0.65rem;
+  border-radius: 7px;
+  background: var(--surface-soft);
+  color: var(--text-main);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.collaboration-comment-form {
+  display: grid;
+  gap: 0.5rem;
+  margin-top: 0.55rem;
+  padding: 0.75rem;
+  border: 1px solid var(--border-soft);
+  border-radius: 8px;
+  background: var(--surface-strong);
+}
+
+.collaboration-comment-form textarea {
+  resize: vertical;
+}
+
+.collaboration-comment-form > div > span {
+  color: var(--text-helper);
+  font-size: 0.68rem;
+}
+
+.collaboration-comment-form .primary-button {
+  min-height: 36px;
+  padding: 0.45rem 0.75rem;
+}
+
+.collaboration-view button:disabled,
+.collaboration-view select:disabled,
+.collaboration-view textarea:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+@media (max-width: 1100px) {
+  .collaboration-filters {
+    grid-template-columns: repeat(3, minmax(150px, 1fr));
+  }
+
+  .collaboration-filter-actions {
+    align-items: center;
+  }
+}
+
+@media (max-width: 820px) {
+  .collaboration-view {
+    width: calc(100% - 1rem);
+  }
+
+  .collaboration-workspace {
+    grid-template-columns: 1fr;
+  }
+
+  .collaboration-queue {
+    border-right: 0;
+    border-bottom: 1px solid var(--border-soft);
+  }
+
+  .collaboration-report-list {
+    grid-template-columns: repeat(2, minmax(240px, 1fr));
+    max-height: 300px;
+    overflow: auto;
+  }
+
+  .collaboration-report-item {
+    border-right: 1px solid var(--border-soft);
+  }
+}
+
+@media (max-width: 620px) {
+  .collaboration-header,
+  .collaboration-detail-header {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .collaboration-filters,
+  .collaboration-controls {
+    grid-template-columns: 1fr;
+  }
+
+  .collaboration-filter-actions {
+    align-items: stretch;
+  }
+
+  .collaboration-report-list {
+    grid-template-columns: 1fr;
+  }
+
+  .collaboration-detail {
+    padding-inline: 0.75rem;
+  }
+
+  .collaboration-timeline-entry > div {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 0.1rem;
+  }
+}
+
 .admin-danger-button:disabled,
 .admin-section-tab:disabled {
   cursor: not-allowed;

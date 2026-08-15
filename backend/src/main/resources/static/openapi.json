@@ -481,6 +481,138 @@
           }
         }
       },
+      "ReportCollaborationAssignee": {
+        "type": "object",
+        "required": ["userId", "username", "displayName", "active"],
+        "properties": {
+          "userId": { "type": "integer", "format": "int64" },
+          "username": { "type": "string" },
+          "displayName": { "type": "string" },
+          "active": { "type": "boolean" }
+        }
+      },
+      "ReportCollaborationSummary": {
+        "type": "object",
+        "required": ["reportId", "title", "reportType", "language", "generatedAt", "scope", "status", "updatedAt", "version"],
+        "properties": {
+          "reportId": { "type": "string" },
+          "title": { "type": "string" },
+          "reportType": { "type": "string", "enum": ["daily", "weekly", "monthly", "topic"] },
+          "language": { "type": "string", "enum": ["zh", "en"] },
+          "generatedAt": { "type": "string", "format": "date-time" },
+          "scope": {
+            "type": "object",
+            "required": ["type", "id"],
+            "properties": {
+              "type": { "type": "string", "enum": ["GLOBAL", "ORGANIZATION"] },
+              "id": { "type": "string" }
+            }
+          },
+          "status": { "type": "string", "enum": ["OPEN", "IN_PROGRESS", "RESOLVED", "CLOSED"] },
+          "assignee": { "$ref": "#/components/schemas/ReportCollaborationAssignee", "nullable": true },
+          "updatedAt": { "type": "string", "format": "date-time" },
+          "version": { "type": "integer", "format": "int64", "minimum": 0 }
+        }
+      },
+      "ReportCollaborationTimelineEvent": {
+        "type": "object",
+        "required": ["id", "type", "actorUsername", "actorDisplayName", "traceId", "createdAt"],
+        "properties": {
+          "id": { "type": "integer", "format": "int64" },
+          "type": { "type": "string", "enum": ["CREATED", "STATUS_CHANGED", "ASSIGNEE_CHANGED", "COMMENT_ADDED"] },
+          "actorUserId": { "type": "integer", "format": "int64", "nullable": true },
+          "actorUsername": { "type": "string" },
+          "actorDisplayName": { "type": "string" },
+          "previousValue": { "type": "string", "nullable": true },
+          "currentValue": { "type": "string", "nullable": true },
+          "commentBody": { "type": "string", "maxLength": 2000, "nullable": true, "description": "Immutable single-level comment body." },
+          "traceId": { "type": "string", "maxLength": 128 },
+          "createdAt": { "type": "string", "format": "date-time" }
+        }
+      },
+      "ReportCollaborationDetail": {
+        "type": "object",
+        "required": ["report", "markdown", "timeline"],
+        "properties": {
+          "report": { "$ref": "#/components/schemas/ReportCollaborationSummary" },
+          "markdown": { "type": "string" },
+          "timeline": { "type": "array", "items": { "$ref": "#/components/schemas/ReportCollaborationTimelineEvent" } }
+        }
+      },
+      "ReportCollaborationStatusRequest": {
+        "type": "object",
+        "required": ["status", "version"],
+        "properties": {
+          "status": { "type": "string", "enum": ["OPEN", "IN_PROGRESS", "RESOLVED", "CLOSED"] },
+          "version": { "type": "integer", "format": "int64", "minimum": 0 }
+        }
+      },
+      "ReportCollaborationAssigneeRequest": {
+        "type": "object",
+        "required": ["version"],
+        "properties": {
+          "assigneeUserId": { "type": "integer", "format": "int64", "minimum": 1, "nullable": true },
+          "version": { "type": "integer", "format": "int64", "minimum": 0 }
+        }
+      },
+      "ReportCollaborationCommentRequest": {
+        "type": "object",
+        "required": ["body", "version"],
+        "properties": {
+          "body": { "type": "string", "minLength": 1, "maxLength": 2000 },
+          "version": { "type": "integer", "format": "int64", "minimum": 0 }
+        }
+      },
+      "ReportCollaborationDetailResponse": {
+        "type": "object",
+        "properties": {
+          "code": { "type": "integer" },
+          "message": { "type": "string" },
+          "data": { "$ref": "#/components/schemas/ReportCollaborationDetail" }
+        }
+      },
+      "ReportCollaborationListResponse": {
+        "type": "object",
+        "properties": {
+          "code": { "type": "integer" },
+          "message": { "type": "string" },
+          "data": { "type": "array", "items": { "$ref": "#/components/schemas/ReportCollaborationSummary" } }
+        }
+      },
+      "ReportCollaborationAssigneeListResponse": {
+        "type": "object",
+        "properties": {
+          "code": { "type": "integer" },
+          "message": { "type": "string" },
+          "data": { "type": "array", "items": { "$ref": "#/components/schemas/ReportCollaborationAssignee" } }
+        }
+      },
+      "ReportCollaborationConflictResponse": {
+        "type": "object",
+        "required": ["code", "message", "data"],
+        "properties": {
+          "code": { "type": "integer", "enum": [409] },
+          "message": { "type": "string" },
+          "data": {
+            "type": "object",
+            "properties": { "currentVersion": { "type": "integer", "format": "int64", "minimum": 0, "nullable": true } }
+          }
+        }
+      },
+      "ReportCollaborationStateConflictResponse": {
+        "type": "object",
+        "required": ["code", "message"],
+        "properties": {
+          "code": { "type": "integer", "enum": [409] },
+          "message": { "type": "string" }
+        }
+      },
+      "ReportCollaborationMutationConflictResponse": {
+        "oneOf": [
+          { "$ref": "#/components/schemas/ReportCollaborationConflictResponse" },
+          { "$ref": "#/components/schemas/ReportCollaborationStateConflictResponse" }
+        ]
+      },
       "ReportSubscriptionRequest": {
         "type": "object",
         "required": [
@@ -2240,6 +2372,109 @@
           "200": { "description": "UNKNOWN delivery reset after duplicate-risk acknowledgement", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ReportDeliveryResponse" } } } },
           "400": { "description": "duplicate-risk acknowledgement is missing" },
           "409": { "description": "delivery is not UNKNOWN" }
+        }
+      }
+    },
+    "/api/report-collaborations": {
+      "get": {
+        "operationId": "listReportCollaborations",
+        "summary": "List in-scope reports with collaboration state",
+        "security": [{ "BearerAuth": [] }],
+        "parameters": [
+          { "$ref": "#/components/parameters/TenantKey" },
+          { "name": "status", "in": "query", "schema": { "type": "string", "enum": ["OPEN", "IN_PROGRESS", "RESOLVED", "CLOSED"] } },
+          { "name": "assigneeUserId", "in": "query", "schema": { "type": "integer", "format": "int64", "minimum": 1 } },
+          { "name": "organizationId", "in": "query", "schema": { "type": "integer", "format": "int64", "minimum": 1 } },
+          { "name": "generatedFrom", "in": "query", "schema": { "type": "string", "format": "date-time" } },
+          { "name": "generatedTo", "in": "query", "schema": { "type": "string", "format": "date-time" } }
+        ],
+        "responses": {
+          "200": { "description": "Tenant- and organization-scoped report collaboration queue", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ReportCollaborationListResponse" } } } },
+          "403": { "description": "REPORT_READ or active organization scope is missing" }
+        }
+      }
+    },
+    "/api/report-collaborations/{reportId}": {
+      "parameters": [
+        { "$ref": "#/components/parameters/TenantKey" },
+        { "name": "reportId", "in": "path", "required": true, "schema": { "type": "string" } }
+      ],
+      "get": {
+        "operationId": "getReportCollaboration",
+        "security": [{ "BearerAuth": [] }],
+        "responses": {
+          "200": { "description": "Report content and immutable collaboration timeline", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ReportCollaborationDetailResponse" } } } },
+          "403": { "description": "REPORT_READ is missing" },
+          "404": { "description": "Report is absent or outside the caller's organization scope" }
+        }
+      }
+    },
+    "/api/report-collaborations/{reportId}/assignees": {
+      "parameters": [
+        { "$ref": "#/components/parameters/TenantKey" },
+        { "name": "reportId", "in": "path", "required": true, "schema": { "type": "string" } }
+      ],
+      "get": {
+        "operationId": "listReportCollaborationAssignees",
+        "security": [{ "BearerAuth": [] }],
+        "responses": {
+          "200": { "description": "Active tenant members whose grants cover the report scope", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ReportCollaborationAssigneeListResponse" } } } },
+          "403": { "description": "REPORT_READ is missing" },
+          "404": { "description": "Report is absent or outside the caller's organization scope" }
+        }
+      }
+    },
+    "/api/report-collaborations/{reportId}/status": {
+      "parameters": [
+        { "$ref": "#/components/parameters/TenantKey" },
+        { "name": "reportId", "in": "path", "required": true, "schema": { "type": "string" } }
+      ],
+      "patch": {
+        "operationId": "changeReportCollaborationStatus",
+        "security": [{ "BearerAuth": [] }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ReportCollaborationStatusRequest" } } } },
+        "responses": {
+          "200": { "description": "Status advanced through the collaboration state machine", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ReportCollaborationDetailResponse" } } } },
+          "400": { "description": "Invalid status or version" },
+          "403": { "description": "REPORT_COLLABORATE is missing" },
+          "404": { "description": "Report is absent or outside the caller's organization scope" },
+          "409": { "description": "Stale version or illegal status transition", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ReportCollaborationMutationConflictResponse" } } } }
+        }
+      }
+    },
+    "/api/report-collaborations/{reportId}/assignee": {
+      "parameters": [
+        { "$ref": "#/components/parameters/TenantKey" },
+        { "name": "reportId", "in": "path", "required": true, "schema": { "type": "string" } }
+      ],
+      "patch": {
+        "operationId": "changeReportCollaborationAssignee",
+        "security": [{ "BearerAuth": [] }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ReportCollaborationAssigneeRequest" } } } },
+        "responses": {
+          "200": { "description": "Assignee changed or cleared", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ReportCollaborationDetailResponse" } } } },
+          "400": { "description": "Invalid assignee or version" },
+          "403": { "description": "REPORT_COLLABORATE is missing or assignee grants do not cover the report" },
+          "404": { "description": "Report is absent or outside the caller's organization scope" },
+          "409": { "description": "Stale version or terminal collaboration", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ReportCollaborationMutationConflictResponse" } } } }
+        }
+      }
+    },
+    "/api/report-collaborations/{reportId}/comments": {
+      "parameters": [
+        { "$ref": "#/components/parameters/TenantKey" },
+        { "name": "reportId", "in": "path", "required": true, "schema": { "type": "string" } }
+      ],
+      "post": {
+        "operationId": "addReportCollaborationComment",
+        "security": [{ "BearerAuth": [] }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ReportCollaborationCommentRequest" } } } },
+        "responses": {
+          "200": { "description": "Immutable single-level comment appended to the timeline", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ReportCollaborationDetailResponse" } } } },
+          "400": { "description": "Comment is blank, too long, or version is invalid" },
+          "403": { "description": "REPORT_COLLABORATE is missing" },
+          "404": { "description": "Report is absent or outside the caller's organization scope" },
+          "409": { "description": "Stale version or terminal collaboration", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ReportCollaborationMutationConflictResponse" } } } }
         }
       }
     },

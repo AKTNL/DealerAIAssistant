@@ -2,6 +2,7 @@
 import { computed, onMounted, ref } from "vue";
 import AdminView from "../components/admin/AdminView.vue";
 import DashboardView from "../components/dashboard/DashboardView.vue";
+import ReportCollaborationView from "../components/reporting/ReportCollaborationView.vue";
 import ReportSubscriptionsView from "../components/reporting/ReportSubscriptionsView.vue";
 import ChatInput from "../components/chat/ChatInput.vue";
 import ChatMessageList from "../components/chat/ChatMessageList.vue";
@@ -112,7 +113,7 @@ function defaultWorkspace() {
     return "chat";
   }
   if (canReadReports.value) {
-    return "subscriptions";
+    return "collaboration";
   }
   return canOpenAdministration.value ? "admin" : "";
 }
@@ -257,7 +258,13 @@ async function handleTestConnection(settings) {
 
 <template>
   <div :class="['app-shell', 'workspace-shell', { 'sidebar-collapsed': sidebarCollapsed }]">
-    <button v-if="canUseChat" class="sidebar-expand-tab" type="button" :title="dictionary.newChat" @click="sidebarCollapsed = false">
+    <button
+      v-if="canUseChat && activeWorkspace === 'chat'"
+      class="sidebar-expand-tab"
+      type="button"
+      :title="dictionary.newChat"
+      @click="sidebarCollapsed = false"
+    >
       <span class="material-icons">add_comment</span>
     </button>
 
@@ -337,6 +344,17 @@ async function handleTestConnection(settings) {
         </button>
         <button
           v-if="canReadReports"
+          :class="['workspace-mode-tab', { active: activeWorkspace === 'collaboration' }]"
+          type="button"
+          role="tab"
+          :aria-selected="activeWorkspace === 'collaboration'"
+          @click="activeWorkspace = 'collaboration'"
+        >
+          <span class="material-icons" aria-hidden="true">assignment</span>
+          <span>{{ dictionary.collaborationTab }}</span>
+        </button>
+        <button
+          v-if="canReadReports"
           :class="['workspace-mode-tab', { active: activeWorkspace === 'subscriptions' }]"
           type="button"
           role="tab"
@@ -381,6 +399,14 @@ async function handleTestConnection(settings) {
 
       <ReportSubscriptionsView
         v-else-if="canReadReports && activeWorkspace === 'subscriptions'"
+        :current-user="currentUser"
+        :dictionary="dictionary"
+        :locale="locale"
+        @sign-out="emit('sign-out')"
+      />
+
+      <ReportCollaborationView
+        v-else-if="canReadReports && activeWorkspace === 'collaboration'"
         :current-user="currentUser"
         :dictionary="dictionary"
         :locale="locale"

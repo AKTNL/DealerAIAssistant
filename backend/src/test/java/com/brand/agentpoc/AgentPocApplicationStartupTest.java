@@ -522,6 +522,108 @@ class AgentPocApplicationStartupTest {
     }
 
     @Test
+    void reportCollaborationMigrationPersistsWorkflowHistoryAndNotificationOutbox() throws Exception {
+        String url = "jdbc:h2:mem:report-collaboration-migration-test;MODE=PostgreSQL;DB_CLOSE_DELAY=-1";
+        Flyway flyway = Flyway.configure()
+                .dataSource(url, "sa", "")
+                .locations("classpath:db/migration")
+                .target(MigrationVersion.fromVersion("10"))
+                .load();
+        flyway.migrate();
+
+        try (Connection connection = DriverManager.getConnection(url, "sa", "");
+                Statement statement = connection.createStatement()) {
+            statement.executeUpdate("""
+                    INSERT INTO auth_roles (
+                        id, role_key, display_name, built_in, created_at, updated_at, version
+                    ) VALUES
+                        (61, 'ADMIN', 'Administrator', TRUE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, 0),
+                        (62, 'ANALYST', 'Analyst', TRUE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, 0),
+                        (63, 'VIEWER', 'Viewer', TRUE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, 0)
+                    """);
+        }
+
+        Flyway.configure()
+                .dataSource(url, "sa", "")
+                .locations("classpath:db/migration")
+                .load()
+                .migrate();
+
+        try (Connection connection = DriverManager.getConnection(url, "sa", "");
+                Statement statement = connection.createStatement()) {
+            statement.executeUpdate("""
+                    INSERT INTO auth_users (
+                        id, username, display_name, password_hash, enabled,
+                        must_change_password, created_at, updated_at, version
+                    ) VALUES (
+                        60, 'workflow.owner', 'Workflow Owner', '{bcrypt}hash', TRUE,
+                        FALSE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, 0
+                    )
+                    """);
+            statement.executeUpdate("""
+                    INSERT INTO report_collaborations (
+                        id, tenant_id, report_draft_id, scope_type, scope_id, status,
+                        assignee_user_id, assignee_username, assignee_display_name,
+                        activity_count, created_at, updated_at, version
+                    ) VALUES (
+                        60, 1, 'report-workflow-1', 'ORGANIZATION', '11', 'IN_PROGRESS',
+                        60, 'workflow.owner', 'Workflow Owner', 1,
+                        CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, 0
+                    )
+                    """);
+            statement.executeUpdate("""
+                    INSERT INTO report_collaboration_events (
+                        id, collaboration_id, tenant_id, report_draft_id, event_type,
+                        actor_user_id, actor_username, actor_display_name, previous_value,
+                        current_value, comment_body, trace_id, created_at
+                    ) VALUES (
+                        60, 60, 1, 'report-workflow-1', 'COMMENT_ADDED',
+                        60, 'workflow.owner', 'Workflow Owner', NULL,
+                        'comment_length:8', 'Reviewed', 'trace-workflow-1', CURRENT_TIMESTAMP
+                    )
+                    """);
+            statement.executeUpdate("""
+                    INSERT INTO report_collaboration_notifications (
+                        id, collaboration_id, event_id, tenant_id, recipient_user_id,
+                        channel_key, delivery_key, status, attempt, max_attempts,
+                        created_at, updated_at, version
+                    ) VALUES (
+                        60, 60, 60, 1, 60, 'email', 'collaboration:60:60',
+                        'READY', 0, 4, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, 0
+                    )
+                    """);
+
+            try (ResultSet rows = statement.executeQuery("""
+                    SELECT c.status, e.event_type, e.comment_body, n.status AS notification_status
+                    FROM report_collaborations c
+                    JOIN report_collaboration_events e ON e.collaboration_id = c.id
+                    JOIN report_collaboration_notifications n ON n.event_id = e.id
+                    WHERE c.tenant_id = 1 AND c.report_draft_id = 'report-workflow-1'
+                    """)) {
+                assertThat(rows.next()).isTrue();
+                assertThat(rows.getString("status")).isEqualTo("IN_PROGRESS");
+                assertThat(rows.getString("event_type")).isEqualTo("COMMENT_ADDED");
+                assertThat(rows.getString("comment_body")).isEqualTo("Reviewed");
+                assertThat(rows.getString("notification_status")).isEqualTo("READY");
+            }
+
+            try (ResultSet permissions = statement.executeQuery("""
+                    SELECT r.role_key
+                    FROM auth_roles r
+                    JOIN auth_role_permissions p ON p.role_id = r.id
+                    WHERE p.permission_key = 'REPORT_COLLABORATE'
+                    ORDER BY r.role_key
+                    """)) {
+                assertThat(permissions.next()).isTrue();
+                assertThat(permissions.getString("role_key")).isEqualTo("ADMIN");
+                assertThat(permissions.next()).isTrue();
+                assertThat(permissions.getString("role_key")).isEqualTo("ANALYST");
+                assertThat(permissions.next()).isFalse();
+            }
+        }
+    }
+
+    @Test
     void openApiDocumentsReportSubscriptionContract() throws Exception {
         JsonNode openApi = new ObjectMapper().readTree(
                 new ClassPathResource("static/openapi.json").getInputStream());
@@ -544,6 +646,19 @@ class AgentPocApplicationStartupTest {
                 .asText()).isEqualTo("forceReplayReportDelivery");
         assertThat(openApi.at("/components/schemas/AdminUser/properties/email/format").asText())
                 .isEqualTo("email");
+        assertThat(openApi.at("/paths/~1api~1report-collaborations/get/operationId").asText())
+                .isEqualTo("listReportCollaborations");
+        assertThat(openApi.at("/paths/~1api~1report-collaborations~1{reportId}~1comments/post/operationId")
+                .asText()).isEqualTo("addReportCollaborationComment");
+        assertThat(openApi.at("/components/schemas/ReportCollaborationSummary/properties/status/enum")
+                .toString()).contains("IN_PROGRESS", "RESOLVED", "CLOSED");
+        assertThat(openApi.at("/components/schemas/ReportCollaborationConflictResponse/properties/data/properties"
+                + "/currentVersion/format").asText()).isEqualTo("int64");
+        assertThat(openApi.at("/components/schemas/ReportCollaborationMutationConflictResponse/oneOf").size())
+                .isEqualTo(2);
+        assertThat(openApi.at("/paths/~1api~1report-collaborations~1{reportId}~1status/patch/responses/409"
+                + "/content/application~1json/schema/$ref").asText())
+                .isEqualTo("#/components/schemas/ReportCollaborationMutationConflictResponse");
     }
 
     @Test

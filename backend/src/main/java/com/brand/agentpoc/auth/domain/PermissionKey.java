@@ -14,5 +14,6 @@ public enum PermissionKey {
     KNOWLEDGE_QUERY,
     REPORT_READ,
     REPORT_GENERATE,
+    REPORT_COLLABORATE,
     MODEL_CONFIG_TEST
 }

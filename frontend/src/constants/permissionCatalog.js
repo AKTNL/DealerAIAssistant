@@ -12,6 +12,7 @@ export const PERMISSION_KEYS = Object.freeze([
   "KNOWLEDGE_QUERY",
   "REPORT_READ",
   "REPORT_GENERATE",
+  "REPORT_COLLABORATE",
   "MODEL_CONFIG_TEST"
 ]);
 

@@ -12,6 +12,7 @@ public enum BuiltInRole {
             PermissionKey.KNOWLEDGE_QUERY,
             PermissionKey.REPORT_READ,
             PermissionKey.REPORT_GENERATE,
+            PermissionKey.REPORT_COLLABORATE,
             PermissionKey.MODEL_CONFIG_TEST
     )),
     VIEWER("Viewer", EnumSet.of(

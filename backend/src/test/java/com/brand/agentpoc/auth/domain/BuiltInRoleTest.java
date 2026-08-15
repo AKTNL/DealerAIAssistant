@@ -17,6 +17,7 @@ class BuiltInRoleTest {
                 PermissionKey.KNOWLEDGE_QUERY,
                 PermissionKey.REPORT_READ,
                 PermissionKey.REPORT_GENERATE,
+                PermissionKey.REPORT_COLLABORATE,
                 PermissionKey.MODEL_CONFIG_TEST
         );
         assertThat(BuiltInRole.VIEWER.permissions()).containsExactlyInAnyOrder(

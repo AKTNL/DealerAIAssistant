@@ -65,7 +65,8 @@ const dictionary = {
   workspaceTitle: "Dealer workspace",
   dashboardTab: "Dashboard",
   chatTab: "AI analysis",
-  subscriptionTab: "Report subscriptions"
+  subscriptionTab: "Report subscriptions",
+  collaborationTab: "Report collaboration"
 };
 
 const authorizedUser = {
@@ -98,6 +99,9 @@ function mountChatView(props = {}) {
         },
         ReportSubscriptionsView: {
           template: "<section class='report-subscriptions-view-stub'></section>"
+        },
+        ReportCollaborationView: {
+          template: "<section class='report-collaboration-view-stub'></section>"
         },
         ExampleSidebar: {
           template: "<aside class='example-sidebar-stub'></aside>"
@@ -137,6 +141,18 @@ describe("ChatView", () => {
 
     expect(wrapper.find(".dashboard-view-stub").exists()).toBe(true);
     expect(wrapper.find(".chat-screen").exists()).toBe(false);
+    expect(wrapper.find(".sidebar-expand-tab").exists()).toBe(false);
+  });
+
+  it("shows the collapsed sidebar control only in the chat workspace", async () => {
+    const wrapper = mountChatView({ authVerified: true });
+    const chatTab = wrapper.findAll(".workspace-mode-tab")
+      .find((tab) => tab.text().includes("AI analysis"));
+
+    await chatTab.trigger("click");
+
+    expect(wrapper.find(".chat-screen").exists()).toBe(true);
+    expect(wrapper.find(".sidebar-expand-tab").exists()).toBe(true);
   });
 
   it("shows a warning when the backend reports fallback sample data", async () => {
@@ -313,14 +329,14 @@ describe("ChatView", () => {
     expect(wrapper.find(".dashboard-view-stub").exists()).toBe(false);
   });
 
-  it("opens the subscriptions workspace for a report-read-only user", () => {
+  it("opens the collaboration workspace for a report-read-only user", () => {
     const wrapper = mountChatView({
       authVerified: true,
       currentUser: { id: 5, permissions: ["REPORT_READ"] }
     });
 
-    expect(wrapper.find(".report-subscriptions-view-stub").exists()).toBe(true);
+    expect(wrapper.find(".report-collaboration-view-stub").exists()).toBe(true);
     expect(wrapper.find(".chat-screen").exists()).toBe(false);
-    expect(wrapper.text()).toContain("Report subscriptions");
+    expect(wrapper.text()).toContain("Report collaboration");
   });
 });

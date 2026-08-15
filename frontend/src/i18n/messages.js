@@ -456,6 +456,7 @@ Object.assign(messages.zh, {
     KNOWLEDGE_QUERY: "查询知识库",
     REPORT_READ: "查看报告",
     REPORT_GENERATE: "生成报告",
+    REPORT_COLLABORATE: "协作处理报告",
     MODEL_CONFIG_TEST: "测试模型连接"
   }
 });
@@ -648,6 +649,140 @@ Object.assign(messages.en, {
   }
 });
 
+Object.assign(messages.zh, {
+  collaborationTab: "报告协作",
+  collaborationEyebrow: "报告工作流",
+  collaborationTitle: "报告协作队列",
+  collaborationSubtitle: "在当前租户与组织授权范围内分派报告、推进状态并保留完整处理记录。",
+  collaborationRefresh: "刷新",
+  collaborationFilterStatus: "状态",
+  collaborationFilterAssignee: "负责人",
+  collaborationFilterOrganization: "组织",
+  collaborationFilterAll: "全部",
+  collaborationGeneratedFrom: "生成日期从",
+  collaborationGeneratedTo: "生成日期至",
+  collaborationApplyFilters: "应用筛选",
+  collaborationClearFilters: "清除",
+  collaborationOrganization: "组织",
+  collaborationGlobalScope: "全局范围",
+  collaborationLoadingTitle: "正在加载报告协作队列",
+  collaborationLoadingBody: "正在读取范围内的报告、负责人和最新处理状态。",
+  collaborationLoadError: "无法加载报告协作队列",
+  collaborationEmptyTitle: "暂无匹配报告",
+  collaborationEmptyBody: "调整筛选条件，或在生成报告后返回查看。",
+  collaborationQueueTitle: "报告队列",
+  collaborationDetailLoading: "正在加载报告详情和处理历史",
+  collaborationGeneratedAt: "生成于",
+  collaborationReadOnly: "只读",
+  collaborationControlsTitle: "报告处理控件",
+  collaborationStatusLabel: "处理状态",
+  collaborationAssigneeLabel: "负责人",
+  collaborationUnassigned: "未分配",
+  collaborationTerminalNotice: "该报告已进入终态，状态、负责人和评论不可再修改。",
+  collaborationReloadConflict: "加载最新版本",
+  collaborationReportContent: "报告内容",
+  collaborationTimelineTitle: "处理记录",
+  collaborationCommentLabel: "添加处理评论",
+  collaborationCommentPlaceholder: "记录结论、待办或交接信息",
+  collaborationAddComment: "添加评论",
+  collaborationCommentPending: "提交中...",
+  collaborationNotAvailable: "暂无",
+  collaborationSystemActor: "系统",
+  collaborationStatusEvent: "状态由 {from} 更新为 {to}",
+  collaborationAssigneeEvent: "负责人已更新",
+  collaborationStatusUpdated: "报告状态已更新。",
+  collaborationAssigneeUpdated: "负责人已更新。",
+  collaborationCommentAdded: "评论已添加。",
+  collaborationForbiddenError: "当前身份没有执行该报告协作操作的权限。",
+  collaborationConflictError: "报告已被其他用户更新，请加载最新版本后重试。",
+  collaborationStateConflictError: "当前报告状态不允许执行该操作，请刷新后检查处理状态。",
+  collaborationValidationError: "协作内容无效，请检查后重试。",
+  collaborationRequestError: "报告协作操作失败，请稍后重试。",
+  collaborationStatuses: {
+    OPEN: "待处理",
+    IN_PROGRESS: "处理中",
+    RESOLVED: "已解决",
+    CLOSED: "已关闭"
+  },
+  collaborationReportTypes: {
+    daily: "日报",
+    weekly: "周报",
+    monthly: "月报",
+    topic: "专题报告"
+  },
+  collaborationEvents: {
+    CREATED: "协作记录已创建",
+    COMMENT_ADDED: "添加了评论"
+  }
+});
+
+Object.assign(messages.en, {
+  collaborationTab: "Report collaboration",
+  collaborationEyebrow: "Report workflow",
+  collaborationTitle: "Report collaboration queue",
+  collaborationSubtitle: "Assign reports, advance their status, and retain a complete activity record within your tenant and organization scope.",
+  collaborationRefresh: "Refresh",
+  collaborationFilterStatus: "Status",
+  collaborationFilterAssignee: "Assignee",
+  collaborationFilterOrganization: "Organization",
+  collaborationFilterAll: "All",
+  collaborationGeneratedFrom: "Generated from",
+  collaborationGeneratedTo: "Generated to",
+  collaborationApplyFilters: "Apply filters",
+  collaborationClearFilters: "Clear",
+  collaborationOrganization: "Organization",
+  collaborationGlobalScope: "Global scope",
+  collaborationLoadingTitle: "Loading report collaboration queue",
+  collaborationLoadingBody: "Reading in-scope reports, assignees, and current workflow status.",
+  collaborationLoadError: "Unable to load report collaboration queue",
+  collaborationEmptyTitle: "No matching reports",
+  collaborationEmptyBody: "Adjust the filters, or return after a report has been generated.",
+  collaborationQueueTitle: "Report queue",
+  collaborationDetailLoading: "Loading report details and activity history",
+  collaborationGeneratedAt: "Generated",
+  collaborationReadOnly: "Read only",
+  collaborationControlsTitle: "Report workflow controls",
+  collaborationStatusLabel: "Workflow status",
+  collaborationAssigneeLabel: "Assignee",
+  collaborationUnassigned: "Unassigned",
+  collaborationTerminalNotice: "This report is in a terminal state. Its status, assignee, and comments can no longer be changed.",
+  collaborationReloadConflict: "Load latest version",
+  collaborationReportContent: "Report content",
+  collaborationTimelineTitle: "Activity history",
+  collaborationCommentLabel: "Add a workflow comment",
+  collaborationCommentPlaceholder: "Record a decision, follow-up, or handoff note",
+  collaborationAddComment: "Add comment",
+  collaborationCommentPending: "Submitting...",
+  collaborationNotAvailable: "Not available",
+  collaborationSystemActor: "System",
+  collaborationStatusEvent: "Changed status from {from} to {to}",
+  collaborationAssigneeEvent: "Changed the assignee",
+  collaborationStatusUpdated: "Report status updated.",
+  collaborationAssigneeUpdated: "Assignee updated.",
+  collaborationCommentAdded: "Comment added.",
+  collaborationForbiddenError: "The current identity is not allowed to perform this report collaboration action.",
+  collaborationConflictError: "Another user updated this report. Load the latest version before retrying.",
+  collaborationStateConflictError: "The report's current state does not allow this action. Refresh and review its workflow status.",
+  collaborationValidationError: "The collaboration input is invalid. Review it and try again.",
+  collaborationRequestError: "The report collaboration action failed. Please try again.",
+  collaborationStatuses: {
+    OPEN: "Open",
+    IN_PROGRESS: "In progress",
+    RESOLVED: "Resolved",
+    CLOSED: "Closed"
+  },
+  collaborationReportTypes: {
+    daily: "Daily report",
+    weekly: "Weekly report",
+    monthly: "Monthly report",
+    topic: "Topic report"
+  },
+  collaborationEvents: {
+    CREATED: "Collaboration record created",
+    COMMENT_ADDED: "Added a comment"
+  }
+});
+
 Object.assign(messages.en, {
   adminTab: "Access & organization",
   adminEyebrow: "Security operations",
@@ -799,6 +934,7 @@ Object.assign(messages.en, {
     KNOWLEDGE_QUERY: "Query knowledge",
     REPORT_READ: "Read reports",
     REPORT_GENERATE: "Generate reports",
+    REPORT_COLLABORATE: "Collaborate on reports",
     MODEL_CONFIG_TEST: "Test model connection"
   }
 });

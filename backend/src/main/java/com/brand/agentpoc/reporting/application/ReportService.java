@@ -17,12 +17,15 @@ import java.util.stream.Collectors;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.security.access.AccessDeniedException;
+import org.springframework.transaction.annotation.Transactional;
 
 @Service
+@Transactional
 public class ReportService {
 
     public static final String PROMPT_VERSION = "reporting-v1";
     private static final int MAX_TOPIC_LENGTH = 500;
+    private static final ReportCollaborationInitializer NOOP_COLLABORATION_INITIALIZER = draft -> { };
 
     private final DashboardService dashboardService;
     private final ImportBatchService importBatchService;
@@ -30,8 +33,8 @@ public class ReportService {
     private final Clock clock;
     private final AppProperties appProperties;
     private final ReportMarkdownRenderer renderer;
+    private final ReportCollaborationInitializer collaborationInitializer;
 
-    @Autowired
     public ReportService(
             DashboardService dashboardService,
             ImportBatchService importBatchService,
@@ -39,7 +42,19 @@ public class ReportService {
             AppProperties appProperties
     ) {
         this(dashboardService, importBatchService, draftStore, Clock.systemUTC(), appProperties,
-                new ReportMarkdownRenderer());
+                new ReportMarkdownRenderer(), NOOP_COLLABORATION_INITIALIZER);
+    }
+
+    @Autowired
+    public ReportService(
+            DashboardService dashboardService,
+            ImportBatchService importBatchService,
+            ReportDraftStore draftStore,
+            AppProperties appProperties,
+            ReportCollaborationInitializer collaborationInitializer
+    ) {
+        this(dashboardService, importBatchService, draftStore, Clock.systemUTC(), appProperties,
+                new ReportMarkdownRenderer(), collaborationInitializer);
     }
 
     public ReportService(
@@ -50,12 +65,27 @@ public class ReportService {
             AppProperties appProperties,
             ReportMarkdownRenderer renderer
     ) {
+        this(dashboardService, importBatchService, draftStore, clock, appProperties, renderer,
+                NOOP_COLLABORATION_INITIALIZER);
+    }
+
+    public ReportService(
+            DashboardService dashboardService,
+            ImportBatchService importBatchService,
+            ReportDraftStore draftStore,
+            Clock clock,
+            AppProperties appProperties,
+            ReportMarkdownRenderer renderer,
+            ReportCollaborationInitializer collaborationInitializer
+    ) {
         this.dashboardService = dashboardService;
         this.importBatchService = importBatchService;
         this.draftStore = draftStore;
         this.clock = clock == null ? Clock.systemUTC() : clock;
         this.appProperties = appProperties == null ? new AppProperties() : appProperties;
         this.renderer = renderer == null ? new ReportMarkdownRenderer() : renderer;
+        this.collaborationInitializer = collaborationInitializer == null
+                ? NOOP_COLLABORATION_INITIALIZER : collaborationInitializer;
     }
 
     public ReportDraft generate(ReportGenerationRequest request) {
@@ -99,13 +129,17 @@ public class ReportService {
                 PROMPT_VERSION,
                 requiredScope.tenantId()
         );
-        return draftStore.save(draft);
+        ReportDraft saved = draftStore.save(draft);
+        collaborationInitializer.initialize(saved);
+        return saved;
     }
 
+    @Transactional(readOnly = true)
     public ReportDraft require(String id) {
         return require(id, OrganizationDataScope.unrestrictedScope());
     }
 
+    @Transactional(readOnly = true)
     public ReportDraft require(String id, OrganizationDataScope dataScope) {
         if (id == null || id.isBlank()) {
             throw new IllegalArgumentException("report id is required.");
@@ -114,37 +148,25 @@ public class ReportService {
         requiredScope.requireDataAccess();
         ReportDraft draft = draftStore.findByTenantIdAndId(requiredScope.tenantId(), id.trim())
                 .orElseThrow(() -> new java.util.NoSuchElementException("Report draft was not found."));
-        if (!canRead(draft, requiredScope)) {
+        if (!ReportAccessPolicy.canRead(draft, requiredScope)) {
             throw new AccessDeniedException("Report draft is outside the active organization scope.");
         }
         return draft;
     }
 
+    @Transactional(readOnly = true)
     public List<ReportDraft> list() {
         return list(OrganizationDataScope.unrestrictedScope());
     }
 
+    @Transactional(readOnly = true)
     public List<ReportDraft> list(OrganizationDataScope dataScope) {
         OrganizationDataScope requiredScope = dataScope == null ? OrganizationDataScope.empty() : dataScope;
         requiredScope.requireDataAccess();
         return draftStore.findAllByTenantId(requiredScope.tenantId()).stream()
-                .filter(draft -> canRead(draft, requiredScope))
+                .filter(draft -> ReportAccessPolicy.canRead(draft, requiredScope))
                 .sorted(Comparator.comparing(ReportDraft::generatedAt).reversed())
                 .collect(Collectors.toUnmodifiableList());
-    }
-
-    private boolean canRead(ReportDraft draft, OrganizationDataScope dataScope) {
-        OrganizationDataScope requiredScope = dataScope == null ? OrganizationDataScope.empty() : dataScope;
-        if (requiredScope.unrestricted()) {
-            return requiredScope.tenantId().equals(draft.tenantId());
-        }
-        if (!requiredScope.tenantId().equals(draft.tenantId())) {
-            return false;
-        }
-        if ("GLOBAL".equals(draft.scope().type())) {
-            return requiredScope.rootCoverage();
-        }
-        return requiredScope.containsAllNodes(draft.scope().organizationNodeIds());
     }
 
     private String validateLanguage(String language) {
