@@ -1216,3 +1216,38 @@ Implemented tenant-scoped model usage tracking, immutable price snapshots, soft 
 ### Next Steps
 
 - None - task complete
+
+
+## Session 37: 完成 P2-4C 健康检查、告警与性能
+
+**Date**: 2026-08-16
+**Task**: 完成 P2-4C 健康检查、告警与性能
+**Branch**: `main`
+
+### Summary
+
+完成 liveness/readiness 分离、依赖降级健康、低基数运行指标、Prometheus/Alertmanager 告警资产、性能基线与运行手册；后端 519 测试、PMD、前端质量门禁和实际指标 scrape 均通过。
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `7ab969c` | (see git log) |
+| `d48daee` | (see git log) |
+| `9899819` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
