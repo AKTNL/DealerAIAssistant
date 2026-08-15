@@ -1147,3 +1147,37 @@ Implemented tenant-scoped report collaboration with status, assignees, immutable
 ### Next Steps
 
 - None - task complete
+
+
+## Session 35: P2-4A 可观测性与全链路追踪
+
+**Date**: 2026-08-15
+**Task**: P2-4A 可观测性与全链路追踪
+**Branch**: `main`
+
+### Summary
+
+完成 Micrometer-first 可观测性基线、OpenTelemetry 可选桥接、请求关联、业务遥测、安全字段策略及运行手册；后端、前端与静态检查全部通过。
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `4d10ffe` | (see git log) |
+| `e920b06` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
