@@ -1,0 +1,12 @@
+services:
+  app:
+    environment:
+      APP_AUTH_BOOTSTRAP_USERNAME: ${APP_AUTH_BOOTSTRAP_USERNAME:?Set the one-time administrator username}
+      APP_AUTH_BOOTSTRAP_DISPLAY_NAME: ${APP_AUTH_BOOTSTRAP_DISPLAY_NAME:-System Administrator}
+    secrets:
+      - source: bootstrap_password
+        target: app.auth.bootstrap.password
+
+secrets:
+  bootstrap_password:
+    file: ${APP_AUTH_BOOTSTRAP_PASSWORD_FILE:?Set APP_AUTH_BOOTSTRAP_PASSWORD_FILE}

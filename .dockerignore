@@ -1,0 +1,16 @@
+.git
+.github
+.trellis
+.agents
+.claude
+.codex
+.worktrees
+**/node_modules
+**/target
+**/dist
+**/.vite
+**/.vitest
+**/*.log
+.env
+.env.*
+ops/deployment/secrets

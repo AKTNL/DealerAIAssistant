@@ -190,6 +190,7 @@ class AgentPocApplicationStartupTest {
         assertThat(properties.getProperty("spring.flyway.locations"))
                 .isEqualTo("classpath:db/migration,classpath:db/postgresql");
         assertThat(properties.getProperty("spring.flyway.clean-disabled")).isEqualTo("true");
+        assertThat(properties.getProperty("spring.ai.model.embedding")).isEqualTo("openai");
         assertThat(properties.getProperty("app.auth.cookie-secure"))
                 .isEqualTo("${APP_AUTH_COOKIE_SECURE:true}");
         assertThat(properties.getProperty("app.auth.bootstrap.required"))

@@ -1,0 +1,93 @@
+name: agentpoc
+
+services:
+  postgres:
+    image: pgvector/pgvector:0.8.1-pg16
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${APP_DB_NAME:-agentpoc}
+      POSTGRES_USER: ${APP_DB_USERNAME:-agentpoc}
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres_password
+    secrets:
+      - source: database_password
+        target: postgres_password
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+    security_opt:
+      - no-new-privileges:true
+
+  app:
+    image: ${APP_IMAGE:-agentpoc}:${APP_VERSION:?Set APP_VERSION to an immutable release identifier}
+    build:
+      context: ../..
+      dockerfile: Dockerfile
+      args:
+        APP_VERSION: ${APP_VERSION}
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+        restart: true
+    environment:
+      SPRING_PROFILES_ACTIVE: prod
+      SPRING_CONFIG_IMPORT: configtree:/run/secrets/
+      APP_DB_URL: jdbc:postgresql://postgres:5432/${APP_DB_NAME:-agentpoc}
+      APP_DB_USERNAME: ${APP_DB_USERNAME:-agentpoc}
+      APP_CORS_ALLOWED_ORIGINS: ${APP_CORS_ALLOWED_ORIGINS:?Set the public HTTPS origin}
+      APP_EXCEL_PATH: file:/run/config/import-data.xlsx
+      APP_MODEL_ALLOWED_HOSTS: ${APP_MODEL_ALLOWED_HOSTS:-}
+      APP_MODEL_ALLOW_PRIVATE_HOSTS: ${APP_MODEL_ALLOW_PRIVATE_HOSTS:-false}
+      APP_NOTIFICATION_SMTP_ALLOWED_HOSTS: ${APP_NOTIFICATION_SMTP_ALLOWED_HOSTS:-}
+      SPRING_AI_OPENAI_EMBEDDING_OPTIONS_MODEL: ${SPRING_AI_OPENAI_EMBEDDING_OPTIONS_MODEL:-text-embedding-ada-002}
+      MANAGEMENT_OTLP_TRACING_EXPORT_ENABLED: ${MANAGEMENT_OTLP_TRACING_EXPORT_ENABLED:-false}
+      MANAGEMENT_OTLP_TRACING_ENDPOINT: ${MANAGEMENT_OTLP_TRACING_ENDPOINT:-http://otel-collector:4318/v1/traces}
+      MANAGEMENT_TRACING_SAMPLING_PROBABILITY: ${MANAGEMENT_TRACING_SAMPLING_PROBABILITY:-0.1}
+    secrets:
+      - source: database_password
+        target: spring.datasource.password
+      - source: model_secret_key
+        target: app.model.secret-key
+      - source: notification_secret_key
+        target: app.notification.secret-key
+      - source: embedding_api_key
+        target: spring.ai.openai.api-key
+    volumes:
+      - type: bind
+        source: ${APP_EXCEL_FILE:?Set APP_EXCEL_FILE to the reviewed production workbook}
+        target: /run/config/import-data.xlsx
+        read_only: true
+    ports:
+      - 127.0.0.1:${APP_PUBLIC_PORT:-8081}:8081
+    read_only: true
+    tmpfs:
+      - /tmp:size=128m,mode=1777
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:8081/readyz"]
+      interval: 10s
+      timeout: 5s
+      retries: 18
+      start_period: 60s
+    stop_grace_period: 45s
+
+volumes:
+  postgres_data:
+
+secrets:
+  database_password:
+    file: ${APP_DB_PASSWORD_FILE:?Set APP_DB_PASSWORD_FILE}
+  model_secret_key:
+    file: ${APP_MODEL_SECRET_KEY_FILE:?Set APP_MODEL_SECRET_KEY_FILE}
+  notification_secret_key:
+    file: ${APP_NOTIFICATION_SECRET_KEY_FILE:?Set APP_NOTIFICATION_SECRET_KEY_FILE}
+  embedding_api_key:
+    file: ${SPRING_AI_OPENAI_API_KEY_FILE:?Set SPRING_AI_OPENAI_API_KEY_FILE}

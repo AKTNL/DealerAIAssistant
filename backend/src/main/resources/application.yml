@@ -5,6 +5,8 @@ spring:
   application:
     name: agent-poc-backend
   ai:
+    model:
+      embedding: none
     chat:
       observations:
         include-error-logging: false
