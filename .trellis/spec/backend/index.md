@@ -24,6 +24,7 @@ This directory contains guidelines for backend development. Fill in each file wi
 | [Email Notification Delivery](./notification-delivery.md) | Tenant email, SMTP security, durable report outbox, and retry semantics | Active |
 | [Report Collaboration Workflow](./report-collaboration.md) | Report status, assignee, immutable timeline, optimistic concurrency, and assignee notifications | Active |
 | [Model Usage and Cost Governance](./model-usage-cost-governance.md) | Model-call metering, immutable price snapshots, budget admission, tenant APIs, and audit rules | Active |
+| [Deployment and Operations](./deployment-operations.md) | Production fail-closed configuration, image/Compose, smoke, backup/restore, and release gates | Active |
 
 ---
 

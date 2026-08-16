@@ -18,8 +18,9 @@
 | P2-4A 可观测性与追踪 | 已完成 | HTTP/SSE/后台任务关联、Micrometer Observation、OTLP/Prometheus 安全基线 |
 | P2-4B 模型使用与成本治理 | 已完成 | tenant 用量事件、token/成本聚合、追加式价格、软预算与可选并发硬限制 |
 | P2-4C 健康检查、告警与性能 | 已完成 | liveness/readiness、依赖降级、慢查询/队列指标、告警去重恢复与性能基线 |
+| P2-4D 部署与运维加固 | 已完成 | 生产 fail-closed 校验、非 root 镜像、Compose、认证 smoke、备份/空库恢复工具与完整 release gate |
 
-这里的“已完成”指相应代码、回归和文档范围。真实 PostgreSQL 凭据环境仍需部署时手工验收；权限/组织管理图形界面、多租户、报告 PDF/Word 导出、任意文档上传与知识隔离属于后续增强。
+这里的“已完成”指相应代码、回归和文档范围。完整 release gate 会在隔离 PGvector 环境执行生产启动、备份恢复和恢复后 smoke；目标生产环境的 TLS、流量切换、secret store、备份保留及 RPO/RTO 仍需部署时验收。权限/组织管理图形界面、报告 PDF/Word 导出、任意文档上传与知识隔离属于后续增强。
 
 ## 项目定位
 
@@ -112,7 +113,10 @@
 │       ├── i18n/                     # 中英文文案
 │       ├── utils/                    # Markdown、聊天和存储工具
 │       └── views/                    # LoginView、ChatView
-├── docs/                             # 设计文档与计划
+├── ops/deployment/                   # 生产 Compose、发布/备份/恢复/smoke 工具与演练记录
+├── .github/workflows/                # 快速 CI 与完整 release gate
+├── Dockerfile                        # 前后端多阶段、非 root 生产镜像
+├── docs/                             # 设计文档与运行手册
 └── mockservice/                      # 原始样板数据
 ```
 
@@ -189,6 +193,22 @@ $env:APP_KNOWLEDGE_EMBEDDING_DIMENSIONS="1536"
 ```
 
 embedding 模型输出维度必须与 `APP_KNOWLEDGE_EMBEDDING_DIMENSIONS` 及 Flyway 建表语句中的 `VECTOR(...)` 一致。若要改变维度，必须新增前向迁移重建向量列/HNSW 索引并重新摄取知识；不要修改已经应用的迁移，也不要只改环境变量。`prod` 缺少 `EmbeddingModel`、PGvector 扩展、表结构或数据库连接时会明确启动失败，不会静默回退到内存索引。
+
+### 生产部署与恢复
+
+仓库提供非 root 单体镜像、PGvector + 应用 Compose、一次性 bootstrap overlay，以及跨平台的 preflight、备份、空库恢复和认证 smoke 工具。完整流程、secret 清单、灰度/回滚限制和 `RPO <= 24h` / `RTO <= 4h` 演练要求见 [`docs/15-P2-4D-部署与运维加固运行手册.md`](docs/15-P2-4D-部署与运维加固运行手册.md)。
+
+静态验证示例：
+
+```bash
+python -m unittest discover -s ops/deployment/tests -p 'test_*.py' -v
+docker compose --env-file ops/deployment/.env.production.example \
+  -f ops/deployment/compose.production.yml \
+  -f ops/deployment/compose.release-gate.yml \
+  -f ops/deployment/compose.bootstrap.yml config -q
+```
+
+`.github/workflows/release-gate.yml` 在版本 tag 或手工触发时构建镜像，启动 `prod`、移除 bootstrap secret 后重启、执行认证 smoke、生成并检查 custom-format 备份、恢复到新空库并重跑 smoke。CI 证据不上传数据库备份本体。
 
 ### 2. 启动前端
 
@@ -414,6 +434,16 @@ mvn "-Dfrontend.skip=true" clean install
 
 `pmd:check` 使用 `backend/config/pmd-ruleset.xml` 中的 PMD error-prone 基线规则。GitHub Actions 会先跑前端 lint 和后端 PMD，再跑测试与构建。
 
+部署工具快速门：
+
+```bash
+python -m unittest discover -s ops/deployment/tests -p 'test_*.py' -v
+docker compose --env-file ops/deployment/.env.production.example \
+  -f ops/deployment/compose.production.yml \
+  -f ops/deployment/compose.release-gate.yml \
+  -f ops/deployment/compose.bootstrap.yml config -q
+```
+
 ### 准确率题库回归
 
 题库文件位于 `mockservice/DealerAIAssistant_准确率测试题库.xlsx`，样板数据位于 `mockservice/SampleData/Sample Data - 星曜汽车.xlsx`。题库用于覆盖目标达成、商机漏斗、线索分析、边界问题和数据概况等自然语言查询，重点验证规则引擎在未配置外部模型时的可复现回答。
@@ -464,6 +494,10 @@ mvn clean install
 | `backend/src/main/java/com/brand/agentpoc/controller/DataStatusController.java` | 登录态数据质量状态接口 |
 | `backend/src/main/java/com/brand/agentpoc/auth/` | 用户身份、RBAC、opaque access/refresh 会话、管理 API 与安全审计 |
 | `backend/src/main/java/com/brand/agentpoc/organization/` | 组织树、经销商映射、用户/角色 grant、统一授权上下文与管理 API |
+| `backend/src/main/java/com/brand/agentpoc/config/ProductionConfigurationValidator.java` | `prod` profile 的 fail-closed 配置校验 |
+| `ops/deployment/operations.py` | 发布前检查、bootstrap 改密、认证 smoke、备份与空库恢复 |
+| `ops/deployment/compose.production.yml` | PGvector + 应用生产参考拓扑和安全运行约束 |
+| `.github/workflows/release-gate.yml` | 生产启动、tenant 回归、备份恢复与恢复后 smoke 发布门 |
 | `frontend/src/composables/useChat.js` | 前端聊天状态、SSE 解析（step/analysis_metadata/progress/message/done/error）、`<think>` 标签流式解析、streamPhase 管理 |
 | `frontend/src/utils/markdown.js` | Markdown、HTML 表格、Mermaid fence 渲染 |
 | `frontend/src/components/chat/AssistantMessage.vue` | AI 消息、分析口径横幅、统一时间线面板、追问按钮和 Mermaid 图表交互 |
