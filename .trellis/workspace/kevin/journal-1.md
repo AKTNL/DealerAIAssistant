@@ -1251,3 +1251,38 @@ Implemented tenant-scoped model usage tracking, immutable price snapshots, soft 
 ### Next Steps
 
 - None - task complete
+
+
+## Session 38: P2-4D deployment and operations hardening
+
+**Date**: 2026-08-16
+**Task**: P2-4D deployment and operations hardening
+**Branch**: `main`
+
+### Summary
+
+Added fail-closed production configuration, non-root container deployment, backup/restore and smoke tooling, release gates, recovery documentation, and automated coverage; static verification passed while live Docker/PostgreSQL rehearsal remains environment-blocked and documented.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `ea2f220` | (see git log) |
+| `5f78d6a` | (see git log) |
+| `e288410` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete

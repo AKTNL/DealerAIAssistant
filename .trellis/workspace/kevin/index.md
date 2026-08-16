@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 37
+- **Total Sessions**: 38
 - **Last Active**: 2026-08-16
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~1253 | Active |
+| `journal-1.md` | ~1288 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 38 | 2026-08-16 | P2-4D deployment and operations hardening | `ea2f220`, `5f78d6a`, `e288410` | `main` |
 | 37 | 2026-08-16 | 完成 P2-4C 健康检查、告警与性能 | `7ab969c`, `d48daee`, `9899819` | `main` |
 | 36 | 2026-08-16 | Complete P2-4B model usage cost governance | `e5845c4`, `26a5409`, `c8cb65f` | `main` |
 | 35 | 2026-08-15 | P2-4A 可观测性与全链路追踪 | `4d10ffe`, `e920b06` | `main` |
