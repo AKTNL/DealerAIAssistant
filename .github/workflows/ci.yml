@@ -65,3 +65,27 @@ jobs:
 
       - name: Build frontend
         run: npm run build
+
+  operations:
+    name: Deployment operations checks
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+
+      - name: Run deployment operations tests
+        run: python -m unittest discover -s ops/deployment/tests -p 'test_*.py' -v
+
+      - name: Validate production Compose configuration
+        run: >-
+          docker compose
+          --env-file ops/deployment/.env.production.example
+          -f ops/deployment/compose.production.yml
+          -f ops/deployment/compose.release-gate.yml
+          -f ops/deployment/compose.bootstrap.yml
+          config -q

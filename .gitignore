@@ -61,8 +61,13 @@ surefire-reports/
 *.local
 application-local.yml
 application-*.local.yml
+ops/deployment/.env.production
+ops/deployment/secrets/*
+!ops/deployment/secrets/README.md
 
 # Temp
+__pycache__/
+*.py[cod]
 *.tmp
 *.temp
 *.swp

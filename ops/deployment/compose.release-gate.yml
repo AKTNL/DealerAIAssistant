@@ -1,0 +1,44 @@
+services:
+  postgres:
+    ports:
+      - 127.0.0.1:${APP_DB_PORT:-55432}:5432
+
+  embedding-stub:
+    image: python:3.13-alpine
+    restart: "no"
+    command:
+      - python
+      - /opt/agentpoc/embedding_stub.py
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8080"
+    volumes:
+      - type: bind
+        source: ./embedding_stub.py
+        target: /opt/agentpoc/embedding_stub.py
+        read_only: true
+    read_only: true
+    tmpfs:
+      - /tmp:size=32m,mode=1777
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/healthz', timeout=2).read()
+      interval: 5s
+      timeout: 3s
+      retries: 12
+      start_period: 5s
+
+  app:
+    depends_on:
+      embedding-stub:
+        condition: service_healthy
+    environment:
+      SPRING_AI_OPENAI_BASE_URL: http://embedding-stub:8080

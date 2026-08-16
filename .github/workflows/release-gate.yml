@@ -1,0 +1,247 @@
+name: Release gate
+
+"on":
+  workflow_dispatch:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  production-rehearsal:
+    name: Production backup and restore rehearsal
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Set up Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: maven
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+
+      - name: Install PostgreSQL client
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes postgresql-client
+
+      - name: Run tenant isolation regressions
+        working-directory: backend
+        run: >-
+          mvn -B -ntp -Dfrontend.skip=true
+          -Dtest=TenantScopedIsolationTest,TenantImportIsolationTest,OrganizationDataScopeEnforcementTest
+          test
+
+      - name: Prepare ephemeral secrets and evidence directory
+        shell: bash
+        run: |
+          set -euo pipefail
+          secrets_dir="$RUNNER_TEMP/agentpoc-secrets"
+          evidence_dir="$RUNNER_TEMP/agentpoc-evidence"
+          mkdir -p "$secrets_dir" "$evidence_dir"
+          chmod 700 "$secrets_dir" "$evidence_dir"
+
+          database_password="$(openssl rand -hex 24)"
+          bootstrap_password="$(openssl rand -hex 24)Aa1!"
+          smoke_password="$(openssl rand -hex 24)Bb2!"
+          embedding_api_key="$(openssl rand -hex 24)"
+          model_secret_key="$(openssl rand -base64 32 | tr -d '\n')"
+          notification_secret_key="$(openssl rand -base64 32 | tr -d '\n')"
+
+          echo "::add-mask::$database_password"
+          echo "::add-mask::$bootstrap_password"
+          echo "::add-mask::$smoke_password"
+          echo "::add-mask::$embedding_api_key"
+          echo "::add-mask::$model_secret_key"
+          echo "::add-mask::$notification_secret_key"
+
+          printf '%s' "$database_password" > "$secrets_dir/database-password"
+          printf '%s' "$bootstrap_password" > "$secrets_dir/bootstrap-password"
+          printf '%s' "$embedding_api_key" > "$secrets_dir/embedding-api-key"
+          printf '%s' "$model_secret_key" > "$secrets_dir/model-secret-key"
+          printf '%s' "$notification_secret_key" > "$secrets_dir/notification-secret-key"
+          chmod 600 "$secrets_dir"/*
+
+          {
+            echo "APP_IMAGE=agentpoc-release-gate"
+            echo "APP_VERSION=ci-${GITHUB_SHA:0:12}"
+            echo "APP_PUBLIC_PORT=8081"
+            echo "APP_DB_PORT=55432"
+            echo "APP_DB_NAME=agentpoc"
+            echo "APP_DB_USERNAME=agentpoc"
+            echo "APP_DB_PASSWORD_FILE=$secrets_dir/database-password"
+            echo "APP_CORS_ALLOWED_ORIGINS=https://release-gate.example.invalid"
+            echo "APP_EXCEL_FILE=$GITHUB_WORKSPACE/backend/src/main/resources/Sample Data.xlsx"
+            echo "APP_MODEL_SECRET_KEY_FILE=$secrets_dir/model-secret-key"
+            echo "APP_MODEL_ALLOWED_HOSTS="
+            echo "APP_MODEL_ALLOW_PRIVATE_HOSTS=false"
+            echo "APP_NOTIFICATION_SECRET_KEY_FILE=$secrets_dir/notification-secret-key"
+            echo "APP_NOTIFICATION_SMTP_ALLOWED_HOSTS=smtp.example.invalid"
+            echo "SPRING_AI_OPENAI_API_KEY_FILE=$secrets_dir/embedding-api-key"
+            echo "SPRING_AI_OPENAI_EMBEDDING_OPTIONS_MODEL=release-gate-embedding"
+            echo "MANAGEMENT_OTLP_TRACING_EXPORT_ENABLED=false"
+            echo "APP_AUTH_BOOTSTRAP_USERNAME=release.admin"
+            echo "APP_AUTH_BOOTSTRAP_DISPLAY_NAME=Release Gate Administrator"
+            echo "APP_AUTH_BOOTSTRAP_PASSWORD_FILE=$secrets_dir/bootstrap-password"
+            echo "PGHOST=127.0.0.1"
+            echo "PGPORT=55432"
+            echo "PGUSER=agentpoc"
+            echo "PGDATABASE=agentpoc"
+            echo "PGPASSWORD=$database_password"
+            echo "BOOTSTRAP_USERNAME=release.admin"
+            echo "BOOTSTRAP_CURRENT_PASSWORD=$bootstrap_password"
+            echo "BOOTSTRAP_NEW_PASSWORD=$smoke_password"
+            echo "SMOKE_USERNAME=release.admin"
+            echo "SMOKE_PASSWORD=$smoke_password"
+            echo "EVIDENCE_DIR=$evidence_dir"
+          } >> "$GITHUB_ENV"
+
+      - name: Validate Compose configuration
+        run: >-
+          docker compose
+          -f ops/deployment/compose.production.yml
+          -f ops/deployment/compose.release-gate.yml
+          -f ops/deployment/compose.bootstrap.yml
+          config -q
+
+      - name: Build production image
+        run: >-
+          docker compose
+          -f ops/deployment/compose.production.yml
+          -f ops/deployment/compose.release-gate.yml
+          -f ops/deployment/compose.bootstrap.yml
+          build app
+
+      - name: Start empty database with one-time bootstrap
+        run: >-
+          docker compose
+          -f ops/deployment/compose.production.yml
+          -f ops/deployment/compose.release-gate.yml
+          -f ops/deployment/compose.bootstrap.yml
+          up -d --wait --wait-timeout 300
+
+      - name: Replace the one-time administrator password
+        run: >-
+          python ops/deployment/operations.py bootstrap-password
+          --base-url http://127.0.0.1:8081
+          --allow-http
+          --evidence "$EVIDENCE_DIR/01-bootstrap-password.json"
+
+      - name: Restart without bootstrap credentials
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker compose \
+            -f ops/deployment/compose.production.yml \
+            -f ops/deployment/compose.release-gate.yml \
+            -f ops/deployment/compose.bootstrap.yml \
+            down
+          docker compose \
+            -f ops/deployment/compose.production.yml \
+            -f ops/deployment/compose.release-gate.yml \
+            up -d --wait --wait-timeout 300
+
+      - name: Run authenticated pre-backup smoke
+        run: >-
+          python ops/deployment/operations.py smoke
+          --base-url http://127.0.0.1:8081
+          --allow-http
+          --allow-writes
+          --evidence "$EVIDENCE_DIR/02-pre-backup-smoke.json"
+
+      - name: Quiesce application writes for snapshot-consistent counts
+        run: >-
+          docker compose
+          -f ops/deployment/compose.production.yml
+          -f ops/deployment/compose.release-gate.yml
+          stop --timeout 45 app
+
+      - name: Validate production schema and tenant state
+        run: >-
+          python ops/deployment/operations.py preflight
+          --expected-migration 12
+          --evidence "$EVIDENCE_DIR/03-preflight.json"
+
+      - name: Create and inspect pre-release backup
+        shell: bash
+        run: |
+          set -euo pipefail
+          archive="$RUNNER_TEMP/agentpoc-evidence/pre-release.dump"
+          python ops/deployment/operations.py backup \
+            --output "$archive" \
+            --application-version "$APP_VERSION" \
+            --evidence "$EVIDENCE_DIR/04-backup.json"
+          python ops/deployment/operations.py preflight \
+            --expected-migration 12 \
+            --archive "$archive" \
+            --manifest "$archive.manifest.json" \
+            --evidence "$EVIDENCE_DIR/05-backup-inspection.json"
+
+      - name: Restore into a new empty database
+        shell: bash
+        run: |
+          set -euo pipefail
+          psql -X --no-psqlrc --set=ON_ERROR_STOP=1 --dbname postgres \
+            --command 'CREATE DATABASE agentpoc_restore'
+          python ops/deployment/operations.py restore \
+            --archive "$RUNNER_TEMP/agentpoc-evidence/pre-release.dump" \
+            --manifest "$RUNNER_TEMP/agentpoc-evidence/pre-release.dump.manifest.json" \
+            --target-database agentpoc_restore \
+            --confirm-target agentpoc_restore \
+            --expected-migration 12 \
+            --evidence "$EVIDENCE_DIR/06-restore.json"
+
+      - name: Start the production image against restored data
+        run: >-
+          APP_DB_NAME=agentpoc_restore docker compose
+          -f ops/deployment/compose.production.yml
+          -f ops/deployment/compose.release-gate.yml
+          up -d --no-deps --force-recreate --wait --wait-timeout 300 app
+
+      - name: Run authenticated post-restore smoke
+        run: >-
+          python ops/deployment/operations.py smoke
+          --base-url http://127.0.0.1:8081
+          --allow-http
+          --allow-writes
+          --evidence "$EVIDENCE_DIR/07-post-restore-smoke.json"
+
+      - name: Show container state on failure
+        if: failure()
+        run: >-
+          docker compose
+          -f ops/deployment/compose.production.yml
+          -f ops/deployment/compose.release-gate.yml
+          ps --all
+
+      - name: Upload non-sensitive rehearsal evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-gate-evidence-${{ github.run_id }}
+          path: ${{ runner.temp }}/agentpoc-evidence/*.json
+          if-no-files-found: warn
+          retention-days: 30
+
+      - name: Remove rehearsal containers and data
+        if: always()
+        run: >-
+          docker compose
+          -f ops/deployment/compose.production.yml
+          -f ops/deployment/compose.release-gate.yml
+          -f ops/deployment/compose.bootstrap.yml
+          down --volumes --remove-orphans
